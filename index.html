@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0a0a0a" />
+<!-- Onion-Location advertises a .onion to clearnet visitors. Irrelevant while
+     onion-only; when a clearnet domain exists, set it in nginx (see deploy/). -->
+<title>The Dojo Bay — Public Dojo Directory</title>
+<meta name="description" content="A community directory of public Bitcoin Dojo nodes for Samourai and Ashigaru wallets. All nodes reachable over Tor." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="The Dojo Bay — Public Dojo Directory" />
+<meta property="og:description" content="Find and connect to public Bitcoin Dojo nodes. All nodes reachable over Tor." />
+<meta property="og:image" content="og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="The Dojo Bay — Public Dojo Directory" />
+<meta name="twitter:description" content="Find and connect to public Bitcoin Dojo nodes. All nodes reachable over Tor." />
+<meta name="twitter:image" content="og-image.png" />
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="assets/icons/192x192.png" />
+<meta name="apple-mobile-web-app-title" content="Dojo Bay" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<!-- self-hosted fonts (no external CDN) -->
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/hanken-grotesk.woff2" crossorigin />
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/archivo.woff2" crossorigin />
+<link rel="preload" as="font" type="font/woff2" href="assets/fonts/jetbrains-mono.woff2" crossorigin />
+<link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <div id="root"></div>
+  <noscript>
+    <div style="max-width:640px;margin:14vh auto;padding:0 22px;font-family:sans-serif;color:#f4f4f3">
+      <h1 style="font-size:22px">JavaScript is required</h1>
+      <p style="color:#a0a0a0;line-height:1.7">This directory renders its node list, pairing QR codes and status
+      client-side. Enable JavaScript for this site (in Tor Browser, the "Safest" security level blocks it),
+      or fetch the raw data directly at <code style="color:#e6a39b">data/dojos.json</code>.</p>
+    </div>
+  </noscript>
+
+  <!-- vendored, dependency-free QR encoder (qrcode-generator, MIT) -->
+  <script src="assets/js/qrcode.js"></script>
+  <!-- tiny markdown renderer for content/*.md -->
+  <script src="assets/js/markdown.js"></script>
+  <!-- directory UI -->
+  <script src="assets/js/app.js"></script>
+
+  <!-- PWA: register the service worker (no-op if unsupported) -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
+</body>
+</html>

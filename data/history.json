@@ -1,0 +1,64 @@
+{
+  "generated_at": null,
+  "interval_minutes": 10,
+  "window_checks": 72,
+  "nodes": {
+    "mainnet-compiler": {
+      "checks": []
+    },
+    "mainnet-otto": {
+      "checks": []
+    },
+    "mainnet-maxtannahill": {
+      "checks": []
+    },
+    "mainnet-jordan": {
+      "checks": []
+    },
+    "mainnet-razzle-dazzle": {
+      "checks": []
+    },
+    "mainnet-syndicate-systems": {
+      "checks": []
+    },
+    "mainnet-btcwrestle": {
+      "checks": []
+    },
+    "mainnet-bottomshelfbtc": {
+      "checks": []
+    },
+    "mainnet-91xtx93-yellow": {
+      "checks": []
+    },
+    "mainnet-91xtx93-red": {
+      "checks": []
+    },
+    "mainnet-91xtx93-tanto-e": {
+      "checks": []
+    },
+    "mainnet-expatriotic": {
+      "checks": []
+    },
+    "mainnet-arthur": {
+      "checks": []
+    },
+    "mainnet-kilombino": {
+      "checks": []
+    },
+    "testnet-91xtx93-green": {
+      "checks": []
+    },
+    "testnet-libertarian": {
+      "checks": []
+    },
+    "testnet-wanderinking072": {
+      "checks": []
+    },
+    "testnet-91xtx93-blue": {
+      "checks": []
+    },
+    "testnet-bottomshelfbtc": {
+      "checks": []
+    }
+  }
+}

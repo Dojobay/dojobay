@@ -1,0 +1,13 @@
+{
+  "name": "the-dojo-bay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static directory of public Bitcoin Dojo nodes, with a Tor reachability updater.",
+  "engines": { "node": ">=16" },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "update": "node scripts/update.mjs",
+    "test": "node scripts/selftest.mjs"
+  }
+}

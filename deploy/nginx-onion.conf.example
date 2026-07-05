@@ -1,0 +1,41 @@
+# The Dojo Bay — onion-only nginx config.
+# nginx binds to localhost ONLY; the Tor daemon maps the hidden service's
+# port 80 onto it (see the HiddenServicePort line in the README). Nothing is
+# exposed on the machine's public IP except SSH.
+#
+# Install:
+#   sudo cp deploy/nginx-onion.conf.example /etc/nginx/sites-available/dojobay
+#   sudo ln -s /etc/nginx/sites-available/dojobay /etc/nginx/sites-enabled/
+#   sudo rm -f /etc/nginx/sites-enabled/default
+#   sudo nginx -t && sudo systemctl reload nginx
+server {
+    listen 127.0.0.1:8080;
+    server_name _;
+    root /var/www/dojobay;
+    index index.html;
+
+    gzip on;
+    gzip_types text/css text/javascript application/javascript application/json image/svg+xml text/markdown;
+
+    # The directory data is rewritten every 10 minutes — keep it fresh.
+    location /data/ {
+        add_header Cache-Control "max-age=60";
+        default_type application/json;
+    }
+
+    # Static assets and fonts can be cached for a day.
+    location ~* \.(woff2|png|svg|css|js)$ {
+        add_header Cache-Control "max-age=86400";
+    }
+
+    # --- self-service backend (step 2 only; uncomment once server/ is running) ---
+    # location /api/ {
+    #     proxy_pass http://127.0.0.1:8787;
+    #     proxy_set_header Host $host;
+    #     proxy_read_timeout 40s;   # the connection gate probes Tor, allow time
+    # }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

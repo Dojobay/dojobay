@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="The Dojo Bay">
+  <rect width="48" height="48" rx="10" fill="#0a0a0a"/>
+  <g>
+    <path d="M6 13 Q24 9 42 13 L42 16 Q24 12.5 6 16 Z" fill="#b5302a"/>
+    <rect x="10" y="19.5" width="28" height="3.2" rx="1" fill="#b5302a"/>
+    <path d="M14 16 L16 30 L13 30 L11.5 16 Z" fill="#b5302a"/>
+    <path d="M34 16 L32 30 L35 30 L36.5 16 Z" fill="#b5302a"/>
+    <path d="M7 36 q4.5 -3 9 0 t9 0 t9 0 t9 0" stroke="#d6534a" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M7 41 q4.5 -3 9 0 t9 0 t9 0 t9 0" stroke="#d6534a" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.6"/>
+  </g>
+</svg>

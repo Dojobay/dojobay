@@ -32,7 +32,6 @@ scripts/
   update.mjs               # Tor reachability updater (see below)
   selftest.mjs             # offline test of the reachability logic
   serve.mjs                # local dev server
-  make-assets.py           # optional: regenerate icons/og-image from the logo
   dojobay-update.{service,timer}
 deploy/
   nginx.conf.example       # clearnet web-server config (for step 2/3 later)
@@ -41,6 +40,39 @@ deploy/
   deploy.yml               # CI: push the site to your VPS on every commit
 LICENSE                    # MIT
 ```
+
+## Brand assets
+
+The favicon, PWA icons and social image are committed to the repository, so no
+build step is required to serve the site. They were generated once from the
+torii-and-waves logo; if the logo changes, regenerate them to the specifications
+below by whatever means a maintainer prefers (an SVG editor, ImageMagick, a Node
+rasteriser, Pillow, and so on). The vector master is `favicon.svg`, and the raster
+files are rasterisations of the same geometry.
+
+Shared palette: the torii and its two beams are dark red `#b5302a`; the two waves
+are the lighter red `#d6534a`, with the lower wave at roughly 60% opacity; the
+background is near-black `#0b0b0c`, matching the site's black ground.
+
+`favicon.svg` is a 48x48 viewBox holding the torii gate (a gently upswept top
+beam, a straight second beam, two slightly inward-leaning posts) over two
+horizontal waves, on a rounded near-black tile.
+
+`assets/icons/192x192.png` and `assets/icons/512x512.png` are the PWA icons:
+square, on the solid near-black background with no transparency (so the platform
+maskable crop behaves), with the logo centred and scaled to about 60% of the
+canvas so it sits inside the maskable safe zone. `manifest.json` references both
+at `purpose: "any maskable"`.
+
+`og-image.png` is the 1200x630 social card on the near-black background, carrying
+a small logo top-left, the wordmark "THE DOJO BAY" in Archivo ExtraBold (about
+108px) in off-white `#f4f4f3`, the tagline "Public Dojo Directory" in Archivo
+SemiBold (about 40px) in grey `#a0a0a8`, a line "Samourai / Ashigaru / reachable
+over Tor" in JetBrains Mono (about 27px) in the lighter red `#d6534a`, a short red
+underline, and a faint torii watermark bleeding off the right edge at about 10%
+opacity. The three families (Archivo, Hanken Grotesk, JetBrains Mono) are the same
+self-hosted fonts the site uses, under `assets/fonts/`; the site loads them via
+`@font-face` in `styles.css` with no external CDN.
 
 Everything is loaded with `fetch`, so the site must be served over HTTP, not
 opened from disk (`file://`), which the browser blocks. For local development
@@ -308,18 +340,47 @@ deploy can never wipe it.
    curl -s http://127.0.0.1:8080/ | head -3    # should print the page's HTML
    ```
 
-2. Declare the hidden service and get your address:
+2. Mine a vanity address (do this on a trusted local machine, NOT the VPS,
+   since it produces the secret key that is the onion identity). The tool is
+   Cathugger's `mkp224o`; a 7-character prefix like `dojobay` typically takes
+   from a few minutes to a couple of hours depending on core count, because
+   each extra base32 character multiplies the search space by 32:
 
    ```
+   sudo apt install -y git gcc libsodium-dev make autoconf
+   git clone https://github.com/cathugger/mkp224o.git && cd mkp224o
+   ./autogen.sh && ./configure && make
+   ./mkp224o dojobay -d ~/dojobay-onion -s -n 1
+   ```
+
+   It writes a folder named for the full address under `~/dojobay-onion/`
+   containing `hs_ed25519_secret_key`, `hs_ed25519_public_key` and `hostname`:
+   exactly the three files Tor expects in a `HiddenServiceDir`. Copy that folder
+   to the VPS with `scp` (never paste the key into a commit or chat), keep one
+   offline backup, then install it and point Tor at it:
+
+   ```
+   # on the VPS, as root — adjust the source path to your mined folder
+   install -d -m 700 -o debian-tor -g debian-tor /var/lib/tor/dojobay
+   install -m 600 -o debian-tor -g debian-tor dojobay*/hs_ed25519_secret_key /var/lib/tor/dojobay/
+   install -m 600 -o debian-tor -g debian-tor dojobay*/hs_ed25519_public_key /var/lib/tor/dojobay/
+   install -m 600 -o debian-tor -g debian-tor dojobay*/hostname               /var/lib/tor/dojobay/
    printf '\nHiddenServiceDir /var/lib/tor/dojobay/\nHiddenServicePort 80 127.0.0.1:8080\n' >> /etc/tor/torrc
    systemctl reload tor
-   cat /var/lib/tor/dojobay/hostname       # -> yourNEWaddress.onion
+   cat /var/lib/tor/dojobay/hostname       # -> your mined dojobay...onion
    ```
 
-   Back up `/var/lib/tor/dojobay/` somewhere safe: those keys ARE the onion
-   address, and losing them means a new address.
-3. Optionally set `ONION_URL` in `assets/js/app.js` to
-   `http://yourNEWaddress.onion/` and push, if you want the header pill shown
+   On Debian the Tor daemon runs as `debian-tor` (some distributions use `tor`);
+   the directory must be `700` and the keys `600` owned by that user or Tor
+   refuses to load the service. Whoever holds `hs_ed25519_secret_key` controls
+   the address, so guard the offline backup accordingly.
+
+   Fallback (no vanity address): skip the mining and let Tor generate a random
+   address by writing only the two `torrc` lines above, then reading
+   `cat /var/lib/tor/dojobay/hostname`.
+
+3. Optionally set `ONION_URL` in `assets/js/app.js` to your
+   `http://youraddress.onion/` and push, if you want the header pill shown
    during the test.
 
 ### 5. The updater timer

@@ -43,7 +43,7 @@ async function loadJSON(url){
                  header pill (e.g. while testing, or when the site is
                  served onion-only and the pill would be redundant). */
   const REPO_URL  = "https://github.com/Dojobay/dojobay";
-  const ONION_URL = "";
+  const ONION_URL = "http://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/";
   const GH_LOGO = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.2 3.44 9.6 8.21 11.16.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.58-4.04-1.58-.55-1.36-1.34-1.73-1.34-1.73-1.09-.73.08-.72.08-.72 1.2.08 1.84 1.21 1.84 1.21 1.07 1.79 2.81 1.27 3.5.97.11-.76.42-1.27.76-1.56-2.67-.3-5.47-1.31-5.47-5.84 0-1.29.47-2.34 1.24-3.17-.12-.3-.54-1.52.12-3.16 0 0 1.01-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.29-1.53 3.3-1.21 3.3-1.21.66 1.64.24 2.86.12 3.16.77.83 1.24 1.88 1.24 3.17 0 4.54-2.81 5.54-5.49 5.83.43.36.81 1.09.81 2.2 0 1.59-.01 2.87-.01 3.26 0 .31.21.68.83.56C20.56 21.88 24 17.48 24 12.29 24 5.78 18.63.5 12 .5z"/></svg>`;
 
   const LOGO = `
@@ -94,7 +94,8 @@ async function loadJSON(url){
       <div class="meta">
         <div class="full"><div class="eyebrow">Hardware</div><div class="v">${esc(n.hardware||"—")}</div></div>
         <div><div class="eyebrow">Dojo version</div><div class="v">v${esc(n.version||"?")}</div></div>
-        <div><div class="eyebrow">Last checked</div><div class="v">${esc((n.checked_at||"").replace("T"," ").replace("Z",""))}</div></div>
+        <div><div class="eyebrow">Block height</div><div class="v">${n.block_height!=null?Number(n.block_height).toLocaleString("en-GB"):"—"}</div></div>
+        <div class="full"><div class="eyebrow">Last checked</div><div class="v">${esc((n.checked_at||"").replace("T"," ").replace("Z",""))}</div></div>
       </div>
       <button class="reveal" data-act="reveal">Pairing details</button>
       <div class="pair-host"></div>
@@ -119,6 +120,7 @@ async function loadJSON(url){
       <div class="eps">
         <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
         ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
+        ${n.payload.indexer?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(n.payload.indexer.url)}">${esc(n.payload.indexer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.indexer.url)}">copy</button></div>`:""}
       </div>
     </div>`;
   }

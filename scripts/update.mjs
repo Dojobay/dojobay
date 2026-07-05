@@ -13,9 +13,13 @@
 // in status/checked_at and appends to the history. New nodes get a fresh
 // history series automatically; removed nodes are pruned from the history.
 //
-// Reachability is checked through Tor's SOCKS5 proxy (no external npm deps).
-// A node is "active" when Tor establishes a stream to its hidden service AND
-// the service returns an HTTP response line; otherwise it is "inactive".
+// Health is checked through Tor's SOCKS5 proxy (no external npm deps). For a
+// node whose pairing payload carries an apikey, the check logs in to the Dojo
+// API and reads info.latest_block.height from GET /v2/wallet: the node is
+// "active" only if it returns a chain tip, which proves the whole stack (Tor,
+// nginx, Dojo API, bitcoind) is serving block data, and the height is recorded
+// on the node. Nodes without an apikey fall back to a plain HTTP reachability
+// probe (active if the onion returns an HTTP response line).
 //
 // Run once (intended to be driven by cron/systemd every 10 minutes):
 //   node scripts/update.mjs
@@ -133,11 +137,88 @@ export function socks5Connect(proxyHost, proxyPort, host, port, timeoutMs) {
   });
 }
 
+// Well-formed dummy extended keys, used only to elicit info.latest_block from
+// the Dojo /wallet endpoint. They are passed as `new` so the node performs no
+// rescan or historical import; they derive from a throwaway seed and can never
+// receive funds. One per network so the Dojo never rejects them on format.
+const DUMMY_XPUB = "xpub661MyMwAqRbcFhv1kNXxwyGrJUVPrmiBNTVDYAtpzF5zu9ceuhn5yV6oaSdveis14LSeBLzpWb58pDNN6hC59TTDyiN7iJR7kUQgXNMfZCL";
+const DUMMY_TPUB = "tpubD6NzVbkrYhZ4XW6sCZX49tcDdbb3rADEv65WtiwyL9qteSHMyvdB7vmdpUiiBDpErEyYnvWh3guBWPryVZ3K2tuX3K7RPq5MLS16HN9awey";
+
+// Send one HTTP/1.0 request over a fresh Tor stream and read the whole reply
+// (Connection: close means the server ends the body by closing). Resolves with
+// { status, body } or rejects on connect/read failure.
+function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
+  return new Promise(async (resolve, reject) => {
+    let socket;
+    try {
+      socket = await socks5Connect(cfg.proxyHost, cfg.proxyPort, host, port, timeoutMs);
+    } catch (e) { return reject(e); }
+    let buf = Buffer.alloc(0);
+    let settled = false;
+    const done = (fn, v) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.destroy(); } catch {} fn(v); };
+    const timer = setTimeout(() => done(reject, new Error("read-timeout")), timeoutMs);
+    socket.on("data", (d) => { buf = Buffer.concat([buf, d]); });
+    socket.on("error", (e) => done(reject, e));
+    socket.on("close", () => {
+      const s = buf.toString("latin1");
+      const m = s.match(/^HTTP\/1\.[01] (\d{3})/);
+      const i = s.indexOf("\r\n\r\n");
+      done(resolve, { status: m ? +m[1] : 0, body: i >= 0 ? s.slice(i + 4) : "" });
+    });
+    socket.write(rawRequest);
+  });
+}
+
+// Authenticated health check: log in with the node's apikey, then read the
+// chain tip from GET /v2/wallet. Returns { up, reason, ms, height?, blockTime? }.
+async function probeHeight(url, cfg) {
+  const t0 = Date.now();
+  const u = new URL(url);
+  const host = u.hostname;
+  const port = u.port ? +u.port : 80;
+  const base = (u.pathname || "/v2").replace(/\/+$/, "") || "/v2";   // e.g. /v2
+  const dummy = cfg.network === "testnet" ? DUMMY_TPUB : DUMMY_XPUB;
+
+  // 1) login -> access token
+  let token;
+  try {
+    const body = `apikey=${encodeURIComponent(cfg.apikey)}`;
+    const req =
+      `POST ${base}/auth/login HTTP/1.0\r\nHost: ${host}\r\n` +
+      `Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` +
+      `User-Agent: dojobay-checker\r\nConnection: close\r\n\r\n${body}`;
+    const res = await httpOverTor(cfg, host, port, req, cfg.timeoutMs);
+    if (res.status !== 200) return { up: false, reason: `login HTTP ${res.status || "no-response"}`, ms: Date.now() - t0 };
+    token = JSON.parse(res.body)?.authorizations?.access_token;
+    if (!token) return { up: false, reason: "login: no token", ms: Date.now() - t0 };
+  } catch (e) {
+    return { up: false, reason: "login: " + e.message, ms: Date.now() - t0 };
+  }
+
+  // 2) wallet -> info.latest_block.height
+  try {
+    const q = `active=${dummy}&new=${dummy}`;
+    const req =
+      `GET ${base}/wallet?${q} HTTP/1.0\r\nHost: ${host}\r\n` +
+      `Authorization: Bearer ${token}\r\nUser-Agent: dojobay-checker\r\nConnection: close\r\n\r\n`;
+    const res = await httpOverTor(cfg, host, port, req, cfg.timeoutMs);
+    if (res.status !== 200) return { up: false, reason: `wallet HTTP ${res.status || "no-response"}`, ms: Date.now() - t0 };
+    const info = JSON.parse(res.body)?.info?.latest_block;
+    const height = info?.height;
+    if (typeof height !== "number") return { up: false, reason: "wallet: no block height", ms: Date.now() - t0 };
+    return { up: true, reason: "height", height, blockTime: info.time ?? null, ms: Date.now() - t0 };
+  } catch (e) {
+    return { up: false, reason: "wallet: " + e.message, ms: Date.now() - t0 };
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Probe a single onion URL. Returns { up, reason, ms }.
 //   up = Tor connected AND (CONNECT_ONLY, or an HTTP status line came back)
 // -----------------------------------------------------------------------------
 export async function probe(url, cfg = CFG) {
+  // Preferred path: authenticated chain-tip check when an apikey is available.
+  if (cfg.apikey) return probeHeight(url, cfg);
   const u = new URL(url);
   const host = u.hostname;
   const port = u.port ? +u.port : (u.protocol === "https:" ? 443 : 80);
@@ -238,7 +319,7 @@ async function main() {
   const results = await pool(dojos.nodes, CFG.concurrency, async (n) => {
     const url = n?.payload?.pairing?.url;
     if (!url) return { up: false, reason: "no pairing url", ms: 0 };
-    return probe(url, CFG);
+    return probe(url, { ...CFG, apikey: n?.payload?.pairing?.apikey, network: n.network });
   });
 
   // ---- update current snapshot ----
@@ -248,6 +329,10 @@ async function main() {
     if (r.up) up++;
     n.status = r.up ? "active" : "inactive";
     n.checked_at = ts.dateTime;
+    // Record the tip height when we read one; keep the last known height on a
+    // down cycle so the card can still show where the node last was.
+    if (typeof r.height === "number") n.block_height = r.height;
+    else if (!("block_height" in n)) n.block_height = null;
   });
   dojos.generated_at = ts.isoSec;
   dojos.interval_minutes = dojos.interval_minutes || 10;

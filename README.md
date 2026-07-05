@@ -139,12 +139,23 @@ In the UI the same file is offered as the **JSON ↓** pill in the header
       "version": "1.27.0",
       "apikey_required": true,
       "checked_at": "2026-06-29 14:09:08",
-      "payload": { "pairing": { ... }, "explorer": { ... } },  // verbatim pairing payload
+      "block_height": 872345,        // tip height read from the Dojo API, or null
+      "payload": { "pairing": { ... }, "explorer": { ... }, "indexer": { ... } },  // verbatim pairing payload
       "signed":  "-----BEGIN BITCOIN SIGNED MESSAGE----- ..."   // BIP47-signed message, or null
     }
   ]
 }
 ```
+
+`payload.indexer` is optional and renders an "Electrum Server" box below the
+Dojo API and Explorer boxes on the card. Its shape is
+`{ "type": "indexer", "kind": "fulcrum", "url": "tcp://<56-char>.onion:50001" }`;
+the URL is a bare TCP (or SSL) Electrum endpoint, not HTTP, so it is display-only
+and is never probed by the reachability checker or the connection gate. For seed
+nodes you add this field by hand; for self-service submissions the backend
+extracts it automatically from an explicit `indexer` field or from a modern
+`services` array in the operator's pairing payload (the entry whose
+`type` is `indexer`). A node without an indexer simply renders no Electrum box.
 
 `country` drives the flag emoji and is only set for single countries
 (Canada, Japan, Singapore, Thailand, USA in the current data). Regions such as
@@ -186,15 +197,22 @@ by the server: the repo carries an empty skeleton for local preview, the deploy
 workflow never syncs it, and new nodes get a fresh series automatically while
 removed nodes are pruned.
 
-### What "reachable" means
+### What "active" means
 
 A `.onion` only resolves through Tor, so the script opens each connection
-through Tor's SOCKS5 proxy (default `127.0.0.1:9050`) using remote DNS, so Tor
-resolves the hidden service. A node is marked **active** when Tor establishes a
-stream to the service *and* the service returns an HTTP response line; anything
-else (descriptor not found, refused, timeout, no HTTP reply) is **inactive**.
-Set `CONNECT_ONLY=1` to treat a successful Tor connect as up without waiting for
-an HTTP response.
+through Tor's SOCKS5 proxy (default `127.0.0.1:9050`) using remote DNS. For a
+node whose pairing payload carries an `apikey`, the check is an authenticated
+read of the chain tip: it POSTs the apikey to `/v2/auth/login`, then reads
+`info.latest_block.height` from `GET /v2/wallet` (passing a throwaway per-network
+xpub declared `new`, so the node performs no rescan). The node is **active**
+only if it returns a numeric height, which proves the whole stack (Tor, nginx,
+the Dojo API, and bitcoind serving block data) is working, and that height is
+recorded on the node as `block_height` and shown on the card. A node whose
+payload has no apikey falls back to a plain reachability probe (active if the
+onion returns an HTTP response line), with `block_height` left null. On a down
+cycle the last known `block_height` is retained so the card can still show where
+the node last was. Set `CONNECT_ONLY=1` to treat a successful Tor connect as up
+without any HTTP exchange.
 
 ### Requirements
 
@@ -460,10 +478,16 @@ paynym.rs (over Tor, best-effort: if paynym.rs is unreachable the record simply
 carries no PayNym until it can be resolved, and nothing blocks). Passing both
 gates puts the record in a **moderation queue** (`status: pending`). A maintainer
 approves it with `admin.mjs` (which fills the PayNym if it is still unset, or
-takes an explicit override), and `build-public.mjs` merges approved records into
-the public `data/dojos.json` that the site and the 10-minute updater already
-consume. Deliberate design point: a passing connection check proves
-reachability, not honesty, so nothing goes live without a human approving it.
+takes an explicit override), and `build-public.mjs` merges the curated list
+(`data/seed.json`) with approved records into the public `data/dojos.json` that
+the site and the 10-minute updater consume. Under this model `data/dojos.json`
+is a generated artifact owned by the server and excluded from the deploy, while
+`data/seed.json` is the version-controlled curated list; the deploy regenerates
+`dojos.json` from the freshly-synced seed on every push. Deliberate design
+point: a passing connection check proves reachability, not honesty, so nothing
+goes live without a human approving it.
+
+For onion-only enablement on a live box, follow `README-stage2.md`.
 
 ### Files
 

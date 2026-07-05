@@ -50,6 +50,20 @@ for (const n of (seed.nodes || [])) byId.set(n.id, n);
 for (const n of approved) byId.set(n.id, n);
 const nodes = [...byId.values()];
 
+// Preserve the live status the updater last wrote, so regenerating the list
+// (on a deploy or an approval) does not reset every node to "inactive" for up
+// to one probe cycle. New nodes keep their default until the updater runs.
+const prior = await readJSON(OUT, { nodes: [] });
+const priorById = new Map((prior.nodes || []).map((n) => [n.id, n]));
+for (const n of nodes) {
+  const p = priorById.get(n.id);
+  if (p) {
+    n.status = p.status ?? n.status;
+    n.checked_at = p.checked_at ?? n.checked_at;
+    if (p.block_height != null) n.block_height = p.block_height;
+  }
+}
+
 await writeAtomic(OUT, {
   generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
   interval_minutes: 10,
@@ -62,5 +76,13 @@ let touched = false;
 for (const n of nodes) if (!hist.nodes[n.id]) { hist.nodes[n.id] = { checks: [] }; touched = true; }
 for (const id of Object.keys(hist.nodes)) if (!byId.has(id)) { delete hist.nodes[id]; touched = true; }
 if (touched) { hist.generated_at = hist.generated_at || null; await writeAtomic(HIST, hist); }
+
+// keep the 90-day daily rollup's node membership in step (add new, prune removed)
+const DAILY = path.join(ROOT, "data", "history-daily.json");
+const dailyDoc = await readJSON(DAILY, { retention_days: 90, nodes: {} });
+let dailyTouched = false;
+for (const n of nodes) if (!dailyDoc.nodes[n.id]) { dailyDoc.nodes[n.id] = { days: [] }; dailyTouched = true; }
+for (const id of Object.keys(dailyDoc.nodes)) if (!byId.has(id)) { delete dailyDoc.nodes[id]; dailyTouched = true; }
+if (dailyTouched) await writeAtomic(DAILY, dailyDoc);
 
 console.log(`public list rebuilt: ${nodes.length} nodes (${approved.length} approved submissions).`);

@@ -1,0 +1,480 @@
+{
+  "nodes": [
+    {
+      "id": "mainnet-compiler",
+      "network": "mainnet",
+      "name": "Compiler",
+      "status": "inactive",
+      "paynym": "+bumpyblank89",
+      "jurisdiction": "North America",
+      "country": null,
+      "hardware": "Ryzen 9 processor 32gb",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "2274ec56c95a24b15f20d0710f6d0df7",
+          "url": "http://ebtnuwk5qayotlk7brszskn2zbtzu54y24s6lmojt6j4cv7uaiwlsyad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://eaa3qxan44q2rksr23nferh5ntxsqcdcdkjmotlyo7h56widf4y3yiqd.onion"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "mainnet-otto",
+      "network": "mainnet",
+      "name": "otto",
+      "status": "inactive",
+      "paynym": "+otto",
+      "jurisdiction": null,
+      "country": null,
+      "hardware": "ThinkPad T490 Debian 12.8",
+      "version": "1.28.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.0",
+          "apikey": "8yRaARBxrEmjV9QIdgv0Et285CwF1ZlJEkG91Ok2iLFeLBIPU9k4QAtRETN3ys1y",
+          "url": "http://w4rvo4pxmghm24e2wz64xycwrvp4nsqo3itykezrydlqvzylqn3ov6id.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://rnyttli6nmymyxfghvh7amzebfkgxq22mthhrsc3ybsioogbka6sg4yd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.28.0\",\n    \"apikey\": \"8yRaARBxrEmjV9QIdgv0Et285CwF1ZlJEkG91Ok2iLFeLBIPU9k4QAtRETN3ys1y\",\n    \"url\": \"http://w4rvo4pxmghm24e2wz64xycwrvp4nsqo3itykezrydlqvzylqn3ov6id.onion/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://rnyttli6nmymyxfghvh7amzebfkgxq22mthhrsc3ybsioogbka6sg4yd.onion\"\n  }\n}\n\nBIP47: PM8TJgutCtE1GK1Lf6WUTRLzVNcBvNRXjKueKgpQ36dc6Dry3w5oCYz5NEVk7GvNpXAMdrioi6DVytk1P4RBGjXpLw1VFfTm2dNrdtTUWQCQtcjDwPVm\nTwitter/X: https://x.com/ottosch_\nNostr: npub10tt00tt07exx7mgf9td0026mx454hq6dyl9vwm72aeyf0tljf8msjs3z28\n\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1KRaAucnrP5L5wfuoJUuVazW8NyNEttHra\n\nII/cUBblubNdnqTJM0SJDX53hS0+ffCobj+YZ1FYYIG9HBmKP/wBmqK63DnlLHyE6lJE4BpdJGjj4N8g7QeX/zI=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-maxtannahill",
+      "network": "mainnet",
+      "name": "@maxtannahill",
+      "status": "inactive",
+      "paynym": "+max",
+      "jurisdiction": "Singapore",
+      "country": "SG",
+      "hardware": "Intel NUC5i5RYB, 16gb Ubuntu 24.04.1",
+      "version": "1.28.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.0",
+          "apikey": "jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq",
+          "url": "http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\"pairing\":{\"type\":\"dojo.api\",\"version\":\"1.27.0\",\"apikey\":\"jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq\",\"url\":\"http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2\"},\"explorer\":{\"type\":\"explorer.btc_rpc_explorer\",\"url\":\"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion\"}}\n\nBIP47:\nPM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\nH6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLqipPb0fM=\n-----END BITCOIN SIGNATURE-----",
+      "name_url": "https://x.com/maxtannahill"
+    },
+    {
+      "id": "mainnet-jordan",
+      "network": "mainnet",
+      "name": "jordan",
+      "status": "inactive",
+      "paynym": "+linkinparkrulz",
+      "jurisdiction": "Canada",
+      "country": "CA",
+      "hardware": "Intel Core I5-4200U, 8gb Debian 12.8",
+      "version": "1.26.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.0",
+          "apikey": "nfuheeix023i493m4v438tv34v8t3n4yt3",
+          "url": "http://pouocz43pimqo46ypkvifjekjzisovc5nzlkpqe3zlsxdrz2elzyz3id.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://eefhmn3z6jmh72kph6777fahelbalvlrtgklu5newib7aa4dbjrgmwyd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.26.0\",\n    \"apikey\": \"nfuheeix023i493m4v438tv34v8t3n4yt3\",\n    \"url\": \"http://pouocz43pimqo46ypkvifjekjzisovc5nzlkpqe3zlsxdrz2elzyz3id.onion/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://eefhmn3z6jmh72kph6777fahelbalvlrtgklu5newib7aa4dbjrgmwyd.onion\"\n  }\n}\n\nBIP47: PM8TJM51x2mDd85CzEgVc2y7vdyB3eBj93JVjVtCt6PZtmfzhFzYPMXYBXh28zthWhVKGjVQZPT1MKxGxEtfenLYEkuc5GhoWtMzQCF8c8mrckYFM7r1\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1K8CDoBYWBuaeAhejLAk5hiACAgbbPnDCJ\n\nHxXGUXc6ZsL8yJrTIp2cxPlAwWWXAMefboF7PQj9x/FwfgDi61uZPHNCs2dCbNEQezaBKomyww5NSg8O3jVrK9g=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-razzle-dazzle",
+      "network": "mainnet",
+      "name": "Razzle Dazzle",
+      "status": "inactive",
+      "paynym": "+humorousneck92",
+      "jurisdiction": "Japan",
+      "country": "JP",
+      "hardware": "Intel i7-10720U 32gb StartOS with Coreboot and IME \"disabled\"",
+      "version": "1.28.2",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.2",
+          "apikey": "Ys8TkTj9JZTRwqC0SLZ3GH",
+          "url": "http://2ql2zitmzdncnttcnxmjoufcw2zptvytdvigy4nx2cbqgwt3r75fwqqd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\"pairing\":{\"type\":\"dojo.api\",\"version\":\"1.28.2\",\"apikey\":\"Ys8TkTj9JZTRwqC0SLZ3GH\",\"url\":\"http://2ql2zitmzdncnttcnxmjoufcw2zptvytdvigy4nx2cbqgwt3r75fwqqd.onion/v2\"},\"explorer\":{\"type\":\"explorer.btc_rpc_explorer\",\"url\":\"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion\"}}\n\nBIP47:\nPM8TJSBAF77yBYbDup3oJMhTxEhBNs1P7YVucKuL8XxSswSjfxFrwv3uiAavi66ZpKmyBb5AXE3NZdDNo8ouwDXgRtcDnrhPNpmtbyGFszA9hZmuk4aJ\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1CeTkkSKEnAUzTaAutN8DN4hDXcNGQYUxg\n\nH/9bc3kGdijda1piFa3jZFRFukBAyGCax0yWSwALiqgfa88/0F9t72C0ikCY+QKyvXSfRURvsGpk4IpQu/vXIYg=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-syndicate-systems",
+      "network": "mainnet",
+      "name": "Syndicate Systems",
+      "status": "inactive",
+      "paynym": "+syndicate",
+      "jurisdiction": null,
+      "country": null,
+      "hardware": "Dual POWER9 with 2TB ECC RAM",
+      "version": "1.26.1",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.1",
+          "apikey": "ckLDlzzJK27IVZfHIdCnRLZEizEikgLIRwuJVZov",
+          "url": "http://hhy6uamxpxktb56hypfsenohkb62karnmmkinfimozhnm5wasnyr7yad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://gsraptlvqyjhcc2lf4zxrjb4bzttib6cnzdjxchnml5zt4nd7aryxrid.onion"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "mainnet-btcwrestle",
+      "network": "mainnet",
+      "name": "Btcwrestle",
+      "status": "inactive",
+      "paynym": "+excitedkey31",
+      "jurisdiction": "North America",
+      "country": null,
+      "hardware": "Intel i7 StartOS 64 gb",
+      "version": "1.26.1",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.1",
+          "apikey": "noXrm7vsW7BB2JOar1noVG",
+          "url": "http://3645yj4kiqzuwoqvdbgpb4qzkmbcn7cm2icejdpa6zaihd2lib6qmuad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\"pairing\":{\"type\":\"dojo.api\",\n\"apikey\":\n\"noXrm7vsW7BB2JOar1noVG\",\n\"url\":\n\"http://3645yj4kiqzuwoqvdbgpb4qzkmbcn7cm2icejdpa6zaihd2lib6qmuad.onion/v2\",\n\"version\":\"1.4.5\"},\n\"explorer\":{\n\"type\":\n\"explorer.btc_rpc_explorer\",\n\"url\":\n\"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion\"}}\n\nBIP47: PM8TJhQi6gQs9xxqhs4LqrVH2StMX9M2sjck8Z5kndoKuocbncWstWn3xdGLega3W6EaW44sVXS5HxTuA4knepbKtbc2K1Uz1LBmDkUScjjpf7SNMVyX\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1K9Mdqs9hmZKxeMUDRLk4RZT5AJMfNtGpa\n\nH3rKvvs5sbSXFlxetinAfNicIRDPNdDSWI3RP0oTlUAKApBAuiwcPqE8X0d0LW61FAjE5QlkxZviy4UdvqoCu4w=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-bottomshelfbtc",
+      "network": "mainnet",
+      "name": "BottomshelfBTC",
+      "status": "inactive",
+      "paynym": "+apprehensiverace53",
+      "jurisdiction": "USA",
+      "country": "US",
+      "hardware": "i5-6500T, 16gb",
+      "version": "1.26.1",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.1",
+          "apikey": "pajgEdbak8k0sNhjVhPMhv",
+          "url": "http://zidkaz7dqmpq2ggukixinukg2hproknsi2bwvbepdn3u4n6mxglpmqad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "mainnet-91xtx93-yellow",
+      "network": "mainnet",
+      "name": "91xTx93 Yellow",
+      "status": "inactive",
+      "paynym": "+91xTx93x3",
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "M720q 12gb Ubuntu 24.04",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "3321cf8da75c4a2a51dfe2e7f34740d5",
+          "url": "http://udwtsxnrqtnodfk5xdmx75oeqfotoiyw6hovj2fwn542kfk6r4gxkwyd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://lmn4glvizcicqvioxibel44hgmrhxsrs57omu2gvmhdx5itk73r33xqd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.27.0\",\n    \"apikey\": \"3321cf8da75c4a2a51dfe2e7f34740d5\",\n    \"url\": \"http://udwtsxnrqtnodfk5xdmx75oeqfotoiyw6hovj2fwn542kfk6r4gxkwyd.onion/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://lmn4glvizcicqvioxibel44hgmrhxsrs57omu2gvmhdx5itk73r33xqd.onion\"\n  }\n}\n\nBIP47:\nPM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 134yhB7maeqdYiRNjqRYCFBLgUUzvDG58g\n\nHxx1pXQcs/WTmH535pP3N96zqVpLzfDl5mrxhRgB5l8QUv+vVkgOfaUxAsvMCdLk9TEcEArBQV7U/wBszjP3lpg=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-91xtx93-red",
+      "network": "mainnet",
+      "name": "91xTx93 Red",
+      "status": "inactive",
+      "paynym": "+91xTx93x3",
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "M910 12gb Ubuntu 24.04",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "55368b8cd74d67d49a31002a5ab500cf",
+          "url": "http://a34ald73bhz625jhdaksnlq6rnbjrqgjxq52j6ms3atx7vqdhgp7sxyd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://it3nnxof4ad7zi2xi33j4iwedy6grkdikwwfcco2sd7yudkosu2ruvid.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.27.0\",\n    \"apikey\": \"55368b8cd74d67d49a31002a5ab500cf\",\n    \"url\": \"http://a34ald73bhz625jhdaksnlq6rnbjrqgjxq52j6ms3atx7vqdhgp7sxyd.onion/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://it3nnxof4ad7zi2xi33j4iwedy6grkdikwwfcco2sd7yudkosu2ruvid.onion\"\n  }\n}\n\n\nBIP47:\nPM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 134yhB7maeqdYiRNjqRYCFBLgUUzvDG58g\n\nHyncYCOrZXerg4Td/fGBOX6CPOol5U7OS1xFmxMVNcP0IpZhpg/yz8WiTchnZaObtWWUw5Uf03SDOzAHG5PO2q4=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-91xtx93-tanto-e",
+      "network": "mainnet",
+      "name": "91xTx93 Tanto E",
+      "status": "inactive",
+      "paynym": "+91xTx93x3",
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "Tanto",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "da28cce51e3bc4d484349c109c9c12e6",
+          "url": "http://xkjpwzcmk7nmn6vttii5uz4khsc45wh5pwypaxq25ofx3rkomuicazyd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://jzym2wd4arlincp3bztdjz3mqh6uhh63sqeexgv6jy6xwtug4lmm3yqd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.27.0\",\n    \"apikey\": \"da28cce51e3bc4d484349c109c9c12e6\",\n    \"url\": \"http://xkjpwzcmk7nmn6vttii5uz4khsc45wh5pwypaxq25ofx3rkomuicazyd.onion/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://jzym2wd4arlincp3bztdjz3mqh6uhh63sqeexgv6jy6xwtug4lmm3yqd.onion\"\n  }\n}\n\nBIP47:\nPM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 134yhB7maeqdYiRNjqRYCFBLgUUzvDG58g\n\nHwzsrTebYsFcKUO1etPrfcegd6Z1fxNxxuOOmLAkb2itWkfGsExiEW/3BmQitfJ5HwOKsqcdD3HZHuVhxyMm6hg=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-expatriotic",
+      "network": "mainnet",
+      "name": "Expatriotic",
+      "status": "inactive",
+      "paynym": "+expatriotic",
+      "jurisdiction": "Thailand",
+      "country": "TH",
+      "hardware": "OptiPlex 5050 i5-7500 24Gb Ubuntu 24.04.3 LTS",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "a5c2415709f0ecf68af32a97ff0b993b",
+          "url": "http://cnjhanzulxeaj73d77l7wgpymqiq5tz26jfjwdztldvf67f5ryvgywad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://2ioqnpvqngfncstbptrrzlmoatmg5me4rn6v4gksbh43zc3r2v44avad.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\nhttps://expatriotic.me/info/\n\n{\n    \"pairing\": {\n        \"type\": \"dojo.api\",\n        \"version\": \"1.27.0\",\n        \"apikey\": \"a5c2415709f0ecf68af32a97ff0b993b\",\n        \"url\": \"http://cnjhanzulxeaj73d77l7wgpymqiq5tz26jfjwdztldvf67f5ryvgywad.onion/v2\"\n    },\n    \"explorer\": {\n        \"type\": \"explorer.btc_rpc_explorer\",\n        \"url\": \"http://2ioqnpvqngfncstbptrrzlmoatmg5me4rn6v4gksbh43zc3r2v44avad.onion\"\n    }\n}\n\nBIP47:\nPM8TJgbjQPjqRrFxypni83pNUsp8sZPzAunNG9qXPka9x4cpHEZ2H6XmCE9au9PvbCpw7RY13TPcjWMShptCkp1NbqBxW4QpCZdR5CQ5uR2hnGDszJxN\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 16VpuCyP1Hb38WCF4uxdoftmYBqyW7m6s4\n\nH589WF1jCy9Xzr1P3GAgRWAGdQJcYkmGszQddL37nFyxSAhSOJO45okqSx1ImHU0h2kA3cqo5wtscMwPvhnmxoI=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "mainnet-arthur",
+      "network": "mainnet",
+      "name": "arthur",
+      "status": "inactive",
+      "paynym": "+melodicstress96",
+      "jurisdiction": "Central America",
+      "country": null,
+      "hardware": "Intel i7-8700, Fulcrum",
+      "version": "1.28.2",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.2",
+          "apikey": "bbP1XT7g2ZIMcsyE8yhFWn",
+          "url": "http://37pennvjtwxunv3ik4uhybrznpkutmpktzlkfyx45zhq4cda4lyk6dqd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "mainnet-kilombino",
+      "network": "mainnet",
+      "name": "Kilombino",
+      "status": "inactive",
+      "paynym": null,
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "HP Prodesk Intel Core i5-9500T, 16gb",
+      "version": "1.28.2",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.2",
+          "apikey": "4b83f855adaab2774153f6cc98ebe183",
+          "url": "http://zucok3aq3aaxz6y5ty4ztlpuau6cztyb3n22mrsczz3byizpuipia3id.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.null",
+          "url": "N/A"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "testnet-91xtx93-green",
+      "network": "testnet",
+      "name": "91xTx93 Green",
+      "status": "inactive",
+      "paynym": "+91xTx93x3",
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "M900 8gb Ubuntu 24.04",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "cdb0d29377c9088275817fcd7d643013",
+          "url": "http://4f6hya64dcofjavp66illnynpoxjdfc2bnvwduleqkvjuqq633d2fiyd.onion/test/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://p7wvh24b6mdt3gqa2b2ynyei4ib6xahvk5wzqlgu6olamyvej6fkczqd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.27.0\",\n    \"apikey\": \"cdb0d29377c9088275817fcd7d643013\",\n    \"url\": \"http://4f6hya64dcofjavp66illnynpoxjdfc2bnvwduleqkvjuqq633d2fiyd.onion/test/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://p7wvh24b6mdt3gqa2b2ynyei4ib6xahvk5wzqlgu6olamyvej6fkczqd.onion\"\n  }\n}\n\nBIP47:\nPM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 134yhB7maeqdYiRNjqRYCFBLgUUzvDG58g\n\nIAbi5uYD31Sdw/UPC7o4e2Wlw2pDJ5KWR1SYx4TRXFpQGwutt4+D+7O/RV9qrwW9Up1WyB3rfHdp7JY5mHI1ydE=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "testnet-libertarian",
+      "network": "testnet",
+      "name": "@Libertarian",
+      "status": "inactive",
+      "paynym": "+belligerentprinciple63",
+      "jurisdiction": null,
+      "country": null,
+      "hardware": null,
+      "version": "1.26.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.0",
+          "apikey": "78945612",
+          "url": "http://hdflycre2gb6l3yxolofi7thtw7p2cfymfmq2bqsxhx7pjuk6sj23tyd.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://jfpzciobq5iysusamzuyj6ijj67wzlclxphknco467ljban5h7jilhad.onion"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "testnet-wanderinking072",
+      "network": "testnet",
+      "name": "wanderinKing072",
+      "status": "inactive",
+      "paynym": null,
+      "jurisdiction": null,
+      "country": null,
+      "hardware": null,
+      "version": "1.26.1",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.1",
+          "apikey": "NZq0iy6o5IxxHce4gNs6ooKszpBlrRvvRUUDIqLMHi1pKwW1HnXvbSm0OYLfj1ek",
+          "url": "http://b3krcphqdbrzkblvti2eiuogfrx6b5lynenv5dxjwsw7hq47dlrc4pid.onion/test/v2"
+        },
+        "explorer": {
+          "type": "explorer.oxt",
+          "url": "https://oxt.me"
+        }
+      },
+      "signed": null
+    },
+    {
+      "id": "testnet-91xtx93-blue",
+      "network": "testnet",
+      "name": "91xTx93 Blue",
+      "status": "inactive",
+      "paynym": "+91xTx93x3",
+      "jurisdiction": "Europe",
+      "country": null,
+      "hardware": "M710q 8gb Ubuntu 24.04",
+      "version": "1.27.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.27.0",
+          "apikey": "7fcdb00957d3ab314b710d48907b4629",
+          "url": "http://kjv62weg6bm34yf6244jcxl3sc3ntpsojdd5xrpzhv2c36b5u5u4gkad.onion/test/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://vvxwpqyfi3tbqpkjszlt6rvwwiqr4s2f457myntkbk4lcihvt5oti7qd.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\n  \"pairing\": {\n    \"type\": \"dojo.api\",\n    \"version\": \"1.27.0\",\n    \"apikey\": \"7fcdb00957d3ab314b710d48907b4629\",\n    \"url\": \"http://kjv62weg6bm34yf6244jcxl3sc3ntpsojdd5xrpzhv2c36b5u5u4gkad.onion/test/v2\"\n  },\n  \"explorer\": {\n    \"type\": \"explorer.btc_rpc_explorer\",\n    \"url\": \"http://vvxwpqyfi3tbqpkjszlt6rvwwiqr4s2f457myntkbk4lcihvt5oti7qd.onion\"\n  }\n}\n\nBIP47:\nPM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 134yhB7maeqdYiRNjqRYCFBLgUUzvDG58g\n\nIM7PbTwok40mRZmEYKzcRtMTFrtcE5sudMdvAJgoid+MSLK1PZNlDbEFi2KqXbsQoWE4ZtbQRXPy3sEo6S7a7dc=\n-----END BITCOIN SIGNATURE-----"
+    },
+    {
+      "id": "testnet-bottomshelfbtc",
+      "network": "testnet",
+      "name": "BottomshelfBTC",
+      "status": "inactive",
+      "paynym": "+apprehensiverace53",
+      "jurisdiction": "USA",
+      "country": "US",
+      "hardware": "8th Gen i5, 8gb",
+      "version": "1.26.1",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.26.1",
+          "apikey": "uoyb2nu8SI4C19HXi9ovPf",
+          "url": "http://sm4ti4nmg66j3f3vlhlis3vnoe4qbkcs4wyaygbk4tt5sc63ola4scad.onion/test/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion/testnet4"
+        }
+      },
+      "signed": null
+    }
+  ]
+}

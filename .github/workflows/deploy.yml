@@ -10,10 +10,13 @@ name: Deploy to VPS
 #   VPS_SSH_KEY  a private SSH key whose public half is in the user's authorized_keys
 #   VPS_PORT     (optional) ssh port, defaults to 22
 #
-# NOTE on data/: dojos.json IS synced (the repo is the source of truth for the
-# node list; the updater refreshes its statuses within 10 minutes of a deploy).
-# history.json is NOT synced and is protected from --delete: the VPS owns the
-# rolling reliability history and a deploy must never wipe it.
+# NOTE on data/ (stage 2 model): the curated node list lives in data/seed.json,
+# which IS synced. data/dojos.json is a GENERATED artifact (seed + approved
+# submissions, merged by server/build-public.mjs, statuses filled by the
+# updater) and is NOT synced: the VPS owns it. history.json and server/data are
+# likewise VPS-owned and excluded, so a deploy can never wipe live status,
+# reliability history, or operator submissions. The post-deploy step below
+# regenerates dojos.json from the freshly-synced seed on every deploy.
 
 on:
   push:
@@ -41,7 +44,7 @@ jobs:
         run: |
           rsync -az --delete \
             --exclude '.git' --exclude '.github' --exclude 'node_modules' \
-            --exclude 'data/history.json' --exclude 'server/data' --exclude 'server/node_modules' \
+            --exclude 'data/dojos.json' --exclude 'data/history.json' --exclude 'data/history-daily.json' --exclude 'server/data' --exclude 'server/node_modules' \
             -e "ssh -p ${{ secrets.VPS_PORT || 22 }} -i ~/.ssh/id_deploy" \
             ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PATH }}/"
 
@@ -49,4 +52,4 @@ jobs:
         run: |
           ssh -p "${{ secrets.VPS_PORT || 22 }}" -i ~/.ssh/id_deploy \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            'sudo systemctl reload nginx && sudo systemctl enable --now dojobay-update.timer || true'
+            'cd /var/www/dojobay/server && node build-public.mjs || true; sudo systemctl reload nginx && sudo systemctl enable --now dojobay-update.timer; sudo systemctl restart dojobay-server 2>/dev/null || true'

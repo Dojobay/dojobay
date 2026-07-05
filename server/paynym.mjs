@@ -11,7 +11,7 @@ import { socks5Connect, PROBE_CFG } from "./probe.mjs";
 
 // Override via env if the onion address changes.
 const PAYNYM_ONION = process.env.PAYNYM_ONION
-  || "http://paynymrdidtqzldz3vwr2c72akx33jtvweyzr7dbbpu6acsvz6ib6qd.onion";
+  || "http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion";
 const PAYNYM_CLEARNET = process.env.PAYNYM_CLEARNET || "https://paynym.rs";
 
 // Pull the human label out of whatever shape the API returns. The legacy API

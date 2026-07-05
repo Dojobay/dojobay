@@ -170,7 +170,7 @@ window. The reliability strip and uptime percentage are computed from this.
 {
   "generated_at": "2026-06-29T14:10:00Z",
   "interval_minutes": 10,
-  "window_checks": 72,               // 12h at 10-min cadence
+  "window_checks": 144,              // 24h at 10-min cadence
   "nodes": {
     "mainnet-compiler": {
       "checks": [                    // oldest -> newest
@@ -182,6 +182,31 @@ window. The reliability strip and uptime percentage are computed from this.
 }
 ```
 
+
+## data/history-daily.json
+
+A per-node daily rollup kept for `RETENTION_DAYS` (default 90, about three
+months), written by the same updater run. Each node holds an array of day
+records, one per UTC day, each carrying the day's uptime (`up`/`total`/`pct`)
+and `close`, the last block height read that day (its closing height):
+
+```jsonc
+{
+  "retention_days": 90,
+  "nodes": {
+    "mainnet-otto": { "days": [
+      { "d": "2026-07-04", "up": 142, "total": 144, "pct": 98.6, "close": 956700 },
+      { "d": "2026-07-05", "up": 140, "total": 140, "pct": 100,  "close": 956816 }
+    ] }
+  }
+}
+```
+
+Like `history.json` it is owned by the server and excluded from the deploy, and
+the repo ships an empty skeleton for local preview. The front end fetches it
+lazily, only when a card's pairing details are opened, and renders a 90-day
+daily reliability strip plus a closing-height sparkline, so the onion stays
+quick on first load.
 ## The updater
 
 `scripts/update.mjs` is a zero-dependency Node script (no `npm install` needed)
@@ -229,7 +254,7 @@ npm test                       # offline self-test (mock SOCKS proxy, no Tor)
 
 Config is via environment variables: `TOR_SOCKS_HOST`, `TOR_SOCKS_PORT`,
 `DATA_DIR`, `TIMEOUT_MS` (default 30000), `CONCURRENCY` (default 6),
-`WINDOW_CHECKS` (default 72), `CONNECT_ONLY`.
+`WINDOW_CHECKS` (default 144, 24h), `RETENTION_DAYS` (default 90), `CONNECT_ONLY`.
 
 ### Schedule (every 10 minutes)
 
@@ -439,7 +464,7 @@ PWA/offline layer simply doesn't activate there.
 - `journalctl -u dojobay-update.service -f` during a cycle: per-node latency
   and failure reasons (`timeout`, `SOCKS host unreachable`, `read-timeout`).
 - The reliability strips fill left-to-right and represent a full 12 hours
-  (72 checks) after the first half-day; judge flappiness only after that.
+  (144 checks) after the first day; judge flappiness only after that.
 - Compare a node the site calls Inactive against a manual probe
   (`torsocks curl -s -o /dev/null -w '%{http_code}' http://NODEADDR.onion/v2`)
   to confirm the checker isn't producing false negatives. If slow-but-alive

@@ -30,7 +30,8 @@
 //   DATA_DIR         default <repo>/data
 //   TIMEOUT_MS       default 30000   per-node Tor timeout
 //   CONCURRENCY      default 6        simultaneous Tor circuits
-//   WINDOW_CHECKS    default 72       history length kept per node (12h @ 10min)
+//   WINDOW_CHECKS    default 144      history length kept per node (24h @ 10min)
+//   RETENTION_DAYS   default 90       daily-rollup days kept per node (~3 months)
 //   CONNECT_ONLY     default 0        "1" = treat a successful Tor connect as up
 //                                     without waiting for an HTTP response line
 // =============================================================================
@@ -48,7 +49,8 @@ const CFG = {
   dataDir: process.env.DATA_DIR || path.resolve(__dirname, "..", "data"),
   timeoutMs: +(process.env.TIMEOUT_MS || 30000),
   concurrency: +(process.env.CONCURRENCY || 6),
-  windowChecks: +(process.env.WINDOW_CHECKS || 72),
+  windowChecks: +(process.env.WINDOW_CHECKS || 144),
+  retentionDays: +(process.env.RETENTION_DAYS || 90),
   connectOnly: process.env.CONNECT_ONLY === "1",
 };
 
@@ -352,6 +354,31 @@ async function main() {
     interval_minutes: history.interval_minutes || 10,
     window_checks: window,
     nodes: histNodes,
+  });
+
+  // ---- update 90-day daily rollup (per-day uptime + closing block height) ----
+  // One record per node per UTC day; `close` is the last height read that day,
+  // so at day's end it holds the closing height. Retained RETENTION_DAYS days.
+  const dailyPath = path.join(CFG.dataDir, "history-daily.json");
+  const daily = await readJSON(dailyPath, { retention_days: CFG.retentionDays, nodes: {} });
+  const today = ts.dateTime.slice(0, 10); // YYYY-MM-DD (UTC)
+  const dailyNodes = {};
+  dojos.nodes.forEach((n, i) => {
+    const r = results[i];
+    const days = ((daily.nodes?.[n.id]?.days) || []).map((d) => ({ ...d }));
+    let rec = days.length && days[days.length - 1].d === today ? days[days.length - 1] : null;
+    if (!rec) { rec = { d: today, up: 0, total: 0, pct: 0, close: null }; days.push(rec); }
+    rec.total += 1;
+    if (r.up) rec.up += 1;
+    rec.pct = Math.round((rec.up / rec.total) * 1000) / 10;
+    if (typeof r.height === "number") rec.close = r.height;
+    if (days.length > CFG.retentionDays) days.splice(0, days.length - CFG.retentionDays);
+    dailyNodes[n.id] = { days }; // only current node ids are written, so removed nodes are pruned
+  });
+  await writeJSONAtomic(dailyPath, {
+    generated_at: ts.isoSec,
+    retention_days: CFG.retentionDays,
+    nodes: dailyNodes,
   });
 
   console.error(`[${ts.isoSec}] done: ${up}/${dojos.nodes.length} active`);

@@ -65,14 +65,59 @@ async function loadJSON(url){
 
   let DOJOS=null, HIST=null, net="mainnet";
 
+  // Electrum/indexer endpoint for the card: accept a flattened payload.indexer
+  // or pull the entry from a modern services[] array. tcp/ssl onion only.
+  function indexerUrl(n){
+    const p = n.payload || {};
+    let c = p.indexer;
+    if((!c || !c.url) && Array.isArray(p.services)) c = p.services.find(s => s && s.type === "indexer");
+    const u = c && c.url;
+    return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}(\/.*)?$/i.test(u)) ? u : null;
+  }
+
+  // ---- 90-day daily history (lazily fetched once, cached) -------------------
+  let HIST90 = null;
+  function loadHist90(){
+    if(!HIST90) HIST90 = loadJSON("data/history-daily.json").catch(()=>({nodes:{}}));
+    return HIST90;
+  }
+  function heightSparkline(days){
+    const pts = days.map((d,i)=>({i,h:d.close})).filter(p=>typeof p.h==="number");
+    if(pts.length<2) return "";
+    const W=280,H=32,pad=2, hs=pts.map(p=>p.h), min=Math.min(...hs), max=Math.max(...hs), span=(max-min)||1, n=(days.length-1)||1;
+    const coords=pts.map(p=>{const x=pad+(p.i/n)*(W-2*pad); const y=H-pad-((p.h-min)/span)*(H-2*pad); return x.toFixed(1)+","+y.toFixed(1);});
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-label="closing block height over 90 days"><polyline points="${coords.join(" ")}" fill="none" stroke="var(--accent-2)" stroke-width="1.5"/></svg>`;
+  }
+  async function renderHist90(mount, id){
+    if(!mount) return;
+    const body = mount.querySelector(".h90-body");
+    let data; try{ data = await loadHist90(); }catch(e){ if(body) body.innerHTML='<span class="faint">No history yet.</span>'; return; }
+    const days = (data.nodes && data.nodes[id] && data.nodes[id].days) || [];
+    if(!days.length){ if(body) body.innerHTML='<span class="faint">No daily history yet.</span>'; return; }
+    const view = days.slice(-90);
+    const bars = view.map(d=>{
+      const pct = d.pct==null?null:d.pct;
+      const cls = pct==null?"na":(pct>=99?"up":(pct>=80?"mid":"down"));
+      const t = `${d.d}: ${pct==null?"no data":pct+"% up"}${d.close!=null?", close "+Number(d.close).toLocaleString("en-GB"):""}`;
+      return `<span class="d90 ${cls}" title="${esc(t)}"></span>`;
+    }).join("");
+    const closes = view.filter(d=>d.close!=null).map(d=>d.close);
+    const latest = closes.length?closes[closes.length-1]:null;
+    if(body) body.innerHTML =
+      `<div class="d90strip">${bars}</div>`+
+      `<div class="d90foot"><span class="faint">${view.length} day${view.length>1?"s":""}</span>`+
+      (latest!=null?`<span class="faint">closing height ${Number(latest).toLocaleString("en-GB")}</span>`:"")+`</div>`+
+      heightSparkline(view);
+  }
+
   function relStrip(checks){
     const u=uptime(checks);
     const bars=(checks||[]).map(c=>`<div class="b ${c.up?"up":"down"}" title="${esc(c.t)} · ${c.up?"up":"down"}"></div>`).join("");
     const pct=u.pct==null?"—":(u.pct%1===0?u.pct:u.pct.toFixed(1))+"%";
     return `<div class="rel">
-      <div class="rel-head"><span class="eyebrow">Reliability · 12h</span><span class="pct">${pct} <span class="n">${u.up}/${u.total}</span></span></div>
+      <div class="rel-head"><span class="eyebrow">Reliability · 24h</span><span class="pct">${pct} <span class="n">${u.up}/${u.total}</span></span></div>
       <div class="rel-bars">${bars}</div>
-      <div class="rel-axis"><span>12h ago</span><span>now</span></div></div>`;
+      <div class="rel-axis"><span>24h ago</span><span>now</span></div></div>`;
   }
 
   function card(n){
@@ -120,8 +165,9 @@ async function loadJSON(url){
       <div class="eps">
         <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
         ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
-        ${n.payload.indexer?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(n.payload.indexer.url)}">${esc(n.payload.indexer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.indexer.url)}">copy</button></div>`:""}
+        ${(()=>{const iu=indexerUrl(n);return iu?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`:"";})()}
       </div>
+      <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">History · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
     </div>`;
   }
 
@@ -225,7 +271,8 @@ async function loadJSON(url){
     if(a==="reveal"){
       const host=cardEl.querySelector(".pair-host"), btn=cardEl.querySelector(".reveal");
       if(host.innerHTML.trim()){host.innerHTML="";btn.classList.remove("open");btn.textContent="Pairing details";}
-      else{host.innerHTML=pairHTML(node());btn.classList.add("open");btn.textContent="Hide pairing details";}
+      else{host.innerHTML=pairHTML(node());btn.classList.add("open");btn.textContent="Hide pairing details";
+        renderHist90(host.querySelector(".hist90"), node().id);}
       return;
     }
     if(a==="copypairing"){const n=node();copy(JSON.stringify({pairing:n.payload.pairing,explorer:n.payload.explorer},null,2)).then(()=>flash(act,"Copied ✓"));return;}

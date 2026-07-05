@@ -159,3 +159,11 @@
   .mform input,.mform select,.mform textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-family:'JetBrains Mono',monospace;font-size:12.5px;width:100%}
   .mform textarea{resize:vertical;line-height:1.5}
   .mform input:focus,.mform select:focus,.mform textarea:focus{outline:none;border-color:var(--accent-line)}
+
+  /* 90-day daily history (lazy, in pairing details) */
+  .hist90{margin-top:16px}
+  .d90strip{display:flex;gap:1px;align-items:flex-end;height:22px;margin:8px 0 6px}
+  .d90{flex:1 1 0;min-width:1px;height:100%;border-radius:1px;background:var(--line)}
+  .d90.up{background:var(--up)} .d90.mid{background:#b9a13a} .d90.down{background:var(--down)} .d90.na{background:var(--line)}
+  .d90foot{display:flex;justify-content:space-between;font-size:11px;font-family:'JetBrains Mono',monospace}
+  .spark{display:block;margin-top:6px;opacity:.9}

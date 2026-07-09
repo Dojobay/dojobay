@@ -33,6 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stamp build version
+        run: printf '{"commit":"%s","built":"%s"}\n' "$(echo "$GITHUB_SHA" | cut -c1-7)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > data/version.json
+
       - name: Configure SSH
         run: |
           install -m 700 -d ~/.ssh

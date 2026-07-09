@@ -44,6 +44,8 @@ async function loadJSON(url){
                  served onion-only and the pill would be redundant). */
   const REPO_URL  = "https://github.com/Dojobay/dojobay";
   const ONION_URL = "http://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/";
+  // PayNym profile links point at the paynym.rs onion, so a visitor stays on Tor.
+  const PAYNYM_WEB = "http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion";
   const GH_LOGO = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.2 3.44 9.6 8.21 11.16.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.58-4.04-1.58-.55-1.36-1.34-1.73-1.34-1.73-1.09-.73.08-.72.08-.72 1.2.08 1.84 1.21 1.84 1.21 1.07 1.79 2.81 1.27 3.5.97.11-.76.42-1.27.76-1.56-2.67-.3-5.47-1.31-5.47-5.84 0-1.29.47-2.34 1.24-3.17-.12-.3-.54-1.52.12-3.16 0 0 1.01-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.29-1.53 3.3-1.21 3.3-1.21.66 1.64.24 2.86.12 3.16.77.83 1.24 1.88 1.24 3.17 0 4.54-2.81 5.54-5.49 5.83.43.36.81 1.09.81 2.2 0 1.59-.01 2.87-.01 3.26 0 .31.21.68.83.56C20.56 21.88 24 17.48 24 12.29 24 5.78 18.63.5 12 .5z"/></svg>`;
 
   const LOGO = `
@@ -123,7 +125,7 @@ async function loadJSON(url){
   function card(n){
     const checks=(HIST.nodes[n.id]||{}).checks||[];
     const pn=n.paynym
-      ?`<a class="pn" href="https://paynym.rs/${esc(n.paynym)}" target="_blank" rel="noopener">${esc(n.paynym)}</a>`
+      ?`<a class="pn" href="${PAYNYM_WEB}/${esc(n.paynym)}" target="_blank" rel="noopener">${esc(n.paynym)}</a>`
       :`<span class="nopn">no PayNym</span>`;
     const jur=n.jurisdiction?`<span class="jur">${n.country?`<span class="flag">${flag(n.country)}</span>`:""}${esc(n.jurisdiction)}</span>`:"";
     return `<div class="card ${n.status}" data-id="${esc(n.id)}">
@@ -216,6 +218,7 @@ async function loadJSON(url){
 
     <footer><div class="wrap">
       <a class="gh" href="${REPO_URL}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${GH_LOGO}</a>
+      <span class="ver" id="build-ver"></span>
     </div></footer>
 
     <div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">
@@ -405,10 +408,22 @@ async function loadJSON(url){
   detectBackend();
 
 
+  async function renderVersion(){
+    const el = document.getElementById("build-ver");
+    if(!el) return;
+    try{
+      const v = await loadJSON("data/version.json");
+      if(v && v.commit && v.commit !== "dev"){
+        el.innerHTML = `<a href="${REPO_URL}/commit/${esc(v.commit)}" target="_blank" rel="noopener" title="${esc(v.built||"")}">build ${esc(v.commit)}</a>`;
+      }
+    }catch(e){ /* no version file: show nothing */ }
+  }
+
   (async function(){
     try{
       [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json")]);
       render();
+      renderVersion();
     }catch(e){ showLoadError(e); }
   })();
 })();

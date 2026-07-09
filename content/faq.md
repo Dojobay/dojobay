@@ -16,7 +16,7 @@ Yes. When you pair with a Dojo you share your extended public key (XPUB), and th
 
 ### How do I verify a signed Dojo?
 
-Confirm the PayNym belongs to someone whose reputation you can check, whether stated in a social-media bio, on their own site, or mentioned publicly, and look it up in the [PayNym.rs](https://paynym.rs) directory to see its code. Then take the signed message to the BIP47 verifier at [pajasevi.github.io/bip47-verifier](https://pajasevi.github.io/bip47-verifier/) (by PavelTheCoder) and fill in the fields; a correct message returns "Message verified successfully". If verification fails there, use **Tools → Verify message** inside Samourai or Ashigaru.
+Confirm the PayNym belongs to someone whose reputation you can check, whether stated in a social-media bio, on their own site, or mentioned publicly, and look it up in the [PayNym.rs](http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion) directory to see its code. Then take the signed message to the BIP47 verifier at [pajasevi.github.io/bip47-verifier](https://pajasevi.github.io/bip47-verifier/) (by PavelTheCoder) and fill in the fields; a correct message returns "Message verified successfully". If verification fails there, use **Tools → Verify message** inside Samourai or Ashigaru.
 
 ### Where do I learn to run my own Dojo?
 

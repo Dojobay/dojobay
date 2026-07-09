@@ -6,7 +6,7 @@
 //     network-first so a connected client always sees the latest snapshot,
 //     falling back to cache when offline.
 // Bump CACHE when you ship new assets to retire the old cache.
-const CACHE = "dojobay-v1";
+const CACHE = "dojobay-v2";
 
 const SHELL = [
   "./",
@@ -49,17 +49,19 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;       // ignore cross-origin
 
-  const fresh = url.pathname.includes("/data/") || url.pathname.endsWith(".md");
+  // Cache-first ONLY for large, rarely-changing static assets (fonts, icons,
+  // images). Everything else (HTML, JS, CSS, JSON data, Markdown) is
+  // network-first, so a deploy propagates on the next load and the cache is
+  // only an offline fallback. This avoids stale code surviving a deploy.
+  const cacheFirst = /\.(woff2|png|svg|ico)$/.test(url.pathname);
 
-  if (fresh) {
-    // network-first: keep status/history and text current, fall back offline
+  if (!cacheFirst) {
     e.respondWith(
       fetch(req)
         .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })
         .catch(() => caches.match(req))
     );
   } else {
-    // cache-first for the static shell
     e.respondWith(
       caches.match(req).then((hit) =>
         hit || fetch(req).then((res) => {

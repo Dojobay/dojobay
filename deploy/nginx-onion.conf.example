@@ -24,16 +24,22 @@ server {
     }
 
     # Static assets and fonts can be cached for a day.
-    location ~* \.(woff2|png|svg|css|js)$ {
+    # Code and markup must revalidate so a deploy shows up immediately.
+    location ~* \.(html|js|css|md)$ {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Large, rarely-changing assets can be cached for a day.
+    location ~* \.(woff2|png|svg|ico)$ {
         add_header Cache-Control "max-age=86400";
     }
 
-    # --- self-service backend (step 2 only; uncomment once server/ is running) ---
-    # location /api/ {
-    #     proxy_pass http://127.0.0.1:8787;
-    #     proxy_set_header Host $host;
-    #     proxy_read_timeout 40s;   # the connection gate probes Tor, allow time
-    # }
+    # --- self-service backend (Auth47 submission API) ---
+    location /api/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_read_timeout 45s;   # the connection gate + PayNym lookup probe Tor
+    }
 
     location / {
         try_files $uri $uri/ =404;

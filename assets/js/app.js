@@ -195,7 +195,7 @@ async function loadJSON(url){
         <button class="lnk" data-modal="about">About</button>
         <button class="lnk" data-modal="faq">FAQ</button>
         <button class="lnk" data-modal="disclaimer">Disclaimer</button>
-        <button class="lnk" id="manage-link" data-act="manage" hidden>Manage my Dojo</button>
+        <button class="lnk" id="manage-link" data-act="manage"${BACKEND?"":" hidden"}>Manage my Dojo</button>
         <a class="onion-pill" href="data/dojos.json" download="dojos.json" title="Download the directory as JSON">JSON ↓</a>
         ${ONION_URL?`<a class="onion-pill" href="${ONION_URL}" target="_blank" rel="noopener">.onion ↗</a>`:""}
       </nav>
@@ -296,10 +296,18 @@ async function loadJSON(url){
     }
   };
   let ME = null;
+  let BACKEND = false;
   async function detectBackend(){
     try{
       const r = await api.call("/me");
-      if(r.status===200 && r.body){ ME = r.body; document.getElementById("manage-link").hidden=false; }
+      if(r.status===200 && r.body){
+        ME = r.body;
+        BACKEND = true;
+        // render() rebuilds the header, so drive visibility from state and
+        // re-render if the page is already up, rather than poking the DOM once.
+        if(DOJOS) render();
+        else { const el=document.getElementById("manage-link"); if(el) el.hidden=false; }
+      }
     }catch(e){ /* no backend: stay hidden */ }
   }
 

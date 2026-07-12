@@ -9,9 +9,13 @@ import { fileURLToPath } from "node:url";
 import { store } from "./store.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SEED = path.join(ROOT, "data", "seed.json");            // optional curated list
-const OUT = path.join(ROOT, "data", "dojos.json");
-const HIST = path.join(ROOT, "data", "history.json");
+// Data directory. Defaults to the repo's data/ (production behaviour); the
+// self-test overrides it via PUBLIC_DATA_DIR so a test run can never write to
+// the live node list.
+const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
+const SEED = path.join(DATA_DIR, "seed.json");            // optional curated list
+const OUT = path.join(DATA_DIR, "dojos.json");
+const HIST = path.join(DATA_DIR, "history.json");
 
 async function readJSON(p, fallback) {
   try { return JSON.parse(await readFile(p, "utf8")); }
@@ -78,7 +82,7 @@ for (const id of Object.keys(hist.nodes)) if (!byId.has(id)) { delete hist.nodes
 if (touched) { hist.generated_at = hist.generated_at || null; await writeAtomic(HIST, hist); }
 
 // keep the 90-day daily rollup's node membership in step (add new, prune removed)
-const DAILY = path.join(ROOT, "data", "history-daily.json");
+const DAILY = path.join(DATA_DIR, "history-daily.json");
 const dailyDoc = await readJSON(DAILY, { retention_days: 90, nodes: {} });
 let dailyTouched = false;
 for (const n of nodes) if (!dailyDoc.nodes[n.id]) { dailyDoc.nodes[n.id] = { days: [] }; dailyTouched = true; }

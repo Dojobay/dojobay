@@ -130,10 +130,21 @@ const { store } = await import("./store.mjs");
 const subs = await store.listSubmissions();
 const rec = subs.find((r) => r.status === "pending");
 rec.status = "approved"; rec.paynym = "+testoperator"; await store.putSubmission(rec);
-process.env.SERVER_DATA_DIR = process.env.SERVER_DATA_DIR;
-await import("./build-public.mjs").catch((e) => { throw e; });
-const pub = JSON.parse(await (await import("node:fs/promises")).readFile(new URL("../data/dojos.json", import.meta.url)));
+// Publish check, fully isolated: point build-public at a temp data directory
+// seeded with a copy of the real seed list, so the live data/dojos.json is
+// never written by a test run.
+const fsp = await import("node:fs/promises");
+const TEST_DATA = "/tmp/dojobay-selftest-data";
+await fsp.rm(TEST_DATA, { recursive: true, force: true });
+await fsp.mkdir(TEST_DATA, { recursive: true });
+const seedSrc = new URL("../data/seed.json", import.meta.url);
+try { await fsp.copyFile(seedSrc, TEST_DATA + "/seed.json"); }
+catch { await fsp.writeFile(TEST_DATA + "/seed.json", JSON.stringify({ nodes: [] })); }
+process.env.PUBLIC_DATA_DIR = TEST_DATA;
+await import("./build-public.mjs");
+const pub = JSON.parse(await fsp.readFile(TEST_DATA + "/dojos.json", "utf8"));
 ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission appears in public dojos.json");
+await fsp.rm(TEST_DATA, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);
 proxy.close();

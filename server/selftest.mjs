@@ -17,13 +17,20 @@ process.env.PORT = "0";
 process.env.TOR_SOCKS_PORT = "19077";
 await import("node:fs/promises").then((m) => m.rm(process.env.SERVER_DATA_DIR, { recursive: true, force: true }));
 
-// always-up mock SOCKS5 proxy for the connection gate
+// always-up mock SOCKS5 proxy that plays the Dojo API (login + wallet tip),
+// so the authenticated connection gate passes without real Tor.
 const proxy = net.createServer((s) => {
   let st = "g";
-  s.on("data", () => {
+  s.on("data", (d) => {
     if (st === "g") { s.write(Buffer.from([5, 0])); st = "c"; return; }
     if (st === "c") { s.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0])); st = "t"; return; }
-    s.write("HTTP/1.0 401 x\r\n\r\n"); s.end();
+    const req = d.toString("latin1");
+    let body;
+    if (req.includes("/auth/login")) body = JSON.stringify({ authorizations: { access_token: "tok" } });
+    else if (req.includes("/wallet")) body = JSON.stringify({ info: { latest_block: { height: 900000, time: 1 } } });
+    else { s.write("HTTP/1.0 404 x\r\n\r\n"); s.end(); return; }
+    s.write(`HTTP/1.0 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+    s.end();
   });
   s.on("error", () => {});
 });

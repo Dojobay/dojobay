@@ -48,6 +48,22 @@ async function sessionFrom(req) {
 }
 function networkOf(rec) { return rec === "testnet" ? "testnet" : "bitcoin"; }
 const isPlainOnionUrl = (u) => { try { const x = new URL(u); return x.protocol === "http:" && /\.onion$/.test(x.hostname); } catch { return false; } };
+// Electrum/indexer endpoints are a bare TCP (or SSL) onion socket, e.g.
+// tcp://<56-char>.onion:50001 , not an HTTP URL, so they need their own check.
+const isIndexerUrl = (u) => typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}(\/.*)?$/i.test(u);
+
+// Best-effort: pull an Electrum/indexer endpoint from an explicit payload.indexer
+// field or from a modern services[] array. Display-only metadata: it is never
+// probed by the connection gate nor part of the signed pairing, so a malformed
+// or absent indexer simply yields null and never blocks a submission.
+function extractIndexer(payload) {
+  let cand = payload && payload.indexer;
+  if ((!cand || !cand.url) && Array.isArray(payload && payload.services)) {
+    cand = payload.services.find((s) => s && s.type === "indexer");
+  }
+  if (!cand || !isIndexerUrl(cand.url)) return null;
+  return { type: "indexer", kind: cand.kind || null, url: cand.url };
+}
 
 // Canonical pairing JSON string the operator must have signed.
 function canonicalPairing(payload) {
@@ -146,9 +162,13 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     if (!sig.ok) return json(res, 400, { error: "signature gate: " + sig.error });
   }
 
-  // connection gate: the pairing onion must answer right now over Tor
-  const check = await probe(body.payload.pairing.url, PROBE_CFG);
-  if (!check.up) return json(res, 422, { error: "connection gate: node unreachable over Tor (" + (check.reason || "no response") + ")", probe: check });
+  // connection gate: the node must answer right now over Tor. When the pairing
+  // payload carries an apikey (it should), this performs the same authenticated
+  // chain-tip read the health checker uses, so a submission must prove its
+  // apikey works and the Dojo is serving block data, not merely that the onion
+  // is reachable. Without an apikey it falls back to a plain reachability probe.
+  const check = await probe(body.payload.pairing.url, { ...PROBE_CFG, apikey: body.payload.pairing.apikey, network });
+  if (!check.up) return json(res, 422, { error: "connection gate: node unreachable or not serving block data over Tor (" + (check.reason || "no response") + ")", probe: check });
 
   const id = `${network}-${s.paymentCode.slice(0, 12)}`;
   const now = new Date().toISOString();
@@ -162,7 +182,11 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     jurisdiction: (body.jurisdiction || "").toString().slice(0, 64) || null,
     country: (body.country || "").toString().slice(0, 2).toUpperCase() || null,
     hardware: (body.hardware || "").toString().slice(0, 120) || null,
-    payload: { pairing: body.payload.pairing, explorer: body.payload.explorer },
+    payload: (() => {
+      const base = { pairing: body.payload.pairing, explorer: body.payload.explorer };
+      const indexer = extractIndexer(body.payload);
+      return indexer ? { ...base, indexer } : base;
+    })(),
     signed: body.signed || null,
     status: "pending",                         // moderation state: pending | approved | rejected
     last_probe: check,

@@ -47,6 +47,19 @@ no-ops until you install it in step 3). Nothing user-visible changes yet.
 
 ## 2. Install the backend dependencies on the VPS
 
+The Auth47 library requires Node 20 or newer, while the base install ships Node
+18. The static site and the updater are fine on 18, but the backend will not run
+until Node is upgraded, so do this first (it is safe for the updater, which runs
+on any Node >= 16):
+
+```
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+node --version        # expect v20.x
+```
+
+Then install the backend dependencies and run its offline test:
+
 ```
 cd /var/www/dojobay/server
 npm ci

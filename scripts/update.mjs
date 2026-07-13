@@ -381,6 +381,43 @@ async function main() {
     nodes: dailyNodes,
   });
 
+  // ---- probe PENDING submissions so the operator sees uptime before approving
+  // Results are written server-side only (server/data/pending-probe.json), never
+  // to the public data/, so an unapproved submission is not exposed over Tor.
+  try {
+    const { store } = await import("../server/store.mjs");
+    const serverDataDir = process.env.SERVER_DATA_DIR
+      || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server", "data");
+    const pendingPath = path.join(serverDataDir, "pending-probe.json");
+    const subs = (await store.listSubmissions()).filter((s) => s.status === "pending");
+    if (subs.length) {
+      const prevDoc = await readJSON(pendingPath, { window_checks: window, nodes: {} });
+      const presults = await pool(subs, CFG.concurrency, async (s) => {
+        const url = s?.payload?.pairing?.url;
+        if (!url) return { up: false, reason: "no pairing url", ms: 0 };
+        return probe(url, { ...CFG, apikey: s?.payload?.pairing?.apikey, network: s.network });
+      });
+      const pnodes = {};
+      subs.forEach((s, i) => {
+        const r = presults[i];
+        const prev = (prevDoc.nodes?.[s.id]?.checks) || [];
+        const checks = prev.concat([{ t: ts.isoMin, up: r.up }]);
+        if (checks.length > window) checks.splice(0, checks.length - window);
+        pnodes[s.id] = {
+          status: r.up ? "active" : "inactive",
+          checked_at: ts.dateTime,
+          block_height: typeof r.height === "number" ? r.height
+            : (prevDoc.nodes?.[s.id]?.block_height ?? null),
+          checks,
+        };
+      });
+      await writeJSONAtomic(pendingPath, { generated_at: ts.isoSec, window_checks: window, nodes: pnodes });
+      console.error(`[${ts.isoSec}] probed ${subs.length} pending submission(s)`);
+    }
+  } catch (e) {
+    console.error(`[${ts.isoSec}] pending probe skipped: ${e.message}`);
+  }
+
   console.error(`[${ts.isoSec}] done: ${up}/${dojos.nodes.length} active`);
   for (const [i, n] of dojos.nodes.entries()) {
     const r = results[i];

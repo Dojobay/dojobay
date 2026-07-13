@@ -1,0 +1,5 @@
+{
+  "onion": "http://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/",
+  "paymentCode": "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+  "verifySigned": "-----BEGIN BITCOIN SIGNED MESSAGE-----\nhttp://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/\n\nBIP47: PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\nIDgHOPHUYpefQnkk2AQqN2ANkTBgTK5d14T5Utdlu4VfR08qYjc8UMOyKNU7fktMCFUvC64OTOlHR3LMblR/cBc=\n-----END BITCOIN SIGNATURE-----"
+}

@@ -41,6 +41,15 @@ server {
         proxy_read_timeout 45s;   # the connection gate + PayNym lookup probe Tor
     }
 
+    # SECURITY: the backend's data (store.json: sessions, payment codes, node
+    # API keys) and source live under server/ inside the web root. Never serve
+    # them over the onion.
+    location ^~ /server/ { return 404; }
+
+    # Serve the SPA shell for the admin route (client-side view; auth is enforced
+    # by the backend, this only returns the same HTML/JS).
+    location = /admin { try_files /index.html =404; }
+
     location / {
         try_files $uri $uri/ =404;
     }

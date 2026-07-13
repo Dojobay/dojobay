@@ -17,6 +17,8 @@ WorkingDirectory=/var/www/dojobay/server
 Environment=PORT=8787
 Environment=BASE_URL=http://YOURONIONADDRESS.onion
 Environment=TOR_SOCKS_PORT=9050
+# Comma-separated BIP47 payment codes allowed to moderate at /admin. Per-operator.
+Environment=ADMIN_PAYMENT_CODES=ADMINPAYMENTCODE
 ExecStart=/usr/bin/node index.mjs
 Restart=on-failure
 RestartSec=3

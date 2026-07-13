@@ -15,7 +15,19 @@ process.env.SERVER_DATA_DIR = "/tmp/dojobay-selftest";
 process.env.BASE_URL = "http://exampledojobayonion.onion";
 process.env.PORT = "0";
 process.env.TOR_SOCKS_PORT = "19077";
-await import("node:fs/promises").then((m) => m.rm(process.env.SERVER_DATA_DIR, { recursive: true, force: true }));
+// isolate the public data dir so admin approve's rebuild() never writes live data
+process.env.PUBLIC_DATA_DIR = "/tmp/dojobay-selftest-data";
+// make the simulated wallet's payment code an admin so /admin routes are testable
+process.env.ADMIN_PAYMENT_CODES = BIP47Factory(ecc)
+  .fromSeed(mnemonicToSeedSync("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"))
+  .toPaymentCodePublic().toBase58();
+await import("node:fs/promises").then(async (m) => {
+  await m.rm(process.env.SERVER_DATA_DIR, { recursive: true, force: true });
+  await m.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
+  await m.mkdir(process.env.PUBLIC_DATA_DIR, { recursive: true });
+  try { await m.copyFile(new URL("../data/seed.json", import.meta.url), process.env.PUBLIC_DATA_DIR + "/seed.json"); }
+  catch { await m.writeFile(process.env.PUBLIC_DATA_DIR + "/seed.json", JSON.stringify({ nodes: [] })); }
+});
 
 // always-up mock SOCKS5 proxy that plays the Dojo API (login + wallet tip),
 // so the authenticated connection gate passes without real Tor.
@@ -125,26 +137,19 @@ ok(create.status === 200 && create.body.submission.status === "pending", "valid 
   down.close();
 }
 
-// 6) moderation + publish
-const { store } = await import("./store.mjs");
-const subs = await store.listSubmissions();
-const rec = subs.find((r) => r.status === "pending");
-rec.status = "approved"; rec.paynym = "+testoperator"; await store.putSubmission(rec);
-// Publish check, fully isolated: point build-public at a temp data directory
-// seeded with a copy of the real seed list, so the live data/dojos.json is
-// never written by a test run.
+// 6) admin moderation via the /admin API + publish
+const anon = await fetch(base + "/api/admin/submissions");    // no cookie
+ok(anon.status === 401, "admin route rejects anonymous");
+const alist = await api("/api/admin/submissions");
+ok(alist.status === 200 && alist.body.admin === true && alist.body.submissions.some((s) => s.status === "pending"),
+   "admin can list pending submissions");
+const pendId = alist.body.submissions.find((s) => s.status === "pending").id;
+const appr = await api("/api/admin/approve", "POST", { id: pendId, paynym: "+testoperator" });
+ok(appr.status === 200 && appr.body.ok && appr.body.rebuild.nodes >= 1, "admin approve publishes");
 const fsp = await import("node:fs/promises");
-const TEST_DATA = "/tmp/dojobay-selftest-data";
-await fsp.rm(TEST_DATA, { recursive: true, force: true });
-await fsp.mkdir(TEST_DATA, { recursive: true });
-const seedSrc = new URL("../data/seed.json", import.meta.url);
-try { await fsp.copyFile(seedSrc, TEST_DATA + "/seed.json"); }
-catch { await fsp.writeFile(TEST_DATA + "/seed.json", JSON.stringify({ nodes: [] })); }
-process.env.PUBLIC_DATA_DIR = TEST_DATA;
-await import("./build-public.mjs");
-const pub = JSON.parse(await fsp.readFile(TEST_DATA + "/dojos.json", "utf8"));
+const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
 ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission appears in public dojos.json");
-await fsp.rm(TEST_DATA, { recursive: true, force: true });
+await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);
 proxy.close();

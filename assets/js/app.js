@@ -197,7 +197,6 @@ async function loadJSON(url){
         <button class="lnk" data-modal="disclaimer">Disclaimer</button>
         <button class="lnk" id="manage-link" data-act="manage"${BACKEND?"":" hidden"}>Manage my Dojo</button>
         <a class="onion-pill" href="data/dojos.json" download="dojos.json" title="Download the directory as JSON">JSON ↓</a>
-        ${ONION_URL?`<a class="onion-pill" href="${ONION_URL}" target="_blank" rel="noopener">.onion ↗</a>`:""}
       </nav>
     </div></header>
 
@@ -217,6 +216,8 @@ async function loadJSON(url){
     </main>
 
     <footer><div class="wrap">
+      <button class="lnk verify-link" data-act="verify" title="Verify this directory's onion address is signed by its operator">Verify</button>
+      <span class="foot-spacer"></span>
       <a class="gh" href="${REPO_URL}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${GH_LOGO}</a>
       <span class="ver" id="build-ver"></span>
     </div></footer>
@@ -259,6 +260,26 @@ async function loadJSON(url){
   }
   function closeModal(){const o=document.getElementById("ov");if(o)o.classList.remove("show");}
 
+  // Verify popup: shows the operator's BIP47-signed proof of this onion address,
+  // as a scannable QR plus the copyable signed message. Source: data/operator.json.
+  let OPERATOR = null;
+  async function openVerify(){
+    const titleEl=document.getElementById("ov-title"), body=document.getElementById("ov-body");
+    if(!titleEl||!body) return;
+    titleEl.textContent = "Verify this directory";
+    document.getElementById("ov").classList.add("show");
+    body.innerHTML = '<p class="loading">Loading…</p>';
+    try{ if(!OPERATOR) OPERATOR = await loadJSON("data/operator.json"); }
+    catch(e){ body.innerHTML='<p class="loading">Operator signature unavailable.</p>'; return; }
+    const signed = OPERATOR.verifySigned || "";
+    body.innerHTML =
+      '<p style="font-size:13px;color:var(--muted)">This directory\u2019s operator has signed its onion address with their BIP47 payment code. '+
+      'Scan or copy the signed message and verify it against the payment code to confirm you are on the genuine site and not a phishing clone.</p>'+
+      '<div style="text-align:center;margin:16px 0"><div style="display:inline-block;background:#fff;border-radius:10px;padding:12px">'+qrSVG(signed,300)+'</div></div>'+
+      '<div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copyverify">Copy</button></div>'+
+      '<pre class="verify-pre">'+esc(signed)+'</pre>';
+  }
+
   document.addEventListener("click", e=>{
     const netBtn=e.target.closest("[data-net]");
     if(netBtn){net=netBtn.getAttribute("data-net");render();return;}
@@ -269,6 +290,8 @@ async function loadJSON(url){
     const a=act.getAttribute("data-act");
     if(a==="dismiss"){try{localStorage.setItem("db_banner","off")}catch(e){}render();return;}
     if(a==="closemodal"){closeModal();return;}
+    if(a==="verify"){ openVerify(); return; }
+    if(a==="copyverify"){ if(OPERATOR) copy(OPERATOR.verifySigned).then(()=>flash(act,"Copied ✓")); return; }
     const cardEl=e.target.closest(".card");
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
     if(a==="reveal"){
@@ -370,6 +393,7 @@ async function loadJSON(url){
     startAuth47();
   }
   let pollTimer=null;
+  let onAuthSuccess=null;
   async function startAuth47(){
     clearInterval(pollTimer);
     const boxEl = () => document.getElementById("auth47-box");
@@ -381,7 +405,7 @@ async function loadJSON(url){
        <div class="mono" style="font-size:10.5px;color:var(--faint);margin-top:8px;word-break:break-all">${esc(uri)}</div>`;
     pollTimer = setInterval(async ()=>{
       const p = await api.call("/auth47/poll?nonce="+encodeURIComponent(nonce));
-      if(p.status===200 && p.body && p.body.authenticated){ clearInterval(pollTimer); await refreshMe(); renderManage(); }
+      if(p.status===200 && p.body && p.body.authenticated){ clearInterval(pollTimer); await refreshMe(); (onAuthSuccess||renderManage)(); }
     }, 2500);
   }
 
@@ -427,7 +451,76 @@ async function loadJSON(url){
     }catch(e){ /* no version file: show nothing */ }
   }
 
+  // ================= Admin console (/admin) =================================
+  // Reuses the Auth47 login flow. A session whose payment code is in the
+  // backend's ADMIN_PAYMENT_CODES sees a moderation panel; others are refused.
+  function adminShell(inner){
+    document.getElementById("root").innerHTML = `
+    <header><div class="wrap">
+      <a class="brand" href="./" aria-label="The Dojo Bay">${LOGO}
+        <span><div class="name disp">THE DOJO BAY</div><div class="sub mono">operator console</div></span></a>
+      <nav><a class="lnk" href="./">\u2190 Directory</a></nav>
+    </div></header>
+    <main class="wrap"><h2 class="disp" style="margin:18px 0 14px">Moderation</h2>${inner}</main>`;
+  }
+  function adminRow(s){
+    const pr=s.probe;
+    const strip = (pr && pr.checks && pr.checks.length) ? relStrip(pr.checks)
+      : '<p style="font-size:12px;color:var(--faint);margin:6px 0">No probe data yet (the updater runs every 10 minutes).</p>';
+    const height = (pr && pr.block_height!=null) ? Number(pr.block_height).toLocaleString("en-GB") : "\u2014";
+    const st = pr ? pr.status : "not yet probed";
+    return `<div class="admin-row" data-id="${esc(s.id)}">
+      <div class="admin-head"><b>${esc(s.paynym||s.id)}</b> <span class="abadge ${esc(s.status)}">${esc(s.status)}</span>
+        <span class="mono" style="font-size:11px;color:var(--faint)">${esc(s.network)}</span></div>
+      <div class="mono" style="font-size:11px;word-break:break-all;color:var(--muted);margin:2px 0">${esc(s.pairingUrl||"")}</div>
+      <div style="font-size:12px;color:var(--muted);margin:4px 0">live probe: <b>${esc(st)}</b> \u00b7 block ${height} \u00b7 ${s.signed?"signed \u2713":"no signature"} \u00b7 v${esc(s.version||"?")}${s.hardware?" \u00b7 "+esc(s.hardware):""}</div>
+      ${strip}
+      <div class="admin-actions">
+        ${s.status!=="approved"?`<button class="abtn ok" data-adm="approve" data-id="${esc(s.id)}">Approve</button>`:""}
+        ${s.status!=="rejected"?`<button class="abtn" data-adm="reject" data-id="${esc(s.id)}">Reject</button>`:""}
+        <button class="abtn danger" data-adm="remove" data-id="${esc(s.id)}">Remove</button>
+      </div></div>`;
+  }
+  async function renderAdminPanel(){
+    if(!ME || !ME.authenticated){
+      adminShell('<p style="font-size:13px;color:var(--muted)">Sign in with your operator PayNym via Auth47 (Samourai or Ashigaru \u2192 Settings \u2192 Pair wallet \u2192 Auth47).</p><div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge\u2026</p></div>');
+      onAuthSuccess = renderAdminPanel; startAuth47(); return;
+    }
+    if(!ME.admin){
+      adminShell('<p>The payment code <code>'+esc(ME.paymentCode.slice(0,12))+'\u2026</code> is not an administrator of this directory.</p><p style="margin-top:10px"><button class="abtn" data-adm="logout">Sign out</button></p>');
+      return;
+    }
+    adminShell('<p class="loading">Loading submissions\u2026</p>');
+    const r = await api.call("/admin/submissions");
+    if(r.status!==200){ adminShell('<p>Could not load submissions ('+r.status+').</p>'); return; }
+    const subs=r.body.submissions||[];
+    const pending=subs.filter(s=>s.status==="pending");
+    const others=subs.filter(s=>s.status!=="pending");
+    adminShell(
+      '<p style="font-size:13px;color:var(--muted)">Signed in as <code>'+esc(ME.paymentCode.slice(0,12))+'\u2026'+esc(ME.paymentCode.slice(-4))+'</code> '+
+      '<button class="abtn" data-adm="logout" style="margin-left:8px">Sign out</button></p>'+
+      '<h3 style="margin:16px 0 8px">Pending review ('+pending.length+')</h3>'+
+      (pending.length? pending.map(adminRow).join("") : '<p style="color:var(--faint)">Nothing awaiting review.</p>')+
+      '<h3 style="margin:22px 0 8px">Approved / rejected ('+others.length+')</h3>'+
+      (others.length? others.map(adminRow).join("") : '<p style="color:var(--faint)">None.</p>')
+    );
+  }
+  document.addEventListener("click", async e=>{
+    const b=e.target.closest("[data-adm]"); if(!b) return;
+    const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
+    if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; renderAdminPanel(); return; }
+    if(act==="remove" && !confirm("Remove this submission permanently?")) return;
+    b.disabled=true; const o=b.textContent; b.textContent="\u2026";
+    if(act==="approve") await api.call("/admin/approve","POST",{id});
+    else if(act==="reject") await api.call("/admin/reject","POST",{id});
+    else if(act==="remove") await api.call("/admin/remove","POST",{id});
+    await refreshMe(); renderAdminPanel();
+  });
+
+  const IS_ADMIN_PAGE = location.pathname.replace(/\/+$/,"") === "/admin";
+
   (async function(){
+    if(IS_ADMIN_PAGE){ document.title="Admin \u2014 The Dojo Bay"; await refreshMe(); renderAdminPanel(); return; }
     try{
       [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json")]);
       render();

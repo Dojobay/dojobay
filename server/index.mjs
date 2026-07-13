@@ -16,12 +16,30 @@ import { store } from "./store.mjs";
 import { makeAuth47, notificationAddress, verifySignedPayload } from "./crypto.mjs";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { resolvePayNym } from "./paynym.mjs";
+import { rebuild } from "./build-public.mjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PORT = +(process.env.PORT || 8787);
 // The public origin of the site (its .onion), needed for the Auth47 callback + resource.
 const BASE_URL = process.env.BASE_URL || "http://localhost";
 const NONCE_TTL = 5 * 60 * 1000;      // Auth47 nonces valid 5 minutes
 const SESSION_TTL = 12 * 60 * 60 * 1000;
+
+// BIP47 payment codes permitted to moderate at /admin. Per-operator config, set
+// in the systemd unit (Environment=ADMIN_PAYMENT_CODES=...); never hard-coded,
+// so a fork's operator sets their own.
+const ADMIN_CODES = (process.env.ADMIN_PAYMENT_CODES || "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+const isAdmin = (pc) => !!pc && ADMIN_CODES.includes(pc);
+
+const SERVER_DATA = process.env.SERVER_DATA_DIR
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
+async function pendingProbe() {
+  try { return JSON.parse(await readFile(path.join(SERVER_DATA, "pending-probe.json"), "utf8")); }
+  catch { return { nodes: {} }; }
+}
 
 const auth47 = makeAuth47(BASE_URL);
 
@@ -127,7 +145,67 @@ route("GET", /^\/api\/me$/, async (req, res) => {
   const s = await sessionFrom(req);
   if (!s) return json(res, 200, { authenticated: false });
   const mine = await store.submissionsFor(s.paymentCode);
-  json(res, 200, { authenticated: true, paymentCode: s.paymentCode, submissions: mine });
+  json(res, 200, { authenticated: true, paymentCode: s.paymentCode, admin: isAdmin(s.paymentCode), submissions: mine });
+});
+
+// ---- admin (moderation) ----------------------------------------------------
+// All require an authenticated session whose payment code is in ADMIN_CODES.
+async function adminFrom(req, res) {
+  const s = await sessionFrom(req);
+  if (!s) { json(res, 401, { error: "not authenticated" }); return null; }
+  if (!isAdmin(s.paymentCode)) { json(res, 403, { error: "not authorised" }); return null; }
+  return s;
+}
+
+// list submissions with their pending-probe status + reliability history
+route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  const probes = (await pendingProbe()).nodes || {};
+  const subs = (await store.listSubmissions()).map((s) => ({
+    id: s.id, network: s.network, status: s.status,
+    paynym: s.paynym || null, paymentCode: s.paymentCode,
+    jurisdiction: s.jurisdiction || null, country: s.country || null,
+    hardware: s.hardware || null, signed: !!s.signed,
+    version: s.payload?.pairing?.version || null,
+    pairingUrl: s.payload?.pairing?.url || null,
+    created_at: s.created_at || null, updated_at: s.updated_at || null,
+    probe: probes[s.id] || null,      // { status, checked_at, block_height, checks:[] }
+  }));
+  json(res, 200, { admin: true, submissions: subs });
+});
+
+route("POST", /^\/api\/admin\/approve$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const rec = await store.getSubmission(body.id);
+  if (!rec) return json(res, 404, { error: "not found" });
+  rec.status = "approved";
+  rec.updated_at = new Date().toISOString();
+  if (body.paynym) rec.paynym = body.paynym.startsWith("+") ? body.paynym : "+" + body.paynym;
+  else if (!rec.paynym) { const r = await resolvePayNym(rec.paymentCode).catch(() => null); if (r) rec.paynym = r; }
+  await store.putSubmission(rec);
+  const out = await rebuild();
+  json(res, 200, { ok: true, submission: rec, rebuild: out });
+});
+
+route("POST", /^\/api\/admin\/reject$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const rec = await store.getSubmission(body.id);
+  if (!rec) return json(res, 404, { error: "not found" });
+  rec.status = "rejected";
+  rec.updated_at = new Date().toISOString();
+  await store.putSubmission(rec);
+  const out = await rebuild();   // drops it from the public list if it was approved
+  json(res, 200, { ok: true, rebuild: out });
+});
+
+route("POST", /^\/api\/admin\/remove$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  await store.deleteSubmission(body.id);
+  const out = await rebuild();
+  json(res, 200, { ok: true, rebuild: out });
 });
 
 // 5) logout

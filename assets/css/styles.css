@@ -170,3 +170,21 @@
 
   footer .ver{margin-left:12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)}
   footer .ver a{color:var(--faint)} footer .ver a:hover{color:var(--text)}
+
+  /* footer verify link */
+  footer .wrap{display:flex;align-items:center;gap:10px}
+  .foot-spacer{flex:1}
+  .verify-pre{background:var(--panel,#111);border:1px solid var(--line);border-radius:8px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text);margin-top:6px}
+
+  /* admin console */
+  .admin-row{border:1px solid var(--line);border-radius:10px;padding:14px;margin:10px 0;background:var(--card,#0e0e10)}
+  .admin-head{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+  .abadge{font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  .abadge.pending{color:#b9a13a;border-color:#b9a13a}
+  .abadge.approved{color:var(--up);border-color:var(--up)}
+  .abadge.rejected{color:var(--down);border-color:var(--down)}
+  .admin-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .abtn{font:inherit;font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer}
+  .abtn.ok{border-color:var(--up);color:var(--up)}
+  .abtn.danger{border-color:var(--down);color:var(--down)}
+  .abtn:disabled{opacity:.5}

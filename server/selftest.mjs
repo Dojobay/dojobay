@@ -320,6 +320,43 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "relisting within the grace window resurrects the history untouched");
 }
 
+// 14) display-field edits: owner can amend name, hardware and Dojo version;
+//     the id, status and history are untouched; renames respect per-network
+//     uniqueness including the owner's own other records and the seed.
+{
+  const ed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", hardware: "RPi5 8GB", version: "9.9.9-test" });
+  const rec = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
+  ok(ed.status === 200 && rec.hardware === "RPi5 8GB" && rec.version === "9.9.9-test" && rec.status === "approved",
+     "owner edit updates hardware and version, keeps id and approved status");
+  const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
+  const pubNode = pub.nodes.find((n) => n.id === "mainnet-selftest-node");
+  ok(pubNode && pubNode.version === "9.9.9-test" && pubNode.paymentCode === rec.paymentCodes[0],
+     "approved edit publishes immediately; card carries version override and a payment code");
+
+  const clashOwn = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "zulu" });
+  const clashSeed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "Kilombino" });
+  ok(clashOwn.status === 409 && clashSeed.status === 409,
+     "renames rejected when colliding with own other record or a seed node");
+
+  const anon = await fetch(base + "/api/dojo/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "mainnet-selftest-node", name: "x" }) });
+  const admEd = await api("/api/admin/edit", "POST", { id: "testnet-alpha", name: "alpha", hardware: "edited-by-admin" });
+  const stub = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "testnet-alpha"));
+  ok(anon.status === 401 && admEd.status === 200 && stub.hardware === "edited-by-admin",
+     "anonymous edit rejected; admin can edit any record via /api/admin/edit");
+}
+
+// 15) the card shows the PayNym's canonical (non-segwit) code variant when the
+//     mapping identifies it, falling back to the record's first code.
+{
+  const { displayPaymentCode } = await import("./build-public.mjs");
+  const sub = { paynym: "+max", paymentCodes: ["PMsegwitVariant", "PMlegacyVariant"] };
+  const mapping = { "+max": { codes: [{ code: "PMsegwitVariant", segwit: true }, { code: "PMlegacyVariant", segwit: false }] } };
+  ok(displayPaymentCode(sub, mapping) === "PMlegacyVariant"
+     && displayPaymentCode(sub, {}) === "PMsegwitVariant"
+     && displayPaymentCode({ paymentCodes: [] }, mapping) === null,
+     "display code prefers the non-segwit variant, falls back to the first, null when none");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

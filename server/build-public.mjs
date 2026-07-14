@@ -28,7 +28,20 @@ async function writeAtomic(p, obj) {
   await rename(tmp, p);
 }
 
-function toPublicNode(sub) {
+// The payment code shown on a card. A PayNym commonly has two BIP47 variants
+// and records store every variant; the canonical one people share (and the one
+// shown on paynym.rs profiles) is the NON-segwit code, so prefer that when the
+// paynym-codes mapping can identify it, falling back to the record's first.
+// Exported for the self-test.
+export function displayPaymentCode(sub, mapping) {
+  const codes = Array.isArray(sub.paymentCodes) ? sub.paymentCodes : [];
+  if (!codes.length) return null;
+  const entry = sub.paynym && mapping && mapping[sub.paynym];
+  const legacy = entry && (entry.codes || []).find((c) => !c.segwit && codes.includes(c.code));
+  return (legacy && legacy.code) || codes[0];
+}
+
+function toPublicNode(sub, paymentCode) {
   return {
     id: sub.id,
     network: sub.network,
@@ -36,10 +49,13 @@ function toPublicNode(sub) {
     name_url: sub.name_url || null,
     status: "inactive",
     paynym: sub.paynym || null,
+    paymentCode: paymentCode || null,
     jurisdiction: sub.jurisdiction || null,
     country: sub.country || null,
     hardware: sub.hardware || null,
-    version: sub.payload?.pairing?.version || null,
+    // `version` is an operator-editable override; the wallet pairing payload's
+    // version remains the default and is untouched by edits.
+    version: sub.version || sub.payload?.pairing?.version || null,
     checked_at: null,
     payload: sub.payload,
     signed: sub.signed || null,
@@ -81,8 +97,10 @@ export async function rebuild() {
   const PENDING_PROBE = path.join(SERVER_DATA, "pending-probe.json");
 
   const seed = await readJSON(SEED, { nodes: [] });
+  // Optional: identifies each PayNym's non-segwit code variant for display.
+  const codesDoc = await readJSON(path.join(DATA_DIR, "paynym-codes.json"), { mapping: {} });
   const approvedSubs = (await store.listSubmissions()).filter((s) => s.status === "approved");
-  const approved = approvedSubs.map(toPublicNode);
+  const approved = approvedSubs.map((s) => toPublicNode(s, displayPaymentCode(s, codesDoc.mapping)));
   const approvedIds = new Set(approved.map((n) => n.id));
 
   const byId = new Map();

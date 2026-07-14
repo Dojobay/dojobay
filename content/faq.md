@@ -2,13 +2,13 @@
 
 > **Don't delete your wallet without your passphrase**
 >
-> Your Ashigaru or Samourai passphrase is shown only once, when the wallet is created, and is separate from the PIN you use to open the app; the two are not linked. To switch the Dojo your wallet connects to you must delete and re-create the wallet, so confirm you have the correct passphrase first. The passphrase cannot be recovered, and you need both the 12-word seed phrase and the passphrase to restore a wallet. To check a passphrase, go to **Settings → Wallet → Check BIP39 Passphrase**.
+> Your [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/) or [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) passphrase is shown only once, when the wallet is created, and is separate from the PIN you use to open the app; the two are not linked. To switch the Dojo your wallet connects to you must delete and re-create the wallet, so confirm you have the correct passphrase first. The passphrase cannot be recovered, and you need both the 12-word seed phrase and the passphrase to restore a wallet. To check a passphrase, go to **Settings → Wallet → Check BIP39 Passphrase**.
 >
 > 🔴 No passphrase: do not delete the wallet. Send the funds to a wallet you control instead.
 >
 > 🟢 Passphrase and 12 words: you can safely delete the wallet to change device or connect to another Dojo.
 >
-> If you have the passphrase but not the 12 words, you can still open the wallet by decrypting the backup file with the passphrase. If you lose the Dojo connection and don't have the passphrase, export the XPUB to Sparrow for a watch-only wallet and sign offline from Ashigaru.
+> If you have the passphrase but not the 12 words, you can still open the wallet by decrypting the backup file with the passphrase. If you lose the Dojo connection and don't have the passphrase, export the XPUB to Sparrow for a watch-only wallet and sign offline from [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/).
 
 ### Are there privacy concerns for Dojo seekers?
 
@@ -16,11 +16,11 @@ Yes. When you pair with a Dojo you share your extended public key (XPUB), and th
 
 ### How do I verify a signed Dojo?
 
-Confirm the PayNym belongs to someone whose reputation you can check, whether stated in a social-media bio, on their own site, or mentioned publicly, and look it up in the [PayNym.rs](http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion) directory to see its code. Then take the signed message to the BIP47 verifier at [pajasevi.github.io/bip47-verifier](https://pajasevi.github.io/bip47-verifier/) (by PavelTheCoder) and fill in the fields; a correct message returns "Message verified successfully". If verification fails there, use **Tools → Verify message** inside Samourai or Ashigaru.
+Confirm the PayNym belongs to someone whose reputation you can check, whether stated in a social-media bio, on their own site, or mentioned publicly, and look it up in the [PayNym.rs](http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion) directory to see its code. Then take the signed message to the [BIP47 Message Verifier](http://ab64uow264ohynkalvlyhdrduwwl75n4urvc2vrbo3xjd4jycygiirqd.onion/lab) and fill in the fields; a correct message returns "Message verified successfully". If verification fails there, use **Tools → Verify message** inside [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) or [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/).
 
 ### Where do I learn to run my own Dojo?
 
-A Dojo can be installed several ways: [RoninDojo](https://ronindojo.io), a vanilla Dojo (instructions at [dojo-osp.org](https://dojo-osp.org)), or through the Umbrel, [Nodl](https://nodl.eu) and [Start9](https://marketplace.start9.com) marketplaces. It runs on almost any Bitcoin node implementation, giving you full control of your Samourai / Ashigaru backend. Treat any public Dojo as strictly temporary or for testing: once your own node is running, migrate your funds to fresh addresses managed by your instance to avoid reusing previously exposed public keys.
+A Dojo can be installed several ways: [RoninDojo](https://ronindojo.io), a vanilla Dojo (instructions at [dojo-osp.org](https://dojo-osp.org)), or through the [Umbrel](https://apps.umbrel.com/app/samourai-server), [Nodl](https://nodl.eu) and [Start9](https://marketplace.start9.com) marketplaces. It runs on almost any Bitcoin node implementation, giving you full control of your [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) / [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/) backend. Treat any public Dojo as strictly temporary or for testing: once your own node is running, migrate your funds to fresh addresses managed by your instance to avoid reusing previously exposed public keys.
 
 ## For Dojo runners
 

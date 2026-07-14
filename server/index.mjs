@@ -217,7 +217,7 @@ route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
     paynym: s.paynym || null, paymentCodes: s.paymentCodes,
     jurisdiction: s.jurisdiction || null, country: s.country || null,
     hardware: s.hardware || null, signed: !!s.signed,
-    version: s.payload?.pairing?.version || null,
+    version: s.version || s.payload?.pairing?.version || null,
     pairingUrl: s.payload?.pairing?.url || null,
     created_at: s.created_at || null, updated_at: s.updated_at || null,
     probe: probes[s.id] || null,      // { status, checked_at, block_height, checks:[] }
@@ -361,6 +361,63 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   };
   await store.putSubmission(rec);
   json(res, 200, { ok: true, submission: rec, note: "Submitted for review. It will appear once a maintainer approves it." });
+});
+
+// Editable metadata: name, hardware, and a Dojo-version override. These are
+// display fields, so an edit keeps the record's moderation status and its id
+// (and therefore its history); only a full resubmission re-enters moderation.
+// A rename must not collide with ANY other record's name on that network,
+// including the editor's own other records, hence the excludeId scan.
+async function slugTakenByOther(network, slug, excludeId) {
+  for (const r of await store.listSubmissions()) {
+    if (r.id === excludeId || r.network !== network) continue;
+    if (slugify(r.name) === slug || r.id === `${network}-${slug}`) {
+      return `the name is already used by ${r.paynym || "another"}'s ${r.status} record`;
+    }
+  }
+  for (const n of await seedNodes()) {
+    if (n.network !== network || n.id === excludeId) continue;
+    if (slugify(n.name) === slug || n.id === `${network}-${slug}`) return "the name is reserved by a curated seed node";
+  }
+  return null;
+}
+
+async function applyEdit(rec, body, res) {
+  const name = String(body.name || "").trim().slice(0, 40);
+  const slug = slugify(name);
+  if (!slug) return json(res, 400, { error: "name is required (letters, digits and hyphens)" });
+  const taken = await slugTakenByOther(rec.network, slug, rec.id);
+  if (taken) return json(res, 409, { error: `name "${name}" is taken on ${rec.network}: ${taken}` });
+  rec.name = name;
+  rec.hardware = String(body.hardware || "").trim().slice(0, 120) || null;
+  const version = String(body.version || "").trim().slice(0, 24);
+  rec.version = version || null;                    // null falls back to the pairing payload's version
+  rec.updated_at = new Date().toISOString();
+  await store.putSubmission(rec);
+  const out = rec.status === "approved" ? await tryRebuild() : null;   // approved edits publish immediately
+  json(res, 200, { ok: true, submission: rec, rebuild: out });
+}
+
+// 9) edit display fields on one of my records
+route("POST", /^\/api\/dojo\/edit$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const rec = await store.getSubmission(body.id);
+  if (!rec || !owns(rec, s.paymentCode)) return json(res, 404, { error: "not found" });
+  await applyEdit(rec, body, res);
+});
+
+// 10) admin: edit display fields on any record
+route("POST", /^\/api\/admin\/edit$/, async (req, res) => {
+  const s = await adminFrom(req, res);
+  if (!s) return;
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const rec = await store.getSubmission(body.id);
+  if (!rec) return json(res, 404, { error: "not found" });
+  await applyEdit(rec, body, res);
 });
 
 // 8) delete one of my records

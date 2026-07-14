@@ -81,9 +81,9 @@ async function loadJSON(url){
   }
 
   // ---- 90-day daily history (lazily fetched once, cached) -------------------
-  let HIST90 = null;
+  let HIST90 = null, DAILY = {nodes:{}};
   function loadHist90(){
-    if(!HIST90) HIST90 = loadJSON("data/history-daily.json").catch(()=>({nodes:{}}));
+    if(!HIST90) HIST90 = loadJSON("data/history-daily.json").catch(()=>({nodes:{}})).then(d=>{DAILY=d;return d;});
     return HIST90;
   }
   function heightSparkline(days){
@@ -143,6 +143,7 @@ async function loadJSON(url){
         <span class="cbadge ${n.status}">${n.status==="active"?"Active":"Inactive"}</span>
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
+      ${n.paymentCode?`<button class="pcode mono" data-act="copycode" data-v="${esc(n.paymentCode)}" title="${esc(n.paymentCode)} — click to copy">${esc(n.paymentCode.slice(0,8))}…${esc(n.paymentCode.slice(-8))}</button>`:""}
       ${relStrip(checks)}
       <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">Reliability · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
       <div class="meta">
@@ -179,8 +180,32 @@ async function loadJSON(url){
     </div>`;
   }
 
+  // Card ordering: 7-day uptime desc, then 24h uptime desc, then name. A node
+  // with NO history ranks as 0.5% on the missing figure: below anything alive,
+  // above a long-standing dead node sitting at 0%, so fresh listings gather
+  // near the end without looking worse than known-dead ones.
+  const NO_HISTORY_PCT = 0.5;
+  function pct7(id){
+    const days=(((DAILY||{}).nodes||{})[id]||{}).days||[];
+    const last=days.slice(-7);
+    if(!last.length) return null;
+    return last.reduce((a,d)=>a+(Number(d.pct)||0),0)/last.length;
+  }
+  function pct24(id){
+    const c=((HIST.nodes||{})[id]||{}).checks||[];
+    if(!c.length) return null;
+    return 100*c.filter(x=>x.up).length/c.length;
+  }
+  function byUptime(a,b){
+    const a7=pct7(a.id)??NO_HISTORY_PCT, b7=pct7(b.id)??NO_HISTORY_PCT;
+    if(a7!==b7) return b7-a7;
+    const a24=pct24(a.id)??NO_HISTORY_PCT, b24=pct24(b.id)??NO_HISTORY_PCT;
+    if(a24!==b24) return b24-a24;
+    return String(a.name||a.id).localeCompare(String(b.name||b.id),"en",{sensitivity:"base"});
+  }
+
   function render(){
-    const list=DOJOS.nodes.filter(n=>n.network===net);
+    const list=DOJOS.nodes.filter(n=>n.network===net).sort(byUptime);
     const active=list.filter(n=>n.status==="active").length;
     const gen=(DOJOS.generated_at||"").replace("T"," ").slice(0,16)+" UTC";
     const dismissed=(()=>{try{return localStorage.getItem("db_banner")==="off"}catch(e){return false}})();
@@ -308,6 +333,7 @@ async function loadJSON(url){
     if(a==="closemodal"){closeModal();return;}
     if(a==="verify"){ openVerify(); return; }
     if(a==="copyverify"){ if(OPERATOR) copy(OPERATOR.verifySigned).then(()=>flash(act,"Copied ✓")); return; }
+    if(a==="copycode"){ copy(act.getAttribute("data-v")).then(()=>flash(act,"Copied ✓")); return; }
     const cardEl=e.target.closest(".card");
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
     if(a==="reveal"){
@@ -387,12 +413,35 @@ async function loadJSON(url){
     const label = s==="approved"?"Approved":(s==="rejected"?"Rejected":"Pending review");
     return `<span class="cbadge ${c}" style="background:${s==="pending"?"var(--panel2)":""}">${label}</span>`;
   }
+  // Inline editing of display fields (name, hardware, Dojo version). One row
+  // at a time: EDIT_ID holds the open row; other Edit buttons disable while
+  // it is set. Renaming keeps the record id (and history); uniqueness is
+  // enforced per network by the API (409).
+  let EDIT_ID = null;
+  function editForm(r, actPrefix){
+    const ver = r.version || (r.payload && r.payload.pairing && r.payload.pairing.version) || "";
+    return `<div class="medit">
+      <label>Name <input class="e-name" maxlength="40" value="${esc(r.name||"")}"></label>
+      <label>Hardware <input class="e-hw" maxlength="120" value="${esc(r.hardware||"")}"></label>
+      <label>Dojo version <input class="e-ver" maxlength="24" value="${esc(ver)}" placeholder="e.g. 1.27.0"></label>
+      <div class="medit-actions">
+        <button class="copybtn" data-${actPrefix}="editsave" data-id="${esc(r.id)}">Save</button>
+        <button class="copybtn" data-${actPrefix}="editcancel">Cancel</button>
+        <span class="edit-msg" style="font-size:12px;color:var(--down)"></span>
+      </div>
+    </div>`;
+  }
   function manageRow(r){
+    const editing = EDIT_ID === r.id;
     return `<div class="box" style="padding:12px 14px;background:var(--panel2)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <span class="mono" style="font-size:12.5px"><b>${esc(r.name||r.id)}</b> · ${esc(r.network)} · ${esc(r.jurisdiction||"—")} · ${esc(r.hardware||"—")}</span>
-        ${statusPill(r.status)}
+        <span style="display:flex;gap:8px;align-items:center">
+          <button class="copybtn" data-mact="edit" data-id="${esc(r.id)}"${EDIT_ID&&!editing?" disabled":""}>${editing?"Editing…":"Edit"}</button>
+          ${statusPill(r.status)}
+        </span>
       </div>
+      ${editing?editForm(r,"mact"):""}
       <div class="mono" style="font-size:11px;color:var(--muted);margin-top:6px;word-break:break-all">${esc(r.payload?.pairing?.url||"")}</div>
       <button class="copybtn" data-mact="delete" data-id="${esc(r.id)}" style="margin-top:8px">Delete</button>
     </div>`;
@@ -415,7 +464,7 @@ async function loadJSON(url){
 
   function renderLogin(body){
     body.innerHTML = `
-      <p>Sign in with your Dojo's <strong>PayNym</strong> using Auth47 to manage its listing. Scan this with Samourai or Ashigaru (Settings → Pair wallet → Auth47), or tap to open.</p>
+      <p>Sign in with your Dojo's <strong>PayNym</strong> using Auth47 to manage its listing. Scan this with <a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> (Settings → Pair wallet → Auth47), or tap to open.</p>
       <div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge…</p></div>
       <p style="font-size:12.5px;color:var(--faint)">Auth47 proves you control the payment code without revealing any key. Nothing is stored beyond your payment code and the Dojo details you submit.</p>`;
     startAuth47();
@@ -444,8 +493,21 @@ async function loadJSON(url){
     if(!m) return;
     const act = m.getAttribute("data-mact");
     const msg = document.getElementById("manage-msg");
-    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; renderManage(); return; }
-    if(act==="delete"){ await api.call("/dojo/delete","POST",{id:m.getAttribute("data-id")}); await refreshMe(); renderManage(); return; }
+    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; EDIT_ID=null; renderManage(); return; }
+    if(act==="delete"){ await api.call("/dojo/delete","POST",{id:m.getAttribute("data-id")}); await refreshMe(); EDIT_ID=null; renderManage(); return; }
+    if(act==="edit"){ EDIT_ID=m.getAttribute("data-id"); renderManage(); return; }
+    if(act==="editcancel"){ EDIT_ID=null; renderManage(); return; }
+    if(act==="editsave"){
+      const box=m.closest(".medit");
+      const r=await api.call("/dojo/edit","POST",{
+        id:m.getAttribute("data-id"),
+        name:box.querySelector(".e-name").value,
+        hardware:box.querySelector(".e-hw").value,
+        version:box.querySelector(".e-ver").value,
+      });
+      if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
+      EDIT_ID=null; await refreshMe(); renderManage(); return;
+    }
     if(act==="submit"){
       let payload;
       try{ payload = JSON.parse(document.getElementById("m-payload").value); }
@@ -501,7 +563,9 @@ async function loadJSON(url){
     </div></header>
     <main class="wrap"><h2 class="disp" style="margin:18px 0 14px">Moderation</h2>${inner}</main>`;
   }
+  let ADM_EDIT_ID = null;
   function adminRow(s){
+    const editing = ADM_EDIT_ID === s.id;
     const pr=s.probe;
     const strip = (pr && pr.checks && pr.checks.length) ? relStrip(pr.checks)
       : '<p style="font-size:12px;color:var(--faint);margin:6px 0">No probe data yet (the updater runs every 10 minutes).</p>';
@@ -516,12 +580,14 @@ async function loadJSON(url){
       <div class="admin-actions">
         ${s.status!=="approved"?`<button class="abtn ok" data-adm="approve" data-id="${esc(s.id)}">Approve</button>`:""}
         ${s.status!=="rejected"?`<button class="abtn" data-adm="reject" data-id="${esc(s.id)}">Reject</button>`:""}
+        <button class="abtn" data-adm="edit" data-id="${esc(s.id)}"${ADM_EDIT_ID&&!editing?" disabled":""}>${editing?"Editing…":"Edit"}</button>
         <button class="abtn danger" data-adm="remove" data-id="${esc(s.id)}">Remove</button>
-      </div></div>`;
+      </div>
+      ${editing?editForm(s,"adm"):""}</div>`;
   }
   async function renderAdminPanel(){
     if(!ME || !ME.authenticated){
-      adminShell('<p style="font-size:13px;color:var(--muted)">Sign in with your operator PayNym via Auth47 (Samourai or Ashigaru \u2192 Settings \u2192 Pair wallet \u2192 Auth47).</p><div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge\u2026</p></div>');
+      adminShell('<p style="font-size:13px;color:var(--muted)">Sign in with your operator PayNym via Auth47 (<a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> \u2192 Settings \u2192 Pair wallet \u2192 Auth47).</p><div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge\u2026</p></div>');
       onAuthSuccess = renderAdminPanel; startAuth47(); return;
     }
     if(!ME.admin){
@@ -550,7 +616,20 @@ async function loadJSON(url){
   document.addEventListener("click", async e=>{
     const b=e.target.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
-    if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; renderAdminPanel(); return; }
+    if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; ADM_EDIT_ID=null; renderAdminPanel(); return; }
+    if(act==="edit"){ ADM_EDIT_ID=b.getAttribute("data-id"); renderAdminPanel(); return; }
+    if(act==="editcancel"){ ADM_EDIT_ID=null; renderAdminPanel(); return; }
+    if(act==="editsave"){
+      const box=b.closest(".medit");
+      const r=await api.call("/admin/edit","POST",{
+        id:b.getAttribute("data-id"),
+        name:box.querySelector(".e-name").value,
+        hardware:box.querySelector(".e-hw").value,
+        version:box.querySelector(".e-ver").value,
+      });
+      if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
+      ADM_EDIT_ID=null; renderAdminPanel(); return;
+    }
     if(act==="remove" && !confirm("Remove this submission permanently?")) return;
     b.disabled=true; const o=b.textContent; b.textContent="\u2026";
     let r=null;
@@ -571,7 +650,7 @@ async function loadJSON(url){
   (async function(){
     if(IS_ADMIN_PAGE){ document.title="Admin \u2014 The Dojo Bay"; await refreshMe(); renderAdminPanel(); return; }
     try{
-      [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json")]);
+      [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json"),loadHist90()]);
       render();
       loadVersion();
     }catch(e){ showLoadError(e); }

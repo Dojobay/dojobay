@@ -265,6 +265,35 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await fsp.rm(MIG_STORE, { recursive: true, force: true });
 }
 
+// 11) a moderation change whose publish (rebuild) fails must report the
+//     failure to the admin, not swallow it: this is how an approved node
+//     silently never reached the public dojos.json.
+{
+  const goodDir = process.env.PUBLIC_DATA_DIR;
+  process.env.PUBLIC_DATA_DIR = "/dev/null/not-a-directory";     // rebuild will throw
+  const rej = await api("/api/admin/reject", "POST", { id: "mainnet-selftest-node" });
+  ok(rej.status === 200 && rej.body.ok && rej.body.rebuild && rej.body.rebuild.error,
+     "moderation succeeds but a failed publish is reported (rebuild.error)");
+  process.env.PUBLIC_DATA_DIR = goodDir;
+  const reAppr = await api("/api/admin/approve", "POST", { id: "mainnet-selftest-node", paynym: "+testoperator" });
+  ok(reAppr.status === 200 && reAppr.body.rebuild && !reAppr.body.rebuild.error, "publish succeeds again once writable");
+}
+
+// 12) updater reconciliation: an approved node deleted from dojos.json (the
+//     approve-mid-probe-cycle clobber) is restored by reconcilePublicList(),
+//     which the updater now runs at the start of every cycle.
+{
+  const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
+  const doc = JSON.parse(await fsp.readFile(dojosPath, "utf8"));
+  doc.nodes = doc.nodes.filter((n) => n.id !== "mainnet-selftest-node");
+  await fsp.writeFile(dojosPath, JSON.stringify(doc, null, 2) + "\n");
+  const { reconcilePublicList } = await import("../scripts/update.mjs");
+  await reconcilePublicList();
+  const healed = JSON.parse(await fsp.readFile(dojosPath, "utf8"));
+  ok(healed.nodes.some((n) => n.id === "mainnet-selftest-node"),
+     "reconcile restores an approved node clobbered out of dojos.json");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

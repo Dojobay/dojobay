@@ -225,6 +225,16 @@ route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
   json(res, 200, { admin: true, submissions: subs });
 });
 
+// The store change (approve/reject/remove) is committed before the public list
+// is rebuilt, so a rebuild failure must be REPORTED, not thrown as a 500 that
+// hides which half happened: the moderation applied but publication did not.
+// The updater re-runs the rebuild at the start of every 10-minute cycle, so a
+// failed publish heals itself; the error here tells the admin why it deferred.
+async function tryRebuild() {
+  try { return await rebuild(); }
+  catch (e) { return { error: e.message, msg: "rebuild failed: " + e.message + " (the updater retries every 10 minutes)" }; }
+}
+
 route("POST", /^\/api\/admin\/approve$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
@@ -235,7 +245,7 @@ route("POST", /^\/api\/admin\/approve$/, async (req, res) => {
   if (body.paynym) rec.paynym = body.paynym.startsWith("+") ? body.paynym : "+" + body.paynym;
   else if (!rec.paynym) { const r = await resolvePayNym(rec.paymentCodes[0]).catch(() => null); if (r) rec.paynym = r; }
   await store.putSubmission(rec);
-  const out = await rebuild();
+  const out = await tryRebuild();
   json(res, 200, { ok: true, submission: rec, rebuild: out });
 });
 
@@ -247,7 +257,7 @@ route("POST", /^\/api\/admin\/reject$/, async (req, res) => {
   rec.status = "rejected";
   rec.updated_at = new Date().toISOString();
   await store.putSubmission(rec);
-  const out = await rebuild();   // drops it from the public list if it was approved
+  const out = await tryRebuild();   // drops it from the public list if it was approved
   json(res, 200, { ok: true, rebuild: out });
 });
 
@@ -255,7 +265,7 @@ route("POST", /^\/api\/admin\/remove$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
   await store.deleteSubmission(body.id);
-  const out = await rebuild();
+  const out = await tryRebuild();
   json(res, 200, { ok: true, rebuild: out });
 });
 

@@ -66,6 +66,9 @@ async function loadJSON(url){
   const modalCache = {};
 
   let DOJOS=null, HIST=null, net="mainnet";
+  // Mobile menu: state read by the header template at render time (the same
+  // pattern as the Manage button and the build hash), never DOM-poked.
+  let menuOpen=false;
 
   // Electrum/indexer endpoint for the card: accept a flattened payload.indexer
   // or pull the entry from a modern services[] array. tcp/ssl onion only.
@@ -141,6 +144,7 @@ async function loadJSON(url){
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
       ${relStrip(checks)}
+      <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">Reliability · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
       <div class="meta">
         <div class="full"><div class="eyebrow">Hardware</div><div class="v">${esc(n.hardware||"—")}</div></div>
         <div><div class="eyebrow">Dojo version</div><div class="v">v${esc(n.version||"?")}</div></div>
@@ -172,7 +176,6 @@ async function loadJSON(url){
         ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
         ${(()=>{const iu=indexerUrl(n);return iu?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`:"";})()}
       </div>
-      <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">History · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
     </div>`;
   }
 
@@ -192,9 +195,14 @@ async function loadJSON(url){
     </div></div>`}
 
     <header><div class="wrap">
+      <button class="burger" data-act="burger" aria-label="Menu" aria-expanded="${menuOpen}">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          ${menuOpen?'<path d="M6 6 L18 18 M18 6 L6 18"/>':'<path d="M4 7h16 M4 12h16 M4 17h16"/>'}
+        </svg>
+      </button>
       <a class="brand" href="./" aria-label="The Dojo Bay">${LOGO}
         <span><div class="name disp">THE DOJO BAY</div><div class="sub mono">public dojo directory</div></span></a>
-      <nav>
+      <nav class="${menuOpen?"open":""}">
         <button class="lnk" data-modal="about">About</button>
         <button class="lnk" data-modal="faq">FAQ</button>
         <button class="lnk" data-modal="disclaimer">Disclaimer</button>
@@ -229,6 +237,10 @@ async function loadJSON(url){
       <div class="modal-head"><h2 id="ov-title"></h2><button class="x" data-act="closemodal" aria-label="Close">✕</button></div>
       <div class="modal-body" id="ov-body"></div>
     </div></div>`;
+
+    // 90-day strips: one lazily-cached fetch of history-daily.json fills every
+    // card; re-renders re-hydrate from the same cached promise.
+    document.querySelectorAll(".hist90[data-hist]").forEach(m=>renderHist90(m, m.getAttribute("data-hist")));
   }
 
   async function openModal(key){
@@ -287,10 +299,11 @@ async function loadJSON(url){
     const netBtn=e.target.closest("[data-net]");
     if(netBtn){net=netBtn.getAttribute("data-net");render();return;}
     const mBtn=e.target.closest("[data-modal]");
-    if(mBtn){openModal(mBtn.getAttribute("data-modal"));return;}
+    if(mBtn){ if(menuOpen){menuOpen=false;render();} openModal(mBtn.getAttribute("data-modal"));return;}
     const act=e.target.closest("[data-act]");
     if(!act){ if(e.target.id==="ov") closeModal(); return; }
     const a=act.getAttribute("data-act");
+    if(a==="burger"){menuOpen=!menuOpen;render();return;}
     if(a==="dismiss"){try{localStorage.setItem("db_banner","off")}catch(e){}render();return;}
     if(a==="closemodal"){closeModal();return;}
     if(a==="verify"){ openVerify(); return; }
@@ -300,8 +313,7 @@ async function loadJSON(url){
     if(a==="reveal"){
       const host=cardEl.querySelector(".pair-host"), btn=cardEl.querySelector(".reveal");
       if(host.innerHTML.trim()){host.innerHTML="";btn.classList.remove("open");btn.textContent="Pairing details";}
-      else{host.innerHTML=pairHTML(node());btn.classList.add("open");btn.textContent="Hide pairing details";
-        renderHist90(host.querySelector(".hist90"), node().id);}
+      else{host.innerHTML=pairHTML(node());btn.classList.add("open");btn.textContent="Hide pairing details";}
       return;
     }
     if(a==="copypairing"){const n=node();copy(JSON.stringify({pairing:n.payload.pairing,explorer:n.payload.explorer},null,2)).then(()=>flash(act,"Copied ✓"));return;}
@@ -337,9 +349,16 @@ async function loadJSON(url){
     }catch(e){ /* no backend: stay hidden */ }
   }
 
-  function openManage(){
+  async function openManage(){
     document.getElementById("ov-title").textContent = "Manage my Dojo";
     document.getElementById("ov").classList.add("show");
+    // One Auth47 session covers both this panel and /admin (same cookie), so
+    // re-read /api/me before rendering: a sign-in or sign-out that happened on
+    // the admin page (or another tab) is picked up here instead of asking the
+    // operator to authenticate twice.
+    const body = document.getElementById("ov-body");
+    if(body) body.innerHTML = '<p class="loading">Checking session…</p>';
+    await refreshMe();
     renderManage();
   }
   async function refreshMe(){ const r=await api.call("/me"); if(r.status===200) ME=r.body; }
@@ -355,6 +374,7 @@ async function loadJSON(url){
     body.innerHTML = `
       <p style="margin-bottom:6px">Signed in as <code>${esc(ME.paymentCode.slice(0,12))}…${esc(ME.paymentCode.slice(-4))}</code>
         <button class="copybtn" data-mact="logout" style="margin-left:8px">Sign out</button></p>
+      ${ME.admin?'<p style="font-size:12.5px;color:var(--muted)">This payment code moderates the directory: <a href="/admin" style="color:var(--accent)">open the admin console →</a> (same sign-in; signing out here signs you out there too).</p>':""}
       <p style="font-size:13px;color:var(--muted)">Add or edit a Dojo you operate. Submissions are checked for a live Tor connection and, if you supply a signed payload, for a valid signature, then reviewed by a maintainer before they appear.</p>
       <h3>Your Dojos</h3>
       ${subs.length? subs.map(manageRow).join("") : '<p style="color:var(--faint)">None yet.</p>'}
@@ -419,7 +439,7 @@ async function loadJSON(url){
 
   document.addEventListener("click", async e=>{
     const manageBtn = e.target.closest('[data-act="manage"]');
-    if(manageBtn){ openManage(); return; }
+    if(manageBtn){ if(menuOpen){menuOpen=false;render();} openManage(); return; }
     const m = e.target.closest("[data-mact]");
     if(!m) return;
     const act = m.getAttribute("data-mact");
@@ -510,28 +530,39 @@ async function loadJSON(url){
     }
     adminShell('<p class="loading">Loading submissions\u2026</p>');
     const r = await api.call("/admin/submissions");
+    if(r.status===401){ ME={authenticated:false}; renderAdminPanel(); return; }   // signed out elsewhere (Manage panel / another tab)
     if(r.status!==200){ adminShell('<p>Could not load submissions ('+r.status+').</p>'); return; }
     const subs=r.body.submissions||[];
     const pending=subs.filter(s=>s.status==="pending");
     const others=subs.filter(s=>s.status!=="pending");
     adminShell(
       '<p style="font-size:13px;color:var(--muted)">Signed in as <code>'+esc(ME.paymentCode.slice(0,12))+'\u2026'+esc(ME.paymentCode.slice(-4))+'</code> '+
-      '<button class="abtn" data-adm="logout" style="margin-left:8px">Sign out</button></p>'+
+      '<button class="abtn" data-adm="logout" style="margin-left:8px">Sign out</button> '+
+      '<span style="font-size:12px;color:var(--faint)">(the same Auth47 session as Manage my Dojo; signing out here signs you out there too)</span></p>'+
+      (ADMIN_NOTICE?'<p style="font-size:12.5px;color:var(--down);border:1px solid var(--down);border-radius:8px;padding:8px 12px">'+esc(ADMIN_NOTICE)+'</p>':"")+
       '<h3 style="margin:16px 0 8px">Pending review ('+pending.length+')</h3>'+
       (pending.length? pending.map(adminRow).join("") : '<p style="color:var(--faint)">Nothing awaiting review.</p>')+
       '<h3 style="margin:22px 0 8px">Approved / rejected ('+others.length+')</h3>'+
       (others.length? others.map(adminRow).join("") : '<p style="color:var(--faint)">None.</p>')
     );
   }
+  let ADMIN_NOTICE = null;
   document.addEventListener("click", async e=>{
     const b=e.target.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
     if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; renderAdminPanel(); return; }
     if(act==="remove" && !confirm("Remove this submission permanently?")) return;
     b.disabled=true; const o=b.textContent; b.textContent="\u2026";
-    if(act==="approve") await api.call("/admin/approve","POST",{id});
-    else if(act==="reject") await api.call("/admin/reject","POST",{id});
-    else if(act==="remove") await api.call("/admin/remove","POST",{id});
+    let r=null;
+    if(act==="approve") r=await api.call("/admin/approve","POST",{id});
+    else if(act==="reject") r=await api.call("/admin/reject","POST",{id});
+    else if(act==="remove") r=await api.call("/admin/remove","POST",{id});
+    // The moderation change and the publish (rebuild of data/dojos.json) are
+    // two steps; report a failure of either, rather than silently showing a
+    // node as approved that never reached the public list.
+    ADMIN_NOTICE = null;
+    if(r && r.status!==200) ADMIN_NOTICE = act+" failed: "+((r.body&&r.body.error)||("HTTP "+r.status));
+    else if(r && r.body && r.body.rebuild && r.body.rebuild.error) ADMIN_NOTICE = act+" saved, but publishing failed: "+r.body.rebuild.error;
     await refreshMe(); renderAdminPanel();
   });
 

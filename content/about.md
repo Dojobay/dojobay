@@ -6,8 +6,8 @@ We are not affiliated with Samourai, Ashigaru or Ronin Dojo, though we appreciat
 
 ## #FreeSamourai
 
-> **Contact**
+> **Get listed**
 >
-> If you would like your dojo listed, email us the details and we'll be happy to add it. Our reply can land in your spam folder, so please check there if you don't hear back.
+> If you would like your Dojo listed, there is no email and nothing to wait for: open **Manage my Dojo** in the header and sign in with your PayNym over Auth47. Signing the challenge in Samourai or Ashigaru proves you control the payment code without revealing any key, and you can then submit, edit or remove your listing yourself. Every submission must pass a live Tor connection check and a maintainer review before it is published.
 >
-> `contact [at] dojobay [dot] pw`
+> `Manage my Dojo → Auth47 → submit`

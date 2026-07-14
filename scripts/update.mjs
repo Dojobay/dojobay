@@ -304,9 +304,30 @@ async function writeJSONAtomic(file, obj) {
   await rename(tmp, file);
 }
 
+// Merge seed + approved submissions into the public list (delegates to
+// server/build-public.mjs, which preserves live statuses and histories).
+// Exported so the self-test can drive it against isolated data directories.
+export async function reconcilePublicList() {
+  if (!process.env.PUBLIC_DATA_DIR) process.env.PUBLIC_DATA_DIR = CFG.dataDir;
+  const { rebuild } = await import("../server/build-public.mjs");
+  return rebuild();
+}
+
 // -----------------------------------------------------------------------------
 async function main() {
   const dojosPath = path.join(CFG.dataDir, "dojos.json");
+  // Reconcile FIRST: fold the curated seed and every APPROVED submission into
+  // dojos.json before this cycle reads it. The admin approve does its own
+  // rebuild, but that write is lost if it lands while a probe cycle (minutes
+  // long over Tor) is in flight, because the cycle writes back the node list
+  // it read at the start. Rebuilding here means an approved node can be absent
+  // for at most one cycle, never indefinitely.
+  try {
+    const r = await reconcilePublicList();
+    console.error(`[reconcile] ${r.msg}`);
+  } catch (e) {
+    console.error(`[reconcile] skipped: ${e.message}`);
+  }
   const historyPath = path.join(CFG.dataDir, "history.json");
 
   const dojos = await readJSON(dojosPath);

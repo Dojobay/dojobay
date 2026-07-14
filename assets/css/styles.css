@@ -40,6 +40,8 @@
   nav .lnk:hover{color:var(--text);background:var(--panel)}
   .onion-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-bg);padding:6px 10px;border-radius:7px;margin-left:4px}
   .onion-pill:hover{background:rgba(247,147,26,.16)}
+  .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
+  .burger:hover{background:var(--panel)}
 
   .controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:30px 22px 18px}
   .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px}
@@ -100,8 +102,9 @@
   .qr .tile svg{display:block;border-radius:2px}
   .qr .cap{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
   .box{margin-bottom:12px}
-  .box .lbl{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
-  .box .lbl .t{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .box .lbl,.modal-body>.lbl{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+  .modal-body>.lbl{margin:18px 0 8px;gap:12px}
+  .box .lbl .t,.modal-body>.lbl .t{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
   .box pre{font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.55;background:var(--code-bg);color:var(--code-fg);border:1px solid var(--line);border-radius:8px;padding:13px;white-space:pre-wrap;word-break:break-all;max-height:240px;overflow:auto}
   .box.signed pre{color:#cdd6e4;font-size:10px}
   .copybtn{font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 11px;border:1px solid var(--accent-line);border-radius:6px;color:var(--accent);background:var(--accent-bg);transition:background .15s}
@@ -148,8 +151,16 @@
   .modal-body .loading{color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:13px}
   @media (max-width:560px){
     .meta{grid-template-columns:1fr}
-    nav .lnk{display:none}
-    header .wrap{padding:14px 18px}
+    header .wrap{padding:14px 18px;position:relative;justify-content:flex-start}
+    .burger{display:block;z-index:2}
+    /* centre the title while the hamburger is in use */
+    .brand{position:absolute;left:50%;transform:translateX(-50%)}
+    /* the nav becomes a full-width dropdown under the header */
+    nav{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;align-items:stretch;gap:2px;
+        background:rgba(11,11,12,.97);backdrop-filter:blur(8px);border-bottom:1px solid var(--line-soft);padding:8px 14px 12px}
+    nav.open{display:flex}
+    nav .lnk{display:block;text-align:center;padding:12px;font-size:15px}
+    nav .onion-pill{text-align:center;margin:6px 0 0}
   }
   @media (prefers-reduced-motion:reduce){.card:hover{transform:none}.pair{animation:none}}
 
@@ -160,8 +171,8 @@
   .mform textarea{resize:vertical;line-height:1.5}
   .mform input:focus,.mform select:focus,.mform textarea:focus{outline:none;border-color:var(--accent-line)}
 
-  /* 90-day daily history (lazy, in pairing details) */
-  .hist90{margin-top:16px}
+  /* 90-day daily history (on the card, below the 24h strip) */
+  .hist90{margin-top:12px}
   .d90strip{display:flex;gap:1px;align-items:flex-end;height:22px;margin:8px 0 6px}
   .d90{flex:1 1 0;min-width:1px;height:100%;border-radius:1px;background:var(--line)}
   .d90.up{background:var(--up)} .d90.mid{background:#b9a13a} .d90.down{background:var(--down)} .d90.na{background:var(--line)}

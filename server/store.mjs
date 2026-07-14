@@ -13,6 +13,20 @@ const FILE = path.join(DIR, "store.json");
 const EMPTY = { submissions: {}, sessions: {}, nonces: {} };
 let cache = null;
 
+// A submission's ownership is a paymentCodes ARRAY, because one PayNym often
+// carries two BIP47 codes (segwit and legacy variants) and the wallet may sign
+// Auth47 with either. Records written before this schema carried a scalar
+// paymentCode; normalise those on read so old store files keep working.
+function normaliseSubmission(rec) {
+  if (!rec || typeof rec !== "object") return rec;
+  if (!Array.isArray(rec.paymentCodes)) {
+    rec.paymentCodes = rec.paymentCode ? [rec.paymentCode] : [];
+  }
+  rec.paymentCodes = [...new Set(rec.paymentCodes.filter((c) => typeof c === "string" && c))];
+  delete rec.paymentCode;
+  return rec;
+}
+
 async function load() {
   if (cache) return cache;
   await mkdir(DIR, { recursive: true });
@@ -22,6 +36,7 @@ async function load() {
     if (e.code !== "ENOENT") throw e;
     cache = structuredClone(EMPTY);
   }
+  for (const rec of Object.values(cache.submissions)) normaliseSubmission(rec);
   return cache;
 }
 
@@ -73,18 +88,22 @@ export const store = {
     if (s.sessions[id]) { delete s.sessions[id]; await persist(); }
   },
 
-  // --- submissions (keyed by paymentCode + network) ---
+  // --- submissions (keyed by network + name slug; owned by paymentCodes[]) ---
   async listSubmissions() { return Object.values((await load()).submissions); },
   async submissionsFor(paymentCode) {
-    return Object.values((await load()).submissions).filter((r) => r.paymentCode === paymentCode);
+    return Object.values((await load()).submissions)
+      .filter((r) => Array.isArray(r.paymentCodes) && r.paymentCodes.includes(paymentCode));
   },
   async putSubmission(rec) {
     const s = await load();
-    s.submissions[rec.id] = rec;
+    s.submissions[rec.id] = normaliseSubmission(rec);
     await persist();
     return rec;
   },
-  async getSubmission(id) { return (await load()).submissions[id] || null; },
+  async getSubmission(id) {
+    const rec = (await load()).submissions[id] || null;
+    return rec ? normaliseSubmission(rec) : null;
+  },
   async deleteSubmission(id) {
     const s = await load();
     if (s.submissions[id]) { delete s.submissions[id]; await persist(); }

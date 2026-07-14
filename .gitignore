@@ -3,3 +3,6 @@ node_modules/
 *.log
 dojobay_deploy
 dojobay_deploy.pub
+
+# live backend state (submissions, sessions, apikeys) — never commit
+server/data/

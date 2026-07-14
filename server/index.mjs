@@ -65,6 +65,57 @@ async function sessionFrom(req) {
   return sid ? await store.getSession(sid) : null;
 }
 function networkOf(rec) { return rec === "testnet" ? "testnet" : "bitcoin"; }
+
+// Ownership: a record is owned by whoever holds ANY of its payment codes,
+// because a PayNym commonly has two BIP47 codes (segwit + legacy) and the
+// wallet may sign Auth47 with either variant.
+const owns = (rec, pc) => !!rec && Array.isArray(rec.paymentCodes) && rec.paymentCodes.includes(pc);
+
+// Node names: operator-chosen, unique per network. The slug both keys the
+// record (`${network}-${slug}`) and enforces case/punctuation-insensitive
+// uniqueness of the display name.
+const slugify = (name) => String(name || "")
+  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+// Curated seed nodes are not in the store but still occupy the same public
+// namespace, so a submission may not take a seed node's name or id.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+async function seedNodes() {
+  const p = path.join(process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data"), "seed.json");
+  try { return JSON.parse(await readFile(p, "utf8")).nodes || []; } catch { return []; }
+}
+
+// Is `slug` free on `network` for the holder of `pc`? Returns null when free
+// or when it names a record the caller already owns (an update), otherwise a
+// human-readable reason. Checks every store record regardless of status plus
+// the curated seed, so a rejected or pending record cannot be hijacked either.
+async function nameConflict(network, slug, pc) {
+  for (const r of await store.listSubmissions()) {
+    if (r.network !== network) continue;
+    if (slugify(r.name) !== slug && r.id !== `${network}-${slug}`) continue;
+    if (!owns(r, pc)) return `the name is already used by another operator's ${r.status} record`;
+  }
+  for (const n of await seedNodes()) {
+    if (n.network !== network) continue;
+    if (slugify(n.name) === slug || n.id === `${network}-${slug}`) return "the name is reserved by a curated seed node";
+  }
+  return null;
+}
+
+// The record an owner's (network, slug) submission should update, if any.
+async function ownedRecordFor(network, slug, pc) {
+  for (const r of await store.listSubmissions()) {
+    if (r.network === network && owns(r, pc)
+        && (slugify(r.name) === slug || r.id === `${network}-${slug}`)) return r;
+  }
+  return null;
+}
+
+// Manage-panel ordering: mainnet before testnet, then alphabetical by name.
+const submissionOrder = (a, b) =>
+  a.network !== b.network
+    ? (a.network === "mainnet" ? -1 : 1)
+    : String(a.name || a.id).localeCompare(String(b.name || b.id), "en", { sensitivity: "base" });
 const isPlainOnionUrl = (u) => { try { const x = new URL(u); return x.protocol === "http:" && /\.onion$/.test(x.hostname); } catch { return false; } };
 // Electrum/indexer endpoints are a bare TCP (or SSL) onion socket, e.g.
 // tcp://<56-char>.onion:50001 , not an HTTP URL, so they need their own check.
@@ -144,7 +195,7 @@ route("GET", /^\/api\/auth47\/poll$/, async (req, res) => {
 route("GET", /^\/api\/me$/, async (req, res) => {
   const s = await sessionFrom(req);
   if (!s) return json(res, 200, { authenticated: false });
-  const mine = await store.submissionsFor(s.paymentCode);
+  const mine = (await store.submissionsFor(s.paymentCode)).sort(submissionOrder);
   json(res, 200, { authenticated: true, paymentCode: s.paymentCode, admin: isAdmin(s.paymentCode), submissions: mine });
 });
 
@@ -162,8 +213,8 @@ route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   const probes = (await pendingProbe()).nodes || {};
   const subs = (await store.listSubmissions()).map((s) => ({
-    id: s.id, network: s.network, status: s.status,
-    paynym: s.paynym || null, paymentCode: s.paymentCode,
+    id: s.id, network: s.network, status: s.status, name: s.name || null,
+    paynym: s.paynym || null, paymentCodes: s.paymentCodes,
     jurisdiction: s.jurisdiction || null, country: s.country || null,
     hardware: s.hardware || null, signed: !!s.signed,
     version: s.payload?.pairing?.version || null,
@@ -182,7 +233,7 @@ route("POST", /^\/api\/admin\/approve$/, async (req, res) => {
   rec.status = "approved";
   rec.updated_at = new Date().toISOString();
   if (body.paynym) rec.paynym = body.paynym.startsWith("+") ? body.paynym : "+" + body.paynym;
-  else if (!rec.paynym) { const r = await resolvePayNym(rec.paymentCode).catch(() => null); if (r) rec.paynym = r; }
+  else if (!rec.paynym) { const r = await resolvePayNym(rec.paymentCodes[0]).catch(() => null); if (r) rec.paynym = r; }
   await store.putSubmission(rec);
   const out = await rebuild();
   json(res, 200, { ok: true, submission: rec, rebuild: out });
@@ -216,7 +267,21 @@ route("POST", /^\/api\/logout$/, async (req, res) => {
   json(res, 200, { ok: true });
 });
 
-// 6) create or replace one of my Dojo records (per network)
+// 6) is a node name free on a network? (pre-flight for the submission form;
+//    the POST below re-checks and is the authority)
+route("GET", /^\/api\/dojo\/name-check$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  const u = new URL(req.url, "http://x");
+  const network = u.searchParams.get("network") === "testnet" ? "testnet" : "mainnet";
+  const slug = slugify(u.searchParams.get("name"));
+  if (!slug) return json(res, 400, { error: "name must contain at least one letter or digit" });
+  const conflict = await nameConflict(network, slug, s.paymentCode);
+  const mine = conflict ? null : await ownedRecordFor(network, slug, s.paymentCode);
+  json(res, 200, { available: !conflict, reason: conflict, slug, update: !!mine, id: mine ? mine.id : `${network}-${slug}` });
+});
+
+// 7) create or replace one of my Dojo records (keyed by network + node name)
 route("POST", /^\/api\/dojo$/, async (req, res) => {
   const s = await sessionFrom(req);
   if (!s) return json(res, 401, { error: "not authenticated" });
@@ -225,6 +290,12 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
 
   const network = body.network === "testnet" ? "testnet" : (body.network === "mainnet" ? "mainnet" : null);
   if (!network) return json(res, 400, { error: "network must be mainnet or testnet" });
+
+  const name = String(body.name || "").trim().slice(0, 40);
+  const slug = slugify(name);
+  if (!slug) return json(res, 400, { error: "name is required (letters, digits and hyphens)" });
+  const conflict = await nameConflict(network, slug, s.paymentCode);
+  if (conflict) return json(res, 409, { error: `name "${name}" is taken on ${network}: ${conflict}` });
 
   const payloadErr = validatePayload(body.payload);
   if (payloadErr) return json(res, 400, { error: payloadErr });
@@ -248,14 +319,20 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   const check = await probe(body.payload.pairing.url, { ...PROBE_CFG, apikey: body.payload.pairing.apikey, network });
   if (!check.up) return json(res, 422, { error: "connection gate: node unreachable or not serving block data over Tor (" + (check.reason || "no response") + ")", probe: check });
 
-  const id = `${network}-${s.paymentCode.slice(0, 12)}`;
+  // An owned record with this name (or this id, for records that predate
+  // operator naming) is updated in place, keeping its id and therefore its
+  // reliability history; otherwise a new record is created at network-slug.
+  const existing = await ownedRecordFor(network, slug, s.paymentCode);
+  const id = existing ? existing.id : `${network}-${slug}`;
   const now = new Date().toISOString();
-  const existing = await store.getSubmission(id);
   // Resolve the registered PayNym from paynym.rs (best-effort, over Tor). Keep a
   // previously resolved value if the lookup is momentarily unavailable.
   const resolvedNym = await resolvePayNym(s.paymentCode).catch(() => null);
   const rec = {
-    id, network, paymentCode: s.paymentCode,
+    id, network, name,
+    // Union with any codes already on the record, so a record migrated with
+    // both PayNym variants keeps them when the operator edits via either.
+    paymentCodes: [...new Set([...(existing?.paymentCodes || []), s.paymentCode])],
     paynym: resolvedNym || (existing && existing.paynym) || null,
     jurisdiction: (body.jurisdiction || "").toString().slice(0, 64) || null,
     country: (body.country || "").toString().slice(0, 2).toUpperCase() || null,
@@ -266,6 +343,7 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
       return indexer ? { ...base, indexer } : base;
     })(),
     signed: body.signed || null,
+    name_url: (existing && existing.name_url) || null,   // maintainer-set link, kept across edits
     status: "pending",                         // moderation state: pending | approved | rejected
     last_probe: check,
     created_at: existing ? existing.created_at : now,
@@ -275,13 +353,13 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   json(res, 200, { ok: true, submission: rec, note: "Submitted for review. It will appear once a maintainer approves it." });
 });
 
-// 7) delete one of my records
+// 8) delete one of my records
 route("POST", /^\/api\/dojo\/delete$/, async (req, res) => {
   const s = await sessionFrom(req);
   if (!s) return json(res, 401, { error: "not authenticated" });
   let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
   const rec = await store.getSubmission(body.id);
-  if (!rec || rec.paymentCode !== s.paymentCode) return json(res, 404, { error: "not found" });
+  if (!rec || !owns(rec, s.paymentCode)) return json(res, 404, { error: "not found" });
   await store.deleteSubmission(body.id);
   json(res, 200, { ok: true });
 });

@@ -11,7 +11,7 @@ import { resolvePayNym } from "./paynym.mjs";
 const [cmd, id, extra] = process.argv.slice(2);
 
 function line(r) {
-  return `${r.status.padEnd(8)} ${r.id.padEnd(26)} ${r.network.padEnd(7)} ${(r.paynym || "-").padEnd(18)} ${r.payload?.pairing?.url || ""}`;
+  return `${r.status.padEnd(8)} ${r.id.padEnd(26)} ${r.network.padEnd(7)} ${(r.paynym || "-").padEnd(18)} ${(r.name || "-").padEnd(18)} ${r.payload?.pairing?.url || ""}`;
 }
 
 const cmds = {
@@ -27,7 +27,7 @@ const cmds = {
     if (extra) {
       r.paynym = extra.startsWith("+") ? extra : "+" + extra;      // maintainer override
     } else if (!r.paynym) {
-      const resolved = await resolvePayNym(r.paymentCode).catch(() => null);
+      const resolved = await resolvePayNym((r.paymentCodes || [])[0]).catch(() => null);
       if (resolved) r.paynym = resolved;
     }
     r.updated_at = new Date().toISOString();

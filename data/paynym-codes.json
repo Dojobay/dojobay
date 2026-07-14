@@ -1,0 +1,240 @@
+{
+  "generated_at": "2026-07-13T18:55:50Z",
+  "source": "https://paynym.rs/api/v1/nym",
+  "mapping": {
+    "+91xTx93x3": {
+      "nymName": "+91xTx93x3",
+      "nymID": "nymdTChgmo1fJRB2PoHVGhLvV",
+      "nodes": [
+        "mainnet-91xtx93-yellow",
+        "mainnet-91xtx93-red",
+        "mainnet-91xtx93-tanto-e",
+        "testnet-91xtx93-green",
+        "testnet-91xtx93-blue"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJoucQtd",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJQwkgoVeogzAQe431Bn3FSsXiCqjmFCpysFuSTjB7FaxfrJGtMAEfsA5dvptjMAAxLXKM6bDAen5tFp326EHBmRH6jQ9vJDPnSwARLmUcJw9Rtf9",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+apprehensiverace53": {
+      "nymName": "+apprehensiverace53",
+      "nymID": "nymPkYugNHEhEEWgtiK8Zh89E",
+      "nodes": [
+        "mainnet-bottomshelfbtc",
+        "testnet-bottomshelfbtc"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJg64LF5LvQ4MHoUU3K7MB4rf1wzn1Gcqx5sk17ScWiYW6HW9x6udgUG3Y3Ti8wwkhyzAL4pZSmc7v3vKXfHGeHrVkR5xtNe76GEDCG4BX7KWKpj3",
+          "segwit": true,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJg64LF5LvQ4MHoUU3K7MB4rf1wzn1Gcqx5sk17ScWiYW6HW9x6udgUG3Y3Ti8wwkhyzAL4pZSmc7v3vKXfHGeHrVkR5xtNe76GEDCG4BX7G2oESP",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
+    },
+    "+belligerentprinciple63": {
+      "nymName": "+belligerentprinciple63",
+      "nymID": "nym5a4dnuUWQBt42c5dWjruWq",
+      "nodes": [
+        "testnet-libertarian"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJNPEozKSGr47QYRfsZgvKBzxxvnDaRwfpaSnK7J2tpTvXwAgyKXHqojAZdRGkUg216tkxVKD56AjUQB1iViqZQMtnAE53FLWaGSM62KR3KQ8XL8p",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJNPEozKSGr47QYRfsZgvKBzxxvnDaRwfpaSnK7J2tpTvXwAgyKXHqojAZdRGkUg216tkxVKD56AjUQB1iViqZQMtnAE53FLWaGSM62KR3KRAYKAM",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+bumpyblank89": {
+      "nymName": "+bumpyblank89",
+      "nymID": "nymiE57cnjgj7yqLubi7UtNvX",
+      "nodes": [
+        "mainnet-compiler"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJM17RrDKBhN17oL3DBH6RrQp1nLCGC74dtKqNY1PbQnScjxzoagnLvCvyp83Q8u9N8WG6okfEMtpkujp5eSH3EGjFeWcyyGJkYmmcXVp9DWJxeu6",
+          "segwit": true,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJM17RrDKBhN17oL3DBH6RrQp1nLCGC74dtKqNY1PbQnScjxzoagnLvCvyp83Q8u9N8WG6okfEMtpkujp5eSH3EGjFeWcyyGJkYmmcXVp9DTwNead",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
+    },
+    "+excitedkey31": {
+      "nymName": "+excitedkey31",
+      "nymID": "nymo3miXVDdRdDPQYqTNHmuHJ",
+      "nodes": [
+        "mainnet-btcwrestle"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJhQi6gQs9xxqhs4LqrVH2StMX9M2sjck8Z5kndoKuocbncWstWn3xdGLega3W6EaW44sVXS5HxTuA4knepbKtbc2K1Uz1LBmDkUScjjpf7SNMVyX",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJhQi6gQs9xxqhs4LqrVH2StMX9M2sjck8Z5kndoKuocbncWstWn3xdGLega3W6EaW44sVXS5HxTuA4knepbKtbc2K1Uz1LBmDkUScjjpf7a8a43F",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+expatriotic": {
+      "nymName": "+expatriotic",
+      "nymID": "nym8xNfHBqDjkCitrCbCJAUEw",
+      "nodes": [
+        "mainnet-expatriotic"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJgbjQPjqRrFxypni83pNUsp8sZPzAunNG9qXPka9x4cpHEZ2H6XmCE9au9PvbCpw7RY13TPcjWMShptCkp1NbqBxW4QpCZdR5CQ5uR2hnGDszJxN",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJgbjQPjqRrFxypni83pNUsp8sZPzAunNG9qXPka9x4cpHEZ2H6XmCE9au9PvbCpw7RY13TPcjWMShptCkp1NbqBxW4QpCZdR5CQ5uR2hnGLsBsuG",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+humorousneck92": {
+      "nymName": "+humorousneck92",
+      "nymID": "nymqCHyWvxqXEXZp6RTwrbG9q",
+      "nodes": [
+        "mainnet-razzle-dazzle"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJSBAF77yBYbDup3oJMhTxEhBNs1P7YVucKuL8XxSswSjfxFrwv3uiAavi66ZpKmyBb5AXE3NZdDNo8ouwDXgRtcDnrhPNpmtbyGFszA9hZmuk4aJ",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJSBAF77yBYbDup3oJMhTxEhBNs1P7YVucKuL8XxSswSjfxFrwv3uiAavi66ZpKmyBb5AXE3NZdDNo8ouwDXgRtcDnrhPNpmtbyGFszA9hZrdnUb4",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+linkinparkrulz": {
+      "nymName": "+linkinparkrulz",
+      "nymID": "nymRyJy2stbmH3TuZ5Yzx4rD8",
+      "nodes": [
+        "mainnet-jordan"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJM51x2mDd85CzEgVc2y7vdyB3eBj93JVjVtCt6PZtmfzhFzYPMXYBXh28zthWhVKGjVQZPT1MKxGxEtfenLYEkuc5GhoWtMzQCF8c8mrckZwnvqs",
+          "segwit": true,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJM51x2mDd85CzEgVc2y7vdyB3eBj93JVjVtCt6PZtmfzhFzYPMXYBXh28zthWhVKGjVQZPT1MKxGxEtfenLYEkuc5GhoWtMzQCF8c8mrckYFM7r1",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
+    },
+    "+max": {
+      "nymName": "+max",
+      "nymID": "nymP8QySLAmLsaRoFmS83hyrK",
+      "nodes": [
+        "mainnet-maxtannahill"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNWs3Xj8",
+          "segwit": true,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
+    },
+    "+melodicstress96": {
+      "nymName": "+melodicstress96",
+      "nymID": "nymp2DFpYoR66YBvT1W4iPmXK",
+      "nodes": [
+        "mainnet-arthur"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJRpdSJGjTNo3BqjLFk6CtXE2fB2D4YQdM3AokZ6dUgTqBSP8mANHZcb77K4wUwo5EKaEQKye7RT6W4m2FUh1ZUwRPtxkNPjtF27JUotwRnJjCHhm",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJRpdSJGjTNo3BqjLFk6CtXE2fB2D4YQdM3AokZ6dUgTqBSP8mANHZcb77K4wUwo5EKaEQKye7RT6W4m2FUh1ZUwRPtxkNPjtF27JUotwRnLLfKWd",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+otto": {
+      "nymName": "+otto",
+      "nymID": "nymZmvE6KMCjejjaNuDjjJ4DC",
+      "nodes": [
+        "mainnet-otto"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJgutCtE1GK1Lf6WUTRLzVNcBvNRXjKueKgpQ36dc6Dry3w5oCYz5NEVk7GvNpXAMdrioi6DVytk1P4RBGjXpLw1VFfTm2dNrdtTUWQCQtcjDwPVm",
+          "segwit": false,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJgutCtE1GK1Lf6WUTRLzVNcBvNRXjKueKgpQ36dc6Dry3w5oCYz5NEVk7GvNpXAMdrioi6DVytk1P4RBGjXpLw1VFfTm2dNrdtTUWQCQtcroNDPg",
+          "segwit": true,
+          "claimed": true
+        }
+      ]
+    },
+    "+syndicate": {
+      "nymName": "+syndicate",
+      "nymID": "nymbQXQGGtRfMzeTYuhFCEiEa",
+      "nodes": [
+        "mainnet-syndicate-systems"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJfjDNma9KwSMdpNbrUDkbuqsRnz3XQJw6yDdjuuYhiN6omvoKDD65gT3m6C24cBK4tEGUyR4WvK1NvqSNwNFcwPcEY5NcWuZwdu22qmU9PSiB6Pt",
+          "segwit": true,
+          "claimed": true
+        },
+        {
+          "code": "PM8TJfjDNma9KwSMdpNbrUDkbuqsRnz3XQJw6yDdjuuYhiN6omvoKDD65gT3m6C24cBK4tEGUyR4WvK1NvqSNwNFcwPcEY5NcWuZwdu22qmU9PJ9k55K",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
+    }
+  },
+  "errors": []
+}

@@ -128,12 +128,15 @@ async function loadJSON(url){
       ?`<a class="pn" href="${PAYNYM_WEB}/${esc(n.paynym)}" target="_blank" rel="noopener">${esc(n.paynym)}</a>`
       :`<span class="nopn">no PayNym</span>`;
     const jur=n.jurisdiction?`<span class="jur">${n.country?`<span class="flag">${flag(n.country)}</span>`:""}${esc(n.jurisdiction)}</span>`:"";
+    // Card title: operator-managed records carry a short node name alongside
+    // the PayNym ("+91xTx93x3 · yellow"); curated nodes show their name alone.
+    const title = (n.paynym && n.name && n.name !== n.paynym) ? `${n.paynym} · ${n.name}` : (n.name || n.paynym || n.id);
     return `<div class="card ${n.status}" data-id="${esc(n.id)}">
       <div class="ctop">
         <span class="sd ${n.status}"></span>
         ${n.name_url
-          ? `<a class="cname" href="${esc(n.name_url)}" target="_blank" rel="noopener" title="${esc(n.name)}">${esc(n.name)} <span class="ext">↗</span></a>`
-          : `<span class="cname" title="${esc(n.name)}">${esc(n.name)}</span>`}
+          ? `<a class="cname" href="${esc(n.name_url)}" target="_blank" rel="noopener" title="${esc(title)}">${esc(title)} <span class="ext">↗</span></a>`
+          : `<span class="cname" title="${esc(title)}">${esc(title)}</span>`}
         <span class="cbadge ${n.status}">${n.status==="active"?"Active":"Inactive"}</span>
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
@@ -219,7 +222,7 @@ async function loadJSON(url){
       <button class="lnk verify-link" data-act="verify" title="Verify this directory's onion address is signed by its operator">Verify</button>
       <span class="foot-spacer"></span>
       <a class="gh" href="${REPO_URL}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${GH_LOGO}</a>
-      <span class="ver" id="build-ver"></span>
+      <span class="ver">${VERSION?`<a href="${REPO_URL}/commit/${esc(VERSION.commit)}" target="_blank" rel="noopener" title="${esc(VERSION.built||"")}">build ${esc(VERSION.commit)}</a>`:""}</span>
     </div></footer>
 
     <div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true">
@@ -344,7 +347,11 @@ async function loadJSON(url){
   async function renderManage(){
     const body = document.getElementById("ov-body");
     if(!ME || !ME.authenticated){ return renderLogin(body); }
-    const subs = ME.submissions||[];
+    // The API already returns mainnet-then-testnet, alphabetical by name;
+    // sort again here so the panel never depends on response ordering.
+    const subs = (ME.submissions||[]).slice().sort((a,b)=>
+      a.network!==b.network ? (a.network==="mainnet"?-1:1)
+      : String(a.name||a.id).localeCompare(String(b.name||b.id),"en",{sensitivity:"base"}));
     body.innerHTML = `
       <p style="margin-bottom:6px">Signed in as <code>${esc(ME.paymentCode.slice(0,12))}…${esc(ME.paymentCode.slice(-4))}</code>
         <button class="copybtn" data-mact="logout" style="margin-left:8px">Sign out</button></p>
@@ -363,7 +370,7 @@ async function loadJSON(url){
   function manageRow(r){
     return `<div class="box" style="padding:12px 14px;background:var(--panel2)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <span class="mono" style="font-size:12.5px">${esc(r.network)} · ${esc(r.jurisdiction||"—")} · ${esc(r.hardware||"—")}</span>
+        <span class="mono" style="font-size:12.5px"><b>${esc(r.name||r.id)}</b> · ${esc(r.network)} · ${esc(r.jurisdiction||"—")} · ${esc(r.hardware||"—")}</span>
         ${statusPill(r.status)}
       </div>
       <div class="mono" style="font-size:11px;color:var(--muted);margin-top:6px;word-break:break-all">${esc(r.payload?.pairing?.url||"")}</div>
@@ -375,6 +382,7 @@ async function loadJSON(url){
       <div class="mform">
         <label>Network
           <select id="m-net"><option value="mainnet">mainnet</option><option value="testnet">testnet</option></select></label>
+        <label>Node name (unique per network; shown on the card next to your PayNym) <input id="m-name" maxlength="40" placeholder="e.g. yellow"></label>
         <label>Jurisdiction <input id="m-jur" maxlength="64" placeholder="e.g. Europe, Canada"></label>
         <label>Country code (optional, 2 letters for a flag) <input id="m-cc" maxlength="2" placeholder="FI"></label>
         <label>Hardware <input id="m-hw" maxlength="120" placeholder="e.g. N100 16GB"></label>
@@ -422,9 +430,19 @@ async function loadJSON(url){
       let payload;
       try{ payload = JSON.parse(document.getElementById("m-payload").value); }
       catch(err){ if(msg) msg.innerHTML='<span style="color:var(--down)">Pairing code is not valid JSON.</span>'; return; }
+      // Validate the name (required + unique across approved and pending
+      // records) BEFORE the slow Tor connection gate, so a taken name fails in
+      // milliseconds. The POST re-checks server-side and answers 409 anyway.
+      const name = document.getElementById("m-name").value.trim();
+      if(!name){ if(msg) msg.innerHTML='<span style="color:var(--down)">Give your node a name first.</span>'; return; }
+      const nc = await api.call("/dojo/name-check?network="+encodeURIComponent(document.getElementById("m-net").value)+"&name="+encodeURIComponent(name));
+      if(nc.status!==200 || !nc.body || !nc.body.available){
+        if(msg) msg.innerHTML='<span style="color:var(--down)">'+esc((nc.body&&(nc.body.reason||nc.body.error))||"That name is not available.")+'</span>'; return;
+      }
       if(msg) msg.innerHTML='<span class="loading">Checking Tor connection… this can take up to 30s.</span>';
       const r = await api.call("/dojo","POST",{
         network: document.getElementById("m-net").value,
+        name,
         jurisdiction: document.getElementById("m-jur").value,
         country: document.getElementById("m-cc").value,
         hardware: document.getElementById("m-hw").value,
@@ -440,14 +458,14 @@ async function loadJSON(url){
   detectBackend();
 
 
-  async function renderVersion(){
-    const el = document.getElementById("build-ver");
-    if(!el) return;
+  // Build hash. render() rebuilds the whole footer, so (exactly like the
+  // Manage button) the hash must live in state the template reads at render
+  // time; a one-shot DOM injection vanished on the first re-render.
+  let VERSION = null;
+  async function loadVersion(){
     try{
       const v = await loadJSON("data/version.json");
-      if(v && v.commit && v.commit !== "dev"){
-        el.innerHTML = `<a href="${REPO_URL}/commit/${esc(v.commit)}" target="_blank" rel="noopener" title="${esc(v.built||"")}">build ${esc(v.commit)}</a>`;
-      }
+      if(v && v.commit && v.commit !== "dev"){ VERSION = v; if(DOJOS) render(); }
     }catch(e){ /* no version file: show nothing */ }
   }
 
@@ -470,7 +488,7 @@ async function loadJSON(url){
     const height = (pr && pr.block_height!=null) ? Number(pr.block_height).toLocaleString("en-GB") : "\u2014";
     const st = pr ? pr.status : "not yet probed";
     return `<div class="admin-row" data-id="${esc(s.id)}">
-      <div class="admin-head"><b>${esc(s.paynym||s.id)}</b> <span class="abadge ${esc(s.status)}">${esc(s.status)}</span>
+      <div class="admin-head"><b>${esc(s.paynym&&s.name?s.paynym+" · "+s.name:(s.paynym||s.name||s.id))}</b> <span class="abadge ${esc(s.status)}">${esc(s.status)}</span>
         <span class="mono" style="font-size:11px;color:var(--faint)">${esc(s.network)}</span></div>
       <div class="mono" style="font-size:11px;word-break:break-all;color:var(--muted);margin:2px 0">${esc(s.pairingUrl||"")}</div>
       <div style="font-size:12px;color:var(--muted);margin:4px 0">live probe: <b>${esc(st)}</b> \u00b7 block ${height} \u00b7 ${s.signed?"signed \u2713":"no signature"} \u00b7 v${esc(s.version||"?")}${s.hardware?" \u00b7 "+esc(s.hardware):""}</div>
@@ -524,7 +542,7 @@ async function loadJSON(url){
     try{
       [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json")]);
       render();
-      renderVersion();
+      loadVersion();
     }catch(e){ showLoadError(e); }
   })();
 })();

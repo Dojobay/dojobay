@@ -32,7 +32,8 @@ function toPublicNode(sub) {
   return {
     id: sub.id,
     network: sub.network,
-    name: sub.paynym || sub.id,
+    name: sub.name || sub.paynym || sub.id,
+    name_url: sub.name_url || null,
     status: "inactive",
     paynym: sub.paynym || null,
     jurisdiction: sub.jurisdiction || null,

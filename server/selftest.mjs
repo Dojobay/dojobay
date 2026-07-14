@@ -294,6 +294,32 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "reconcile restores an approved node clobbered out of dojos.json");
 }
 
+// 13) history grace period: delisting a node stamps its history `retired`
+//     instead of deleting it; relisting within the window clears the stamp
+//     with the data intact; only a long-expired retiree is deleted.
+{
+  const histPath = process.env.PUBLIC_DATA_DIR + "/history.json";
+  const marker = [{ t: "2026-07-14 00:00", up: true }];
+  const doc = JSON.parse(await fsp.readFile(histPath, "utf8"));
+  doc.nodes["mainnet-selftest-node"] = { checks: marker.slice() };
+  doc.nodes["mainnet-long-gone"] = { checks: marker.slice(), retired: "2026-06-01T00:00:00Z" };
+  await fsp.writeFile(histPath, JSON.stringify(doc, null, 2) + "\n");
+
+  const rej = await api("/api/admin/reject", "POST", { id: "mainnet-selftest-node" });   // delists + rebuilds
+  const afterRej = JSON.parse(await fsp.readFile(histPath, "utf8")).nodes;
+  ok(rej.status === 200 && afterRej["mainnet-selftest-node"]
+     && afterRej["mainnet-selftest-node"].retired
+     && JSON.stringify(afterRej["mainnet-selftest-node"].checks) === JSON.stringify(marker),
+     "delisted node's history is retired (stamped), not deleted");
+  ok(!afterRej["mainnet-long-gone"], "history retired beyond the grace window is deleted");
+
+  await api("/api/admin/approve", "POST", { id: "mainnet-selftest-node", paynym: "+testoperator" });   // relists + rebuilds
+  const afterAppr = JSON.parse(await fsp.readFile(histPath, "utf8")).nodes["mainnet-selftest-node"];
+  ok(afterAppr && !afterAppr.retired
+     && JSON.stringify(afterAppr.checks) === JSON.stringify(marker),
+     "relisting within the grace window resurrects the history untouched");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

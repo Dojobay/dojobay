@@ -11,7 +11,8 @@
 // dojos.json is also the source of truth for the node LIST. To add or remove a
 // node, edit dojos.json (name, paynym, payload, etc.); this script only fills
 // in status/checked_at and appends to the history. New nodes get a fresh
-// history series automatically; removed nodes are pruned from the history.
+// history series automatically; removed nodes are retired under a grace stamp
+// and only pruned HISTORY_GRACE_DAYS (default 14) after leaving the list.
 //
 // Health is checked through Tor's SOCKS5 proxy (no external npm deps). For a
 // node whose pairing payload carries an apikey, the check logs in to the Dojo
@@ -37,6 +38,7 @@
 // =============================================================================
 
 import net from "node:net";
+import { retireUnlisted } from "../server/build-public.mjs";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -360,7 +362,8 @@ async function main() {
   dojos.generated_at = ts.isoSec;
   dojos.interval_minutes = dojos.interval_minutes || 10;
 
-  // ---- update rolling history (append + trim, prune stale ids) ----
+  // ---- update rolling history (append + trim, retire stale ids) ----
+  const listed = new Set(dojos.nodes.map((n) => n.id));
   const histNodes = {};
   dojos.nodes.forEach((n, i) => {
     const prev = (history.nodes?.[n.id]?.checks) || [];
@@ -368,6 +371,11 @@ async function main() {
     if (checks.length > window) checks.splice(0, checks.length - window);
     histNodes[n.id] = { checks };
   });
+  // Unlisted ids are kept under a `retired` stamp for HISTORY_GRACE_DAYS (same
+  // rule as build-public.mjs), so a bad or transient node list cannot destroy
+  // accumulated history; a resurrected id resumes where it left off.
+  for (const id of Object.keys(history.nodes || {})) if (!histNodes[id]) histNodes[id] = history.nodes[id];
+  retireUnlisted(histNodes, (id) => listed.has(id), ts.isoSec);
 
   await writeJSONAtomic(dojosPath, dojos);
   await writeJSONAtomic(historyPath, {
@@ -394,8 +402,10 @@ async function main() {
     rec.pct = Math.round((rec.up / rec.total) * 1000) / 10;
     if (typeof r.height === "number") rec.close = r.height;
     if (days.length > CFG.retentionDays) days.splice(0, days.length - CFG.retentionDays);
-    dailyNodes[n.id] = { days }; // only current node ids are written, so removed nodes are pruned
+    dailyNodes[n.id] = { days };
   });
+  for (const id of Object.keys(daily.nodes || {})) if (!dailyNodes[id]) dailyNodes[id] = daily.nodes[id];
+  retireUnlisted(dailyNodes, (id) => listed.has(id), ts.isoSec);
   await writeJSONAtomic(dailyPath, {
     generated_at: ts.isoSec,
     retention_days: CFG.retentionDays,

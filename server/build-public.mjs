@@ -46,6 +46,31 @@ function toPublicNode(sub) {
   };
 }
 
+// Grace-period retirement for history entries. Deleting history the instant an
+// id leaves the node list turned a transient list mistake into permanent data
+// loss (the seed-migration deploy wiped every migrated node's history seconds
+// after rsync, via the post-deploy rebuild, before the migration could run on
+// the box). Instead: an unlisted id is STAMPED `retired` and kept; it is only
+// deleted after HISTORY_GRACE_DAYS (default 14); if the id is listed again
+// within the window, the stamp is cleared and its history resumes untouched.
+// Exported because scripts/update.mjs rewrites the same two files every cycle
+// and must apply identical rules.
+export function retireUnlisted(nodesMap, isListed, nowIso, graceDays = Number(process.env.HISTORY_GRACE_DAYS || 14)) {
+  let touched = false;
+  const cutoffMs = Date.parse(nowIso) - graceDays * 86400000;
+  for (const id of Object.keys(nodesMap)) {
+    const entry = nodesMap[id];
+    if (isListed(id)) {
+      if (entry.retired) { delete entry.retired; touched = true; }
+    } else if (!entry.retired) {
+      entry.retired = nowIso; touched = true;
+    } else if (Date.parse(entry.retired) < cutoffMs) {
+      delete nodesMap[id]; touched = true;
+    }
+  }
+  return touched;
+}
+
 export async function rebuild() {
   const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
   const SERVER_DATA = process.env.SERVER_DATA_DIR || path.join(ROOT, "server", "data");
@@ -93,7 +118,7 @@ export async function rebuild() {
   });
 
   // Reliability history: ensure a bucket per node, seed a newly-approved node's
-  // history from its pending history, and prune ids no longer listed.
+  // history from its pending history, and retire (grace period) unlisted ids.
   const hist = await readJSON(HIST, { interval_minutes: 10, window_checks: 144, nodes: {} });
   let touched = false;
   for (const n of nodes) {
@@ -103,7 +128,8 @@ export async function rebuild() {
       touched = true;
     }
   }
-  for (const id of Object.keys(hist.nodes)) if (!byId.has(id)) { delete hist.nodes[id]; touched = true; }
+  const nowIso = new Date().toISOString();
+  touched = retireUnlisted(hist.nodes, (id) => byId.has(id), nowIso) || touched;
   if (touched) { hist.generated_at = hist.generated_at || null; await writeAtomic(HIST, hist); }
 
   // 90-day daily rollup membership.
@@ -113,7 +139,7 @@ export async function rebuild() {
     dailyDoc.nodes[n.id] = { days: (approvedIds.has(n.id) && pending.nodes?.[n.id]?.days) ? pending.nodes[n.id].days.slice() : [] };
     dailyTouched = true;
   }
-  for (const id of Object.keys(dailyDoc.nodes)) if (!byId.has(id)) { delete dailyDoc.nodes[id]; dailyTouched = true; }
+  dailyTouched = retireUnlisted(dailyDoc.nodes, (id) => byId.has(id), nowIso) || dailyTouched;
   if (dailyTouched) await writeAtomic(DAILY, dailyDoc);
 
   const msg = `public list rebuilt: ${nodes.length} nodes (${approved.length} approved submissions).`;

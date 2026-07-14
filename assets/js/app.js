@@ -131,9 +131,10 @@ async function loadJSON(url){
       ?`<a class="pn" href="${PAYNYM_WEB}/${esc(n.paynym)}" target="_blank" rel="noopener">${esc(n.paynym)}</a>`
       :`<span class="nopn">no PayNym</span>`;
     const jur=n.jurisdiction?`<span class="jur">${n.country?`<span class="flag">${flag(n.country)}</span>`:""}${esc(n.jurisdiction)}</span>`:"";
-    // Card title: operator-managed records carry a short node name alongside
-    // the PayNym ("+91xTx93x3 · yellow"); curated nodes show their name alone.
-    const title = (n.paynym && n.name && n.name !== n.paynym) ? `${n.paynym} · ${n.name}` : (n.name || n.paynym || n.id);
+    // Card title: the node's short name alone ("yellow"). Names are unique
+    // per network and the PayNym (linked) plus payment-code chip sit directly
+    // beneath, so the composite "+paynym · name" title proved redundant.
+    const title = n.name || n.paynym || n.id;
     return `<div class="card ${n.status}" data-id="${esc(n.id)}">
       <div class="ctop">
         <span class="sd ${n.status}"></span>

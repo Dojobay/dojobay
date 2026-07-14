@@ -357,6 +357,45 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "display code prefers the non-segwit variant, falls back to the first, null when none");
 }
 
+// 16) intake hygiene and card link: pasted CRLF/zero-width bytes are stripped
+//     from signed blocks before verification; name_url is operator-settable
+//     via edit (blank clears), rejected unless http(s); export endpoint merges
+//     both history windows.
+{
+  // signed cleaning: resubmit the check-3 record with a clipboard-mangled
+  // signed block (CRLF + zero-width space); it must still pass the signature
+  // gate and be STORED byte-clean.
+  const mangled = signedBlock.replace(/\n/g, "\r\n") + "\u200b";
+  const resub = await api("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", jurisdiction: "Europe", hardware: "N100 16GB", payload, signed: mangled });
+  const rec = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
+  ok(resub.status === 200 && rec.signed === signedBlock && !rec.signed.includes("\r"),
+     "CRLF/zero-width paste artefacts stripped before verification; stored block byte-clean");
+
+  // restore approved status (resubmission re-enters moderation)
+  await api("/api/admin/approve", "POST", { id: "mainnet-selftest-node", paynym: "+testoperator" });
+
+  // name_url: set via edit, published, blank clears, invalid rejected
+  const setUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
+  const pubbed = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
+    .nodes.find((n) => n.id === "mainnet-selftest-node");
+  const badUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "javascript:alert(1)" });
+  const clearUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "" });
+  const cleared = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
+  ok(setUrl.status === 200 && pubbed.name_url === "https://example.org/mynode"
+     && badUrl.status === 400 && clearUrl.status === 200 && cleared.name_url === null,
+     "name_url settable by the operator, published on the card, blank clears, non-http(s) rejected");
+
+  // export endpoint: both windows merged, per-node filter, 404 on unknown
+  const all = await api("/api/history/export");
+  const one = await api("/api/history/export?id=mainnet-selftest-node");
+  const none = await api("/api/history/export?id=no-such-node");
+  ok(all.status === 200 && all.body.nodes["mainnet-selftest-node"]
+     && Array.isArray(one.body.nodes["mainnet-selftest-node"].checks)
+     && Array.isArray(one.body.nodes["mainnet-selftest-node"].days)
+     && Object.keys(one.body.nodes).length === 1 && none.status === 404,
+     "history export merges 24h checks and daily rollups, filters by id, 404s unknown ids");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

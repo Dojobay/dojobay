@@ -425,6 +425,7 @@ async function loadJSON(url){
       <label>Name <input class="e-name" maxlength="40" value="${esc(r.name||"")}"></label>
       <label>Hardware <input class="e-hw" maxlength="120" value="${esc(r.hardware||"")}"></label>
       <label>Dojo version <input class="e-ver" maxlength="24" value="${esc(ver)}" placeholder="e.g. 1.27.0"></label>
+      <label>Link (optional; the card title links here) <input class="e-url" maxlength="200" value="${esc(r.name_url||"")}" placeholder="https://…"></label>
       <div class="medit-actions">
         <button class="copybtn" data-${actPrefix}="editsave" data-id="${esc(r.id)}">Save</button>
         <button class="copybtn" data-${actPrefix}="editcancel">Cancel</button>
@@ -456,6 +457,7 @@ async function loadJSON(url){
         <label>Jurisdiction <input id="m-jur" maxlength="64" placeholder="e.g. Europe, Canada"></label>
         <label>Country code (optional, 2 letters for a flag) <input id="m-cc" maxlength="2" placeholder="FI"></label>
         <label>Hardware <input id="m-hw" maxlength="120" placeholder="e.g. N100 16GB"></label>
+        <label>Link (optional; the card title links here) <input id="m-url" maxlength="200" placeholder="https://…"></label>
         <label>Pairing code (JSON) <textarea id="m-payload" rows="6" placeholder='{"pairing":{"type":"dojo.api",...},"explorer":{...}}'></textarea></label>
         <label>Signed pairing message (optional, but verified if provided) <textarea id="m-signed" rows="5" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----&#10;...&#10;-----END BITCOIN SIGNATURE-----"></textarea></label>
         <button class="reveal" data-mact="submit" style="margin-top:4px">Check connection &amp; submit</button>
@@ -505,6 +507,7 @@ async function loadJSON(url){
         name:box.querySelector(".e-name").value,
         hardware:box.querySelector(".e-hw").value,
         version:box.querySelector(".e-ver").value,
+        name_url:box.querySelector(".e-url").value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       EDIT_ID=null; await refreshMe(); renderManage(); return;
@@ -529,6 +532,7 @@ async function loadJSON(url){
         jurisdiction: document.getElementById("m-jur").value,
         country: document.getElementById("m-cc").value,
         hardware: document.getElementById("m-hw").value,
+        name_url: document.getElementById("m-url").value,
         payload,
         signed: document.getElementById("m-signed").value.trim() || null,
       });
@@ -627,6 +631,7 @@ async function loadJSON(url){
         name:box.querySelector(".e-name").value,
         hardware:box.querySelector(".e-hw").value,
         version:box.querySelector(".e-ver").value,
+        name_url:box.querySelector(".e-url").value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       ADM_EDIT_ID=null; renderAdminPanel(); return;

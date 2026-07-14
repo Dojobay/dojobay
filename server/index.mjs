@@ -74,6 +74,25 @@ const owns = (rec, pc) => !!rec && Array.isArray(rec.paymentCodes) && rec.paymen
 // Node names: operator-chosen, unique per network. The slug both keys the
 // record (`${network}-${slug}`) and enforces case/punctuation-insensitive
 // uniqueness of the display name.
+// Signed pairing blocks arrive by clipboard, which is where stray bytes creep
+// in: CRLF line endings, zero-width characters, non-breaking spaces. Wallets
+// emit LF-only ASCII, so stripping these BEFORE signature verification keeps a
+// mangled paste verifiable while never altering what the wallet actually
+// signed. Applied at intake only; stored and emitted bytes are then clean.
+const cleanSigned = (v) => {
+  const t = String(v || "").replace(/\r/g, "").replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\u00a0/g, " ").trim();
+  return t || null;
+};
+
+// Operator-set card link (name_url). http(s) only, so no javascript: or data:
+// schemes can reach an href. Returns null for empty, undefined for invalid.
+const cleanUrl = (v) => {
+  const t = String(v || "").trim();
+  if (!t) return null;
+  if (t.length > 200 || !/^https?:\/\/[^\s"'<>]+$/i.test(t)) return undefined;
+  return t;
+};
+
 const slugify = (name) => String(name || "")
   .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
@@ -310,6 +329,10 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   const payloadErr = validatePayload(body.payload);
   if (payloadErr) return json(res, 400, { error: payloadErr });
 
+  body.signed = cleanSigned(body.signed);
+  const nameUrl = cleanUrl(body.name_url);
+  if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
+
   // signature gate (optional field, but if present it must verify)
   if (body.signed) {
     const sig = verifySignedPayload({
@@ -353,7 +376,9 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
       return indexer ? { ...base, indexer } : base;
     })(),
     signed: body.signed || null,
-    name_url: (existing && existing.name_url) || null,   // maintainer-set link, kept across edits
+    // A link supplied here is set; left blank, any existing link is kept (the
+    // Edit panel, where the field is prefilled, is the place to clear it).
+    name_url: nameUrl !== null ? nameUrl : ((existing && existing.name_url) || null),
     status: "pending",                         // moderation state: pending | approved | rejected
     last_probe: check,
     created_at: existing ? existing.created_at : now,
@@ -388,7 +413,10 @@ async function applyEdit(rec, body, res) {
   if (!slug) return json(res, 400, { error: "name is required (letters, digits and hyphens)" });
   const taken = await slugTakenByOther(rec.network, slug, rec.id);
   if (taken) return json(res, 409, { error: `name "${name}" is taken on ${rec.network}: ${taken}` });
+  const nameUrl = cleanUrl(body.name_url);
+  if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
   rec.name = name;
+  rec.name_url = nameUrl;                           // prefilled in the form, so blank is a deliberate clear
   rec.hardware = String(body.hardware || "").trim().slice(0, 120) || null;
   const version = String(body.version || "").trim().slice(0, 24);
   rec.version = version || null;                    // null falls back to the pairing payload's version
@@ -418,6 +446,35 @@ route("POST", /^\/api\/admin\/edit$/, async (req, res) => {
   const rec = await store.getSubmission(body.id);
   if (!rec) return json(res, 404, { error: "not found" });
   await applyEdit(rec, body, res);
+});
+
+// 11) reliability export: the full 24h check series and 90-day rollups in one
+//     document, optionally filtered to a single node. Not linked anywhere on
+//     the front end; the raw files also remain at /data/history.json and
+//     /data/history-daily.json.
+route("GET", /^\/api\/history\/export$/, async (req, res) => {
+  const u = new URL(req.url, "http://x");
+  const id = u.searchParams.get("id");
+  const dataDir = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
+  const read = async (f, fb) => { try { return JSON.parse(await readFile(path.join(dataDir, f), "utf8")); } catch { return fb; } };
+  const hist = await read("history.json", { nodes: {} });
+  const daily = await read("history-daily.json", { nodes: {} });
+  const ids = id ? [id] : [...new Set([...Object.keys(hist.nodes || {}), ...Object.keys(daily.nodes || {})])].sort();
+  const nodes = {};
+  for (const k of ids) {
+    const h = (hist.nodes || {})[k], d = (daily.nodes || {})[k];
+    if (!h && !d) continue;
+    nodes[k] = { checks: (h && h.checks) || [], days: (d && d.days) || [] };
+    const retired = (h && h.retired) || (d && d.retired);
+    if (retired) nodes[k].retired = retired;
+  }
+  if (id && !nodes[id]) return json(res, 404, { error: "no history for that id" });
+  json(res, 200, {
+    generated_at: new Date().toISOString(),
+    interval_minutes: hist.interval_minutes || 10,
+    window_checks: hist.window_checks || 144,
+    nodes,
+  });
 });
 
 // 8) delete one of my records

@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Static directory of public Bitcoin Dojo nodes, with a Tor reachability updater.",
-  "engines": { "node": ">=16" },
+  "description": "Onion-only, self-hostable directory of public Bitcoin Dojo nodes for Samourai and Ashigaru wallets, with Auth47 self-service listings and a Tor reachability updater.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "update": "node scripts/update.mjs",

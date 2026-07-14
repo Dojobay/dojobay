@@ -30,7 +30,7 @@
       "network": "testnet",
       "name": "wanderinKing072",
       "status": "inactive",
-      "paynym": null,
+      "paynym": "+condescendingcup55",
       "jurisdiction": null,
       "country": null,
       "hardware": null,
@@ -48,7 +48,8 @@
           "url": "https://oxt.me"
         }
       },
-      "signed": null
+      "signed": null,
+      "paymentCode": "PM8TJef8p1cVFT7E7AksqERV4zXTnkZJCbnKjZxP7bgSUrDqNjDGdTvEwRPbibJKha4y8sZ5apm3g6TyFvwMiZMDGWtE9cT1qKeoRcTbouJFa3SGkitd"
     }
   ]
 }

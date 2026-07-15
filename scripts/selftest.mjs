@@ -9,7 +9,10 @@
 
 import net from "node:net";
 import assert from "node:assert";
-import { probe } from "./update.mjs";
+import { probe, fetchAvatar } from "./update.mjs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 // Minimal SOCKS5 server. `mode` decides how it answers the CONNECT request.
 function mockProxy(mode) {
@@ -34,8 +37,13 @@ function mockProxy(mode) {
           return;
         }
         if (stage === "tunnel") {
-          // we just received the HEAD request; answer like a Dojo HTTP server
+          // we just received the request; answer like a Dojo HTTP server
           if (mode === "http") sock.write("HTTP/1.0 401 Unauthorized\r\n\r\n");
+          if (mode === "avatar") {
+            const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("fakepixels")]);
+            sock.write(Buffer.concat([Buffer.from("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\n\r\n", "latin1"), png]));
+          }
+          if (mode === "avatar-notpng") sock.write("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<html>not found</html>");
           // mode === "silent" -> accept stream but never respond
           sock.end();
         }
@@ -94,6 +102,29 @@ await check("connect succeeds, CONNECT_ONLY=1 -> up", async () => {
 await check("no proxy listening -> down", async () => {
   const r = await probe("http://whatever1234567.onion/v2", cfg(1)); // nothing on :1
   assert.equal(r.up, false, JSON.stringify(r));
+});
+
+await check("avatar fetched over the (mock) Tor proxy and written as verified PNG", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "dojobay-avatar-"));
+  try {
+    await withProxy("avatar", async (port) => {
+      const dest = await fetchAvatar("PMTESTCODE", { proxyHost: "127.0.0.1", proxyPort: port, destDir: dir, timeoutMs: 3000 });
+      const bytes = await readFile(dest);
+      assert.ok(dest.endsWith("PMTESTCODE.png"));
+      assert.ok(bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])));
+    });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+await check("non-PNG avatar response refused, nothing written", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "dojobay-avatar-"));
+  try {
+    await withProxy("avatar-notpng", async (port) => {
+      await assert.rejects(
+        fetchAvatar("PMOTHER", { proxyHost: "127.0.0.1", proxyPort: port, destDir: dir, timeoutMs: 3000 }),
+        /not a PNG/);
+    });
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 console.log(`\nall ${passed} checks passed`);

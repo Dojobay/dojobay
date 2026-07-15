@@ -71,6 +71,23 @@ async function main() {
   const owned = (seed.nodes || []).filter((n) => n.paynym);
   const kept = (seed.nodes || []).filter((n) => !n.paynym);
 
+  // The deploy pipeline ships the SLIM seed, so on a box where the migration
+  // has not run yet, this script's input no longer exists locally: seed.json
+  // has no operator-owned nodes and the store has nothing migrated. Reporting
+  // "nothing to do" in that state is actively misleading, so detect it and
+  // say what to do instead.
+  if (owned.length === 0) {
+    const migrated = (await store.listSubmissions()).filter((r) => r.source === "seed-migration");
+    if (migrated.length === 0) {
+      console.error(`no operator-owned nodes in ${path.relative(ROOT, SEED_PATH)} and no migrated records in the store.`);
+      console.error("If this seed was already slimmed by a deploy, supply the PRE-migration seed:");
+      console.error("  mkdir -p /tmp/mig && cp <full-seed>.json /tmp/mig/seed.json && cp data/paynym-codes.json /tmp/mig/");
+      console.error("  PUBLIC_DATA_DIR=/tmp/mig node scripts/migrate-seed-to-store.mjs --dry-run");
+      console.error("(records are written to the normal server/data store; only the seed is read from /tmp/mig)");
+      process.exit(1);
+    }
+  }
+
   // Refuse to run at all if any owned node lacks a code mapping: a partial
   // migration would strand that operator without a manageable record.
   const missing = owned.filter((n) => !mapping[n.paynym]);
@@ -87,10 +104,13 @@ async function main() {
     if (!byOwner.has(n.paynym)) byOwner.set(n.paynym, []);
     byOwner.get(n.paynym).push(n);
   }
+  const slugOf = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const nameOf = new Map();
   for (const group of byOwner.values()) {
     const names = deriveNames(group);
-    group.forEach((n, i) => nameOf.set(n.id, names[i]));
+    // Prefer the seed's display name when it slugs to the derived value, so
+    // capitalisation like "wanderinKing072" survives the migration.
+    group.forEach((n, i) => nameOf.set(n.id, (n.name && slugOf(n.name) === names[i]) ? n.name : names[i]));
   }
   const seen = new Set();
   for (const n of owned.concat(kept)) {

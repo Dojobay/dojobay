@@ -39,7 +39,7 @@
 
 import net from "node:net";
 import { retireUnlisted } from "../server/build-public.mjs";
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFile, writeFile, rename, stat as fsStat, mkdir as fsMkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -167,10 +167,85 @@ function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
       const s = buf.toString("latin1");
       const m = s.match(/^HTTP\/1\.[01] (\d{3})/);
       const i = s.indexOf("\r\n\r\n");
-      done(resolve, { status: m ? +m[1] : 0, body: i >= 0 ? s.slice(i + 4) : "" });
+      done(resolve, {
+        status: m ? +m[1] : 0,
+        body: i >= 0 ? s.slice(i + 4) : "",
+        rawHead: i >= 0 ? s.slice(0, i + 2) : s,          // headers incl. trailing CRLF
+        bodyBuf: i >= 0 ? buf.subarray(i + 4) : Buffer.alloc(0),   // exact bytes for binary payloads
+      });
     });
     socket.write(rawRequest);
   });
+}
+
+// ---- PayNym avatars ---------------------------------------------------------
+// Cards embed each node's PayNym avatar in the centre of its pairing QR. The
+// front end never fetches from third parties, so the avatar is mirrored here:
+// downloaded over Tor from the paynym.rs onion and served locally from
+// data/avatars/<paymentCode>.png. Missing files are fetched every cycle (which
+// also covers newly approved nodes within ten minutes) and existing ones are
+// refreshed weekly. Only verified PNG bytes are written; anything else -- an
+// error page, a redirect chain, an empty body -- is skipped without touching
+// the file, and failures are logged, never fatal.
+const PAYNYM_ONION = process.env.PAYNYM_ONION_HOST || "paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion";
+const AVATAR_MAX_AGE_MS = 7 * 86400000;
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+export async function fetchAvatar(paymentCode, { proxyHost, proxyPort, destDir, timeoutMs = 25000, host = PAYNYM_ONION, port = 80 } = {}) {
+  const cfg = { proxyHost, proxyPort };
+  let pathPart = `/${encodeURIComponent(paymentCode)}/avatar`;
+  for (let hop = 0; hop < 2; hop++) {          // follow at most one same-host redirect
+    const req = `GET ${pathPart} HTTP/1.0\r\nHost: ${host}\r\nUser-Agent: dojobay-checker\r\nConnection: close\r\n\r\n`;
+    const res = await httpOverTor(cfg, host, port, req, timeoutMs);
+    if ([301, 302, 307, 308].includes(res.status)) {
+      const m = res.rawHead && res.rawHead.match(/\r\nlocation:\s*([^\r\n]+)/i);
+      if (!m) throw new Error("redirect without location");
+      const loc = m[1].trim();
+      if (/^https?:\/\//i.test(loc)) {
+        const u = new URL(loc);
+        if (u.hostname !== host) throw new Error("cross-host redirect");
+        pathPart = u.pathname + u.search;
+      } else pathPart = loc;
+      continue;
+    }
+    if (res.status !== 200) throw new Error(`HTTP ${res.status || "no-response"}`);
+    const bytes = res.bodyBuf || Buffer.from(res.body, "latin1");
+    if (bytes.length < 8 || !bytes.subarray(0, 4).equals(PNG_MAGIC)) throw new Error("not a PNG");
+    await fsMkdir(destDir, { recursive: true });
+    const dest = path.join(destDir, `${paymentCode}.png`);
+    await writeFile(dest + ".tmp", bytes);
+    await rename(dest + ".tmp", dest);
+    return dest;
+  }
+  throw new Error("too many redirects");
+}
+
+// Ensure a local avatar exists (and is reasonably fresh) for every listed
+// payment code. Small concurrency; per-code failures are logged and skipped.
+async function syncAvatars(nodes, destDir) {
+  const codes = [...new Set(nodes.map((n) => n.paymentCode).filter(Boolean))];
+  const wanted = [];
+  for (const code of codes) {
+    try {
+      const st = await fsStat(path.join(destDir, `${code}.png`));
+      if (Date.now() - st.mtimeMs < AVATAR_MAX_AGE_MS) continue;
+    } catch { /* missing -> fetch */ }
+    wanted.push(code);
+  }
+  let i = 0;
+  const worker = async () => {
+    for (;;) {
+      const code = wanted[i++];
+      if (!code) return;
+      try {
+        await fetchAvatar(code, { proxyHost: CFG.proxyHost, proxyPort: CFG.proxyPort, destDir });
+        console.error(`[avatar] fetched ${code.slice(0, 12)}…`);
+      } catch (e) {
+        console.error(`[avatar] ${code.slice(0, 12)}…: ${e.message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, wanted.length) }, worker));
 }
 
 // Authenticated health check: log in with the node's apikey, then read the
@@ -334,6 +409,8 @@ async function main() {
 
   const dojos = await readJSON(dojosPath);
   if (!dojos || !Array.isArray(dojos.nodes)) throw new Error(`bad or missing ${dojosPath}`);
+  // Mirror PayNym avatars for every listed code (non-blocking for the probes).
+  const avatarsDone = syncAvatars(dojos.nodes, path.join(CFG.dataDir, "avatars")).catch((e) => console.error("[avatar]", e.message));
   const history = await readJSON(historyPath, { interval_minutes: 10, window_checks: CFG.windowChecks, nodes: {} });
   const window = history.window_checks || CFG.windowChecks;
 
@@ -454,6 +531,7 @@ async function main() {
     const r = results[i];
     console.error(`  ${r.up ? "UP  " : "DOWN"} ${n.id.padEnd(28)} ${String(r.ms).padStart(6)}ms  ${r.reason || ""}`);
   }
+  await avatarsDone;   // let in-flight avatar mirrors finish before the timer unit exits
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

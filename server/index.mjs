@@ -263,6 +263,14 @@ route("POST", /^\/api\/admin\/approve$/, async (req, res) => {
   rec.updated_at = new Date().toISOString();
   if (body.paynym) rec.paynym = body.paynym.startsWith("+") ? body.paynym : "+" + body.paynym;
   else if (!rec.paynym) { const r = await resolvePayNym(rec.paymentCodes[0]).catch(() => null); if (r) rec.paynym = r; }
+  // Mirror the operator's PayNym avatar now rather than waiting a cycle; the
+  // updater retries missing ones every ten minutes, so failure here is fine.
+  import("../scripts/update.mjs").then(({ fetchAvatar }) => Promise.all(
+    rec.paymentCodes.map((c) => fetchAvatar(c, {
+      proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort,
+      destDir: path.join(process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data"), "avatars"),
+    }).catch(() => {}))
+  )).catch(() => {});
   await store.putSubmission(rec);
   const out = await tryRebuild();
   json(res, 200, { ok: true, submission: rec, rebuild: out });

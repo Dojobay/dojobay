@@ -27,8 +27,10 @@ async function loadJSON(url){
   }
   function flash(btn,t){const o=btn.innerHTML;btn.innerHTML=t;btn.classList.add("done");setTimeout(()=>{btn.innerHTML=o;btn.classList.remove("done")},1500);}
 
-  function qrSVG(text, px){
-    const qr = qrcode(0,"M"); qr.addData(text); qr.make();
+  function qrSVG(text, px, ec){
+    // ec "H" (30% recovery) is required for QRs carrying a centre avatar; the
+    // overlay covers ~5% of the symbol, leaving ample margin for scanners.
+    const qr = qrcode(0, ec||"M"); qr.addData(text); qr.make();
     const n=qr.getModuleCount(), margin=2, total=n+margin*2, cell=px/total;
     let r="";
     for(let row=0;row<n;row++) for(let col=0;col<n;col++) if(qr.isDark(row,col)){
@@ -160,14 +162,17 @@ async function loadJSON(url){
 
   function pairHTML(n){
     const pairingOnly = JSON.stringify({pairing:n.payload.pairing, explorer:n.payload.explorer}, null, 2);
-    const qr = qrSVG(JSON.stringify(n.payload), 208);
+    const qr = qrSVG(JSON.stringify(n.payload), 208, "H");
+    const avatar = n.paymentCode
+      ? `<img class="qr-avatar" alt="" loading="lazy" src="data/avatars/${encodeURIComponent(n.paymentCode)}.png" onerror="this.remove()">`
+      : "";
     const signedBox = n.signed ? `
       <div class="box signed">
         <div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copysigned">Copy</button></div>
         <pre>${esc(n.signed)}</pre>
       </div>` : "";
     return `<div class="pair">
-      <div class="qr"><div class="tile">${qr}</div><span class="cap">Scan to pair</span></div>
+      <div class="qr"><div class="tile">${qr}${avatar}</div><span class="cap">Scan to pair</span></div>
       <div class="box">
         <div class="lbl"><span class="t">Pairing code</span><button class="copybtn" data-act="copypairing">Copy</button></div>
         <pre>${esc(pairingOnly)}</pre>

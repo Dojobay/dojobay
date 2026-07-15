@@ -41,6 +41,12 @@
   .onion-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-bg);padding:6px 10px;border-radius:7px;margin-left:4px}
   .onion-pill:hover{background:rgba(247,147,26,.16)}
   .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
+  /* PayNym avatar centred on the pairing QR (QR is generated at EC level H,
+     so the ~5% of symbol area the avatar covers is well within recovery) */
+  .tile{position:relative}
+  .qr-avatar{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+             width:21%;height:21%;object-fit:cover;border-radius:8px;
+             border:3px solid #fff;background:#fff}
   /* payment code chip on cards: truncated, click copies the full code */
   .pcode{display:inline-block;margin:2px 0 8px;padding:3px 9px;font-size:11.5px;letter-spacing:.02em;color:var(--muted);
          background:var(--panel2);border:1px solid var(--line-soft);border-radius:999px;cursor:pointer}

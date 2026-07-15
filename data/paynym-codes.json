@@ -234,6 +234,20 @@
           "claimed": true
         }
       ]
+    },
+    "+condescendingcup55": {
+      "nymName": "+condescendingcup55",
+      "nymID": null,
+      "nodes": [
+        "testnet-wanderinking072"
+      ],
+      "codes": [
+        {
+          "code": "PM8TJef8p1cVFT7E7AksqERV4zXTnkZJCbnKjZxP7bgSUrDqNjDGdTvEwRPbibJKha4y8sZ5apm3g6TyFvwMiZMDGWtE9cT1qKeoRcTbouJFa3SGkitd",
+          "segwit": false,
+          "claimed": true
+        }
+      ]
     }
   },
   "errors": []

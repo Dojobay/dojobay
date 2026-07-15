@@ -402,6 +402,33 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "history export merges 24h checks and daily rollups, filters by id, 404s unknown ids");
 }
 
+// 17) update check: counts commits behind main and releases published since
+//     this build (fake transport), and the admin route gates access while
+//     reporting an unreachable GitHub in-band rather than erroring the panel.
+{
+  await fsp.writeFile(process.env.PUBLIC_DATA_DIR + "/version.json",
+    JSON.stringify({ commit: "abc1234", built: "2026-01-01T00:00:00Z" }));
+  const { checkUpdates } = await import("./updates.mjs");
+  const transport = async (apiPath) => {
+    if (apiPath.startsWith("/repos/Dojobay/dojobay/compare/"))
+      return { status: 200, body: JSON.stringify({ status: "behind", ahead_by: 4, behind_by: 0 }) };
+    if (apiPath.startsWith("/repos/Dojobay/dojobay/releases"))
+      return { status: 200, body: JSON.stringify([
+        { tag_name: "v0.2", published_at: "2026-06-01T00:00:00Z" },
+        { tag_name: "v0.1", published_at: "2025-12-01T00:00:00Z" },
+      ]) };
+    return { status: 404, body: "{}" };
+  };
+  const u = await checkUpdates({ transport });
+  ok(u.commits_behind === 4 && u.releases_behind === 1 && u.latest_release === "v0.2" && u.commit === "abc1234",
+     "update check: 4 commits behind, 1 release since build, latest v0.2");
+
+  const anon = await fetch(base + "/api/admin/updates");
+  const admin = await api("/api/admin/updates");
+  ok(anon.status === 401 && admin.status === 200 && admin.body.available === false && admin.body.error,
+     "updates route: anonymous 401; unreachable GitHub reported in-band to the admin");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

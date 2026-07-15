@@ -155,8 +155,38 @@ fields or remove the listing at any time with the same sign-in.
 Any Dojo Bay instance can be verified against its operator: the **Verify**
 link in the footer shows a Bitcoin-signed message binding the onion address
 to the operator's payment code. Check it with the
-[BIP47 Message Verifier](http://ab64uow264ohynkalvlyhdrduwwl75n4urvc2vrbo3xjd4jycygiirqd.onion/lab)
+[BIP47 Message Verifier](https://paymentcode.io/lab)
 or with **Tools → Verify message** in the wallet.
+
+## Upgrading an instance
+
+Every Dojo Bay serves its own source code: the branch icon in the footer
+downloads `data/dojobay-src.zip`, an archive of exactly the code that
+instance is running (regenerated automatically after each deploy, and never
+containing instance data — no submission store, no API keys, no seed, no
+histories). That makes any instance an upgrade source for any other, with no
+reliance on GitHub being reachable.
+
+To upgrade a hand-managed instance, fetch the archive from the reference
+instance over Tor (or from any instance you trust, or from GitHub), then
+extract it over the web root — the archive contains only code, so your seed,
+operator binding, submission store and histories are untouched:
+
+```
+cd /tmp
+curl -s --socks5-hostname 127.0.0.1:9050   -o dojobay-src.zip http://<reference-onion>/data/dojobay-src.zip
+unzip -o dojobay-src.zip
+sudo systemctl stop dojobay-server
+sudo cp -a dojobay/. /var/www/dojobay/
+cd /var/www/dojobay/server && sudo npm ci --omit=dev
+node ../server/build-public.mjs
+sudo systemctl start dojobay-server
+```
+
+The footer's build hash and `data/version.json` tell you what you are
+running. The admin console shows how far the instance is behind: it checks
+the repository over Tor (respecting `GITHUB_REPO` if you run a fork) and
+reports commits behind `main` and releases published since your build.
 
 ## Contributing and licence
 

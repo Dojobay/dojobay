@@ -48,6 +48,7 @@ async function loadJSON(url){
   const ONION_URL = "http://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/";
   // PayNym profile links point at the paynym.rs onion, so a visitor stays on Tor.
   const PAYNYM_WEB = "http://paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad.onion";
+  const SRC_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 7.2v9.6M18 11.2c0 3.2-2.6 4.3-5.6 4.3H10"/></svg>`;
   const GH_LOGO = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.2 3.44 9.6 8.21 11.16.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.58-4.04-1.58-.55-1.36-1.34-1.73-1.34-1.73-1.09-.73.08-.72.08-.72 1.2.08 1.84 1.21 1.84 1.21 1.07 1.79 2.81 1.27 3.5.97.11-.76.42-1.27.76-1.56-2.67-.3-5.47-1.31-5.47-5.84 0-1.29.47-2.34 1.24-3.17-.12-.3-.54-1.52.12-3.16 0 0 1.01-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.29-1.53 3.3-1.21 3.3-1.21.66 1.64.24 2.86.12 3.16.77.83 1.24 1.88 1.24 3.17 0 4.54-2.81 5.54-5.49 5.83.43.36.81 1.09.81 2.2 0 1.59-.01 2.87-.01 3.26 0 .31.21.68.83.56C20.56 21.88 24 17.48 24 12.29 24 5.78 18.63.5 12 .5z"/></svg>`;
 
   const LOGO = `
@@ -266,6 +267,7 @@ async function loadJSON(url){
       ${OPERATOR&&OPERATOR.paymentCode?`<img class="op-avatar" alt="" title="Directory operator's PayNym" src="data/avatars/${encodeURIComponent(OPERATOR.paymentCode)}.png" onerror="this.remove()">`:""}
       <button class="lnk verify-link" data-act="verify" title="Verify this directory's onion address is signed by its operator">Verify</button>
       <span class="foot-spacer"></span>
+      <a class="gh" href="data/dojobay-src.zip" download="dojobay-src.zip" aria-label="Download this instance's source code (zip)" title="Download this instance's source code (zip)">${SRC_ICON}</a>
       <a class="gh" href="${REPO_URL}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${GH_LOGO}</a>
       <span class="ver">${VERSION?`<a href="${REPO_URL}/commit/${esc(VERSION.commit)}" target="_blank" rel="noopener" title="${esc(VERSION.built||"")}">build ${esc(VERSION.commit)}</a>`:""}</span>
     </div></footer>
@@ -612,6 +614,10 @@ async function loadJSON(url){
       adminShell('<p>The payment code <code>'+esc(ME.paymentCode.slice(0,12))+'\u2026</code> is not an administrator of this directory.</p><p style="margin-top:10px"><button class="abtn" data-adm="logout">Sign out</button></p>');
       return;
     }
+    if(!ADMIN_UPDATES && !ADMIN_UPDATES_LOADING){
+      ADMIN_UPDATES_LOADING = true;
+      api.call("/admin/updates").then(r=>{ ADMIN_UPDATES = r.body || {available:false,error:"HTTP "+r.status}; renderAdminPanel(); }).catch(()=>{ ADMIN_UPDATES={available:false,error:"request failed"}; renderAdminPanel(); });
+    }
     adminShell('<p class="loading">Loading submissions\u2026</p>');
     const r = await api.call("/admin/submissions");
     if(r.status===401){ ME={authenticated:false}; renderAdminPanel(); return; }   // signed out elsewhere (Manage panel / another tab)
@@ -623,6 +629,7 @@ async function loadJSON(url){
       '<p style="font-size:13px;color:var(--muted)">Signed in as <code>'+esc(ME.paymentCode.slice(0,12))+'\u2026'+esc(ME.paymentCode.slice(-4))+'</code> '+
       '<button class="abtn" data-adm="logout" style="margin-left:8px">Sign out</button> '+
       '<span style="font-size:12px;color:var(--faint)">(the same Auth47 session as Manage my Dojo; signing out here signs you out there too)</span></p>'+
+      updatesLine()+
       (ADMIN_NOTICE?'<p style="font-size:12.5px;color:var(--down);border:1px solid var(--down);border-radius:8px;padding:8px 12px">'+esc(ADMIN_NOTICE)+'</p>':"")+
       '<h3 style="margin:16px 0 8px">Pending review ('+pending.length+')</h3>'+
       (pending.length? pending.map(adminRow).join("") : '<p style="color:var(--faint)">Nothing awaiting review.</p>')+
@@ -631,6 +638,20 @@ async function loadJSON(url){
     );
   }
   let ADMIN_NOTICE = null;
+  let ADMIN_UPDATES = null, ADMIN_UPDATES_LOADING = false;
+  function updatesLine(){
+    if(!ADMIN_UPDATES) return ADMIN_UPDATES_LOADING ? '<p style="font-size:12px;color:var(--faint)">Checking for updates…</p>' : "";
+    const u = ADMIN_UPDATES;
+    if(!u.available) return '<p style="font-size:12px;color:var(--faint)">Update check unavailable: '+esc(u.error||"unknown")+'</p>';
+    const behind = u.commits_behind>0
+      ? '<b style="color:var(--warn,#e0a020)">'+u.commits_behind+' commit'+(u.commits_behind===1?"":"s")+' behind main</b>'
+      : 'up to date with main';
+    const rel = u.latest_release
+      ? (u.releases_behind>0 ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b> (latest '+esc(u.latest_release)+')'
+                             : ' · latest release '+esc(u.latest_release))
+      : "";
+    return '<p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel+'</p>';
+  }
   document.addEventListener("click", async e=>{
     const b=e.target.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");

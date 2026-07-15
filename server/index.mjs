@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import { store } from "./store.mjs";
 import { makeAuth47, notificationAddress, verifySignedPayload } from "./crypto.mjs";
 import { probe, PROBE_CFG } from "./probe.mjs";
+import { checkUpdates } from "./updates.mjs";
 import { resolvePayNym } from "./paynym.mjs";
 import { rebuild } from "./build-public.mjs";
 import { readFile } from "node:fs/promises";
@@ -454,6 +455,24 @@ route("POST", /^\/api\/admin\/edit$/, async (req, res) => {
   const rec = await store.getSubmission(body.id);
   if (!rec) return json(res, 404, { error: "not found" });
   await applyEdit(rec, body, res);
+});
+
+// 12) admin: how far behind is this instance? Cached for six hours; failure
+//     (GitHub unreachable over Tor, or an undeployed dev build) is reported
+//     in-band so the admin panel can show "unavailable" without erroring.
+let UPDATES_CACHE = null;
+route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  if (UPDATES_CACHE && Date.now() - UPDATES_CACHE.at < 6 * 3600 * 1000) {
+    return json(res, 200, UPDATES_CACHE.result);
+  }
+  try {
+    const result = { available: true, ...(await checkUpdates({ cfg: { proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort } })) };
+    UPDATES_CACHE = { at: Date.now(), result };
+    json(res, 200, result);
+  } catch (e) {
+    json(res, 200, { available: false, error: e.message });
+  }
 });
 
 // 11) reliability export: the full 24h check series and 90-day rollups in one

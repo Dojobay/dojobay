@@ -10,6 +10,7 @@
 import net from "node:net";
 import assert from "node:assert";
 import { probe, fetchAvatar } from "./update.mjs";
+import { packSource } from "./pack-source.mjs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -124,6 +125,28 @@ await check("non-PNG avatar response refused, nothing written", async () => {
         fetchAvatar("PMOTHER", { proxyHost: "127.0.0.1", proxyPort: port, destDir: dir, timeoutMs: 3000 }),
         /not a PNG/);
     });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+await check("source zip packs the codebase and never the instance's own data", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "dojobay-src-"));
+  try {
+    const r = await packSource({ outDir: dir });
+    const buf = await readFile(r.out);
+    // walk the central directory for entry names
+    const names = [];
+    for (let i = 0; i + 46 < buf.length; i++) {
+      if (buf.readUInt32LE(i) !== 0x02014b50) continue;
+      const nlen = buf.readUInt16LE(i + 28);
+      names.push(buf.subarray(i + 46, i + 46 + nlen).toString("utf8"));
+      i += 45 + nlen;
+    }
+    assert.ok(names.includes("dojobay/assets/js/app.js"), "app.js present");
+    assert.ok(names.includes("dojobay/data/version.json"), "version marker present");
+    assert.ok(names.includes("dojobay/scripts/pack-source.mjs"), "packer ships itself");
+    const forbidden = names.filter((n) =>
+      /server\/data|seed\.json|operator\.json|paynym-codes|dojos\.json|history|avatars|node_modules|\.zip$/.test(n));
+    assert.deepEqual(forbidden, [], "forbidden entries: " + forbidden.join(", "));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

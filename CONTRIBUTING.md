@@ -51,6 +51,7 @@ data/
   paynym-codes.json        # PayNym -> BIP47 code variants (migration + display)
 server/
   index.mjs                # Auth47 + submissions + moderation API (localhost)
+  updates.mjs              # commits/releases-behind check against GitHub, over Tor
   build-public.mjs         # merges seed + approved store into dojos.json
   store.mjs, crypto.mjs, paynym.mjs, admin.mjs
   selftest.mjs             # backend test suite (see below)
@@ -58,6 +59,7 @@ scripts/
   update.mjs               # ten-minute Tor prober; maintains statuses + history
   migrate-seed-to-store.mjs# idempotent seed -> store migration (--dry-run)
   selftest.mjs             # offline tests of the reachability logic
+  pack-source.mjs          # packs the instance's own code into data/dojobay-src.zip
   serve.mjs                # zero-dependency dev server
   dojobay-server.service, dojobay-update.{service,timer}
 deploy/

@@ -409,6 +409,20 @@ async function main() {
 
   const dojos = await readJSON(dojosPath);
   if (!dojos || !Array.isArray(dojos.nodes)) throw new Error(`bad or missing ${dojosPath}`);
+  // Keep the self-hosted source download current: regenerate the zip when it
+  // is missing or older than data/version.json (i.e. after any code deploy).
+  try {
+    const zipPath = path.join(CFG.dataDir, "dojobay-src.zip");
+    const verPath = path.join(CFG.dataDir, "version.json");
+    const zipSt = await fsStat(zipPath).catch(() => null);
+    const verSt = await fsStat(verPath).catch(() => null);
+    if (!zipSt || (verSt && verSt.mtimeMs > zipSt.mtimeMs)) {
+      const { packSource } = await import("./pack-source.mjs");
+      const r = await packSource({ outDir: CFG.dataDir });
+      console.error(`[src-zip] repacked: ${r.files} files, ${(r.bytes / 1024).toFixed(0)} KiB`);
+    }
+  } catch (e) { console.error(`[src-zip] skipped: ${e.message}`); }
+
   // Mirror PayNym avatars for every listed code (non-blocking for the probes).
   const operatorDoc = await readJSON(path.join(CFG.dataDir, "operator.json")).catch(() => null) ?? {};
   const avatarSubjects = dojos.nodes.concat(operatorDoc.paymentCode ? [{ paymentCode: operatorDoc.paymentCode }] : []);

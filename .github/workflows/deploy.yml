@@ -47,7 +47,7 @@ jobs:
         run: |
           rsync -az --delete \
             --exclude '.git' --exclude '.github' --exclude 'node_modules' \
-            --exclude 'data/dojos.json' --exclude 'data/history.json' --exclude 'data/history-daily.json' --exclude 'data/avatars' --exclude 'server/data' --exclude 'server/node_modules' \
+            --exclude 'data/dojos.json' --exclude 'data/history.json' --exclude 'data/history-daily.json' --exclude 'data/avatars' --exclude 'data/dojobay-src.zip' --exclude 'server/data' --exclude 'server/node_modules' \
             -e "ssh -p ${{ secrets.VPS_PORT || 22 }} -i ~/.ssh/id_deploy" \
             ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PATH }}/"
 
@@ -55,4 +55,4 @@ jobs:
         run: |
           ssh -p "${{ secrets.VPS_PORT || 22 }}" -i ~/.ssh/id_deploy \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            'cd /var/www/dojobay/server && node build-public.mjs || true; sudo systemctl reload nginx && sudo systemctl enable --now dojobay-update.timer; sudo systemctl restart dojobay-server 2>/dev/null || true'
+            'cd /var/www/dojobay/server && node build-public.mjs || true; node ../scripts/pack-source.mjs || true; sudo systemctl reload nginx && sudo systemctl enable --now dojobay-update.timer; sudo systemctl restart dojobay-server 2>/dev/null || true'

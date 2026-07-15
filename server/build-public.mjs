@@ -99,7 +99,21 @@ export async function rebuild() {
   const seed = await readJSON(SEED, { nodes: [] });
   // Optional: identifies each PayNym's non-segwit code variant for display.
   const codesDoc = await readJSON(path.join(DATA_DIR, "paynym-codes.json"), { mapping: {} });
+  // Anchor-model checks (warnings, never fatal: a fresh instance mid-setup or
+  // mid-transition should build, just noisily). The seed should hold exactly
+  // one node -- the instance operator's own, carrying their payment code --
+  // and every listed node should carry a BIP47 code; code-less records are
+  // grandfathered exceptions managed from /admin.
+  if ((seed.nodes || []).length !== 1) {
+    console.error(`[rebuild] note: seed carries ${(seed.nodes || []).length} node(s); the anchor model expects exactly one (the instance operator's own node).`);
+  } else if (!seed.nodes[0].paymentCode) {
+    console.error(`[rebuild] warning: the anchor seed node ${seed.nodes[0].id} has no BIP47 payment code.`);
+  }
   const approvedSubs = (await store.listSubmissions()).filter((s) => s.status === "approved");
+  const codeless = approvedSubs.filter((s) => !(s.paymentCodes || []).length);
+  if (codeless.length) {
+    console.error(`[rebuild] warning: ${codeless.length} listed node(s) without a BIP47 payment code (legacy exceptions, /admin-managed): ${codeless.map((s) => s.id).join(", ")}`);
+  }
   const approved = approvedSubs.map((s) => toPublicNode(s, displayPaymentCode(s, codesDoc.mapping)));
   const approvedIds = new Set(approved.map((n) => n.id));
 

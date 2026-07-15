@@ -43,7 +43,7 @@ assets/
 content/
   about.md, faq.md, disclaimer.md   # modal copy: edit these, no JS required
 data/
-  seed.json                # curated node list (maintainer-controlled input)
+  seed.json                # instance ANCHOR: the operator's own node (exactly one)
   dojos.json               # GENERATED public list: seed + approved submissions
   history.json             # rolling 24h check series   (instance-owned)
   history-daily.json       # 90-day daily rollups       (instance-owned)
@@ -129,7 +129,11 @@ Copy is British English. The modal text lives in `content/*.md` (the
 renderer supports headings, bold, code, links, lists and `>` callouts);
 editing copy needs no JavaScript. Records are keyed by
 `network-slug(name)` with names unique per network; ids are stable once
-created because the reliability history is keyed by them.
+created because the reliability history is keyed by them. Every node carries
+a BIP47 payment code — ownership, Auth47 sign-in and the card chip key on it
+— and the single seed entry is the instance operator's own node; code-less
+records exist only as grandfathered, `/admin`-managed exceptions and cannot
+be newly created.
 
 ## Brand assets
 

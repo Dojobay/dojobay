@@ -216,8 +216,10 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "submissions ordered mainnet-then-testnet, then by name (" + order.join(", ") + ")");
 }
 
-// 10) migration script: dry-run prints its plan and writes nothing; a real run
-//     applies it; a second real run is a no-op with byte-identical output.
+// 10) migration script: dry-run prints its plan (including the code-less
+//     adoption warning) and writes nothing; a real run creates owned records
+//     and adopts code-less ones as admin-managed exceptions; seed.json is
+//     never rewritten; a second run skips everything (byte-identical store).
 {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
@@ -231,7 +233,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await fsp.writeFile(MIG_DATA + "/seed.json", JSON.stringify({ nodes: [
     { id: "mainnet-fam-one", network: "mainnet", name: "Fam One", paynym: "+fam", payload: fixturePayload },
     { id: "mainnet-fam-two", network: "mainnet", name: "Fam Two", paynym: "+fam", payload: fixturePayload },
-    { id: "testnet-keeper", network: "testnet", name: "Keeper", paynym: null, payload: fixturePayload },
+    { id: "testnet-keeper", network: "testnet", name: "wanderinKeeper", paynym: null, payload: fixturePayload },
   ] }, null, 2));
   await fsp.writeFile(MIG_DATA + "/paynym-codes.json", JSON.stringify({ mapping: {
     "+fam": { nymName: "+fam", codes: [{ code: "PMfamSegwit", segwit: true }, { code: "PMfamLegacy", segwit: false }] },
@@ -242,25 +244,29 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   const dry = await run(process.execPath, [script, "--dry-run"], { env });
   const storeAbsent = await fsp.access(MIG_STORE + "/store.json").then(() => false, () => true);
-  const seedAfterDry = await fsp.readFile(MIG_DATA + "/seed.json", "utf8");
-  ok(/DRY RUN/.test(dry.stdout) && /create\s+mainnet-fam-one\s+name=one/.test(dry.stdout)
-     && storeAbsent && seedAfterDry === seedBefore,
-     "migration --dry-run prints its plan (family prefix stripped) and writes nothing");
+  ok(/create\s+mainnet-fam-one\s+name=one/.test(dry.stdout)
+     && /adopt\s+testnet-keeper\s+name=wanderinKeeper/.test(dry.stdout)
+     && /WARNING: testnet-keeper has no BIP47/.test(dry.stdout)
+     && storeAbsent,
+     "migration --dry-run: family prefix stripped, code-less adoption warned, nothing written");
 
   await run(process.execPath, [script], { env });
   const store1 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
   const migrated = JSON.parse(store1).submissions;
-  const seedSlim = JSON.parse(await fsp.readFile(MIG_DATA + "/seed.json", "utf8"));
+  const seedAfter = await fsp.readFile(MIG_DATA + "/seed.json", "utf8");
   ok(migrated["mainnet-fam-one"].status === "approved"
-     && migrated["mainnet-fam-one"].name === "one"
      && migrated["mainnet-fam-one"].paymentCodes.length === 2
-     && seedSlim.nodes.length === 1 && seedSlim.nodes[0].id === "testnet-keeper",
-     "migration writes approved records with both code variants and slims the seed");
+     && migrated["testnet-keeper"].status === "approved"
+     && migrated["testnet-keeper"].paymentCodes.length === 0
+     && migrated["testnet-keeper"].source === "seed-adoption"
+     && migrated["testnet-keeper"].name === "wanderinKeeper"
+     && seedAfter === seedBefore,
+     "migration creates owned records, adopts code-less exceptions, never rewrites seed.json");
 
   const second = await run(process.execPath, [script], { env });
   const store2 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
-  ok(/nothing to do/.test(second.stdout) && store2 === store1,
-     "second migration run is a no-op (store byte-identical)");
+  ok(/nothing to do/.test(second.stdout) && /skip\s+mainnet-fam-one/.test(second.stdout) && store2 === store1,
+     "second migration run skips existing ids (store byte-identical)");
   await fsp.rm(MIG_DATA, { recursive: true, force: true });
   await fsp.rm(MIG_STORE, { recursive: true, force: true });
 }

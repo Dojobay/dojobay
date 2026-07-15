@@ -34,11 +34,17 @@ build step, no framework) served by nginx behind a Tor hidden service. It
 renders entirely from JSON files fetched at load, so the data pipeline and
 the presentation never touch.
 
-The node list is generated, not hand-edited. `data/seed.json` holds the
-curated entries under maintainer control; operator submissions live in a
-server-side store; `server/build-public.mjs` merges the seed with every
-approved submission into the public `data/dojos.json`, preserving live
-statuses. A systemd timer runs `scripts/update.mjs` every ten minutes, which
+The node list is generated, not hand-edited. `data/seed.json` is the
+instance **anchor**: exactly one node, the instance operator's own Dojo,
+which is what guarantees a Dojo Bay is never empty and that whoever runs a
+directory also runs a node. Every other listing lives in a server-side store,
+created and managed by its operator over Auth47, and `server/build-public.mjs`
+merges the anchor with every approved submission into the public
+`data/dojos.json`, preserving live statuses. Every listed node carries a
+BIP47 payment code — the code is what ownership, sign-in and the card's
+payment-code chip all key on. (The reference instance grandfathers one
+code-less listing from its pre-Auth47 era as an admin-managed exception; the
+build warns about such records, and new ones cannot be created.) A systemd timer runs `scripts/update.mjs` every ten minutes, which
 logs into each listed Dojo's API over Tor, reads the chain tip, and maintains
 `data/dojos.json` (statuses and block heights), `data/history.json` (the
 24-hour check series) and `data/history-daily.json` (90-day daily rollups).
@@ -89,16 +95,21 @@ at `/var/www/dojobay`.
    `dojobay-update.timer` (the ten-minute prober). Enable the timer and the
    service.
 
-5. **Curate your list and build it.** Edit `data/seed.json` — start with an
-   empty `{ "nodes": [] }` if you want a purely self-service directory — then
-   generate the public list:
+5. **Seed your anchor and build the list.** Running a Dojo Bay requires
+   running a Dojo: put your own node — mainnet or testnet — into
+   `data/seed.json` as its single entry, with your PayNym and BIP47 payment
+   code (the same code you set in `ADMIN_PAYMENT_CODES`). Then generate the
+   public list:
 
    ```
    node server/build-public.mjs
    ```
 
-   From here the timer keeps statuses and history current, operators can
-   submit through **Manage my Dojo**, and you approve at `/admin`.
+   From here the timer keeps statuses and history current, other operators
+   list themselves through **Manage my Dojo**, and you approve at `/admin`.
+   If you are transitioning an instance that still has an old-style curated
+   list in its seed, `scripts/migrate-seed-to-store.mjs --dry-run` shows how
+   each entry would move into the operator-managed store.
 
 6. **Prove you operate the site** (optional but recommended). Sign your
    onion URL with your wallet (Tools → Sign message) and place the result in

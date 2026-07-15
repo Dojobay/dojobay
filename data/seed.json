@@ -1,6 +1,33 @@
 {
   "nodes": [
     {
+      "id": "mainnet-maxtannahill",
+      "network": "mainnet",
+      "name": "@maxtannahill",
+      "status": "inactive",
+      "paynym": "+max",
+      "jurisdiction": "Singapore",
+      "country": "SG",
+      "hardware": "Intel NUC5i5RYB, 16gb Ubuntu 24.04.1",
+      "version": "1.28.0",
+      "checked_at": null,
+      "payload": {
+        "pairing": {
+          "type": "dojo.api",
+          "version": "1.28.0",
+          "apikey": "jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq",
+          "url": "http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2"
+        },
+        "explorer": {
+          "type": "explorer.btc_rpc_explorer",
+          "url": "http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"
+        }
+      },
+      "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\"pairing\":{\"type\":\"dojo.api\",\"version\":\"1.27.0\",\"apikey\":\"jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq\",\"url\":\"http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2\"},\"explorer\":{\"type\":\"explorer.btc_rpc_explorer\",\"url\":\"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion\"}}\n\nBIP47:\nPM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\nH6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLqipPb0fM=\n-----END BITCOIN SIGNATURE-----",
+      "name_url": "https://x.com/maxtannahill",
+      "paymentCode": "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9"
+    },
+    {
       "id": "mainnet-kilombino",
       "network": "mainnet",
       "name": "Kilombino",
@@ -24,32 +51,6 @@
         }
       },
       "signed": null
-    },
-    {
-      "id": "testnet-wanderinking072",
-      "network": "testnet",
-      "name": "wanderinKing072",
-      "status": "inactive",
-      "paynym": "+condescendingcup55",
-      "jurisdiction": null,
-      "country": null,
-      "hardware": null,
-      "version": "1.26.1",
-      "checked_at": null,
-      "payload": {
-        "pairing": {
-          "type": "dojo.api",
-          "version": "1.26.1",
-          "apikey": "NZq0iy6o5IxxHce4gNs6ooKszpBlrRvvRUUDIqLMHi1pKwW1HnXvbSm0OYLfj1ek",
-          "url": "http://b3krcphqdbrzkblvti2eiuogfrx6b5lynenv5dxjwsw7hq47dlrc4pid.onion/test/v2"
-        },
-        "explorer": {
-          "type": "explorer.oxt",
-          "url": "https://oxt.me"
-        }
-      },
-      "signed": null,
-      "paymentCode": "PM8TJef8p1cVFT7E7AksqERV4zXTnkZJCbnKjZxP7bgSUrDqNjDGdTvEwRPbibJKha4y8sZ5apm3g6TyFvwMiZMDGWtE9cT1qKeoRcTbouJFa3SGkitd"
     }
   ]
 }

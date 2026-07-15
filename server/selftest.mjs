@@ -340,9 +340,9 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "approved edit publishes immediately; card carries version override and a payment code");
 
   const clashOwn = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "zulu" });
-  const clashSeed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "Kilombino" });
+  const clashSeed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "Maxtannahill" });
   ok(clashOwn.status === 409 && clashSeed.status === 409,
-     "renames rejected when colliding with own other record or a seed node");
+     "renames rejected when colliding with own other record or the anchor seed node");
 
   const anon = await fetch(base + "/api/dojo/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "mainnet-selftest-node", name: "x" }) });
   const admEd = await api("/api/admin/edit", "POST", { id: "testnet-alpha", name: "alpha", hardware: "edited-by-admin" });

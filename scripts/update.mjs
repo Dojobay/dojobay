@@ -410,7 +410,9 @@ async function main() {
   const dojos = await readJSON(dojosPath);
   if (!dojos || !Array.isArray(dojos.nodes)) throw new Error(`bad or missing ${dojosPath}`);
   // Mirror PayNym avatars for every listed code (non-blocking for the probes).
-  const avatarsDone = syncAvatars(dojos.nodes, path.join(CFG.dataDir, "avatars")).catch((e) => console.error("[avatar]", e.message));
+  const operatorDoc = await readJSON(path.join(CFG.dataDir, "operator.json")).catch(() => null) ?? {};
+  const avatarSubjects = dojos.nodes.concat(operatorDoc.paymentCode ? [{ paymentCode: operatorDoc.paymentCode }] : []);
+  const avatarsDone = syncAvatars(avatarSubjects, path.join(CFG.dataDir, "avatars")).catch((e) => console.error("[avatar]", e.message));
   const history = await readJSON(historyPath, { interval_minutes: 10, window_checks: CFG.windowChecks, nodes: {} });
   const window = history.window_checks || CFG.windowChecks;
 

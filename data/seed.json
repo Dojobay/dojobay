@@ -26,31 +26,6 @@
       "signed": "-----BEGIN BITCOIN SIGNED MESSAGE-----\n{\"pairing\":{\"type\":\"dojo.api\",\"version\":\"1.27.0\",\"apikey\":\"jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq\",\"url\":\"http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2\"},\"explorer\":{\"type\":\"explorer.btc_rpc_explorer\",\"url\":\"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion\"}}\n\nBIP47:\nPM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\nH6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLqipPb0fM=\n-----END BITCOIN SIGNATURE-----",
       "name_url": "https://x.com/maxtannahill",
       "paymentCode": "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9"
-    },
-    {
-      "id": "mainnet-kilombino",
-      "network": "mainnet",
-      "name": "Kilombino",
-      "status": "inactive",
-      "paynym": null,
-      "jurisdiction": "Europe",
-      "country": null,
-      "hardware": "HP Prodesk Intel Core i5-9500T, 16gb",
-      "version": "1.28.2",
-      "checked_at": null,
-      "payload": {
-        "pairing": {
-          "type": "dojo.api",
-          "version": "1.28.2",
-          "apikey": "4b83f855adaab2774153f6cc98ebe183",
-          "url": "http://zucok3aq3aaxz6y5ty4ztlpuau6cztyb3n22mrsczz3byizpuipia3id.onion/v2"
-        },
-        "explorer": {
-          "type": "explorer.null",
-          "url": "N/A"
-        }
-      },
-      "signed": null
     }
   ]
 }

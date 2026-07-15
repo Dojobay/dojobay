@@ -41,6 +41,8 @@
   .onion-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-bg);padding:6px 10px;border-radius:7px;margin-left:4px}
   .onion-pill:hover{background:rgba(247,147,26,.16)}
   .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
+  .op-avatar{width:20px;height:20px;border-radius:50%;object-fit:cover;
+             border:1px solid var(--line-soft);display:inline-block;vertical-align:middle}
   /* PayNym avatar centred on the pairing QR (QR is generated at EC level H,
      so the ~5% of symbol area the avatar covers is well within recovery) */
   .tile{position:relative}

@@ -10,6 +10,10 @@
 >
 > If you have the passphrase but not the 12 words, you can still open the wallet by decrypting the backup file with the passphrase. If you lose the Dojo connection and don't have the passphrase, export the XPUB to Sparrow for a watch-only wallet and sign offline from [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/).
 
+### Who is responsible for the listed nodes?
+
+Not The Dojo Bay: this site is a **directory only**. We do not operate the nodes listed here, we cannot guarantee their uptime, honesty or safety, and we accept no responsibility for them or for any loss of funds or privacy. Status and reliability figures come from automated checks and can be wrong or out of date. Treat every listing as untrusted: verify the pairing details, prefer self-hosting, and connect at your own risk.
+
 ### Are there privacy concerns for Dojo seekers?
 
 Yes. When you pair with a Dojo you share your extended public key (XPUB), and the operator can use it to view your past, present and future transactions. Only connect to a Dojo you consider reputable and trustworthy, and prefer your own node whenever possible.

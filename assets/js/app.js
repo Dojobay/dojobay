@@ -63,7 +63,6 @@ async function loadJSON(url){
   const MODAL_META = {
     about:      {title:"About The Dojo Bay",         file:"content/about.md"},
     faq:        {title:"Frequently asked questions", file:"content/faq.md"},
-    disclaimer: {title:"Disclaimer",                 file:"content/disclaimer.md"},
   };
   const modalCache = {};
 
@@ -236,7 +235,6 @@ async function loadJSON(url){
       <nav class="${menuOpen?"open":""}">
         <button class="lnk" data-modal="about">About</button>
         <button class="lnk" data-modal="faq">FAQ</button>
-        <button class="lnk" data-modal="disclaimer">Disclaimer</button>
         <button class="lnk" id="manage-link" data-act="manage"${BACKEND?"":" hidden"}>Manage my Dojo</button>
         <a class="onion-pill" href="data/dojos.json" download="dojos.json" title="Download the directory as JSON">JSON ↓</a>
       </nav>
@@ -258,6 +256,7 @@ async function loadJSON(url){
     </main>
 
     <footer><div class="wrap">
+      ${OPERATOR&&OPERATOR.paymentCode?`<img class="op-avatar" alt="" title="Directory operator's PayNym" src="data/avatars/${encodeURIComponent(OPERATOR.paymentCode)}.png" onerror="this.remove()">`:""}
       <button class="lnk verify-link" data-act="verify" title="Verify this directory's onion address is signed by its operator">Verify</button>
       <span class="foot-spacer"></span>
       <a class="gh" href="${REPO_URL}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${GH_LOGO}</a>
@@ -309,6 +308,11 @@ async function loadJSON(url){
   // Verify popup: shows the operator's BIP47-signed proof of this onion address,
   // as a scannable QR plus the copyable signed message. Source: data/operator.json.
   let OPERATOR = null;
+  // Loaded at boot (state read by the footer template at render time); the
+  // Verify popup reuses the same state and lazily loads it as a fallback.
+  async function loadOperator(){
+    try{ OPERATOR = await loadJSON("data/operator.json"); if(DOJOS) render(); }catch(e){ /* no operator.json: footer shows no avatar */ }
+  }
   async function openVerify(){
     const titleEl=document.getElementById("ov-title"), body=document.getElementById("ov-body");
     if(!titleEl||!body) return;
@@ -664,6 +668,7 @@ async function loadJSON(url){
       [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json"),loadHist90()]);
       render();
       loadVersion();
+      loadOperator();
     }catch(e){ showLoadError(e); }
   })();
 })();

@@ -2,7 +2,7 @@
 
 An onion-only directory of public Bitcoin **Dojo** nodes for
 [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) and
-[Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/) wallets.
+[Ashigaru](https://ashigaru.rs/) wallets.
 The reference instance runs at:
 
 ```

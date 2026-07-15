@@ -154,8 +154,12 @@ async function loadJSON(url){
         <div><div class="eyebrow">Block height</div><div class="v">${n.block_height!=null?Number(n.block_height).toLocaleString("en-GB"):"—"}</div></div>
         <div class="full"><div class="eyebrow">Last checked</div><div class="v">${esc((n.checked_at||"").replace("T"," ").replace("Z",""))}</div></div>
       </div>
-      <button class="reveal" data-act="reveal">Pairing details</button>
-      <div class="pair-host"></div>
+      <div class="eps card-eps">
+        <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
+        ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
+        ${(()=>{const iu=indexerUrl(n);return iu?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`:"";})()}
+      </div>
+      <button class="reveal" data-act="pair">Pairing details</button>
     </div>`;
   }
 
@@ -167,22 +171,25 @@ async function loadJSON(url){
       : "";
     const signedBox = n.signed ? `
       <div class="box signed">
-        <div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copysigned">Copy</button></div>
+        <div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copysigned" data-id="${esc(n.id)}">Copy</button></div>
         <pre>${esc(n.signed)}</pre>
       </div>` : "";
     return `<div class="pair">
       <div class="qr"><div class="tile">${qr}${avatar}</div><span class="cap">Scan to pair</span></div>
       <div class="box">
-        <div class="lbl"><span class="t">Pairing code</span><button class="copybtn" data-act="copypairing">Copy</button></div>
+        <div class="lbl"><span class="t">Pairing code</span><button class="copybtn" data-act="copypairing" data-id="${esc(n.id)}">Copy</button></div>
         <pre>${esc(pairingOnly)}</pre>
       </div>
       ${signedBox}
-      <div class="eps">
-        <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
-        ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
-        ${(()=>{const iu=indexerUrl(n);return iu?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`:"";})()}
-      </div>
     </div>`;
+  }
+
+  // Pairing details open in the shared popup (the same surface as Verify)
+  // rather than expanding beneath the card.
+  function openPair(n){
+    document.getElementById("ov-title").textContent = (n.name||n.id) + " · pairing";
+    document.getElementById("ov-body").innerHTML = pairHTML(n);
+    document.getElementById("ov").classList.add("show");
   }
 
   // Card ordering: 7-day uptime desc, then 24h uptime desc, then name. A node
@@ -344,16 +351,13 @@ async function loadJSON(url){
     if(a==="verify"){ openVerify(); return; }
     if(a==="copyverify"){ if(OPERATOR) copy(OPERATOR.verifySigned).then(()=>flash(act,"Copied ✓")); return; }
     if(a==="copycode"){ copy(act.getAttribute("data-v")).then(()=>flash(act,"Copied ✓")); return; }
+    // node resolution that works from a card OR from inside the popup
+    const byIdAttr=()=>DOJOS.nodes.find(x=>x.id===act.getAttribute("data-id"));
+    if(a==="copypairing"){const n=byIdAttr();copy(JSON.stringify({pairing:n.payload.pairing,explorer:n.payload.explorer},null,2)).then(()=>flash(act,"Copied ✓"));return;}
+    if(a==="copysigned"){copy(byIdAttr().signed).then(()=>flash(act,"Copied ✓"));return;}
     const cardEl=e.target.closest(".card");
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
-    if(a==="reveal"){
-      const host=cardEl.querySelector(".pair-host"), btn=cardEl.querySelector(".reveal");
-      if(host.innerHTML.trim()){host.innerHTML="";btn.classList.remove("open");btn.textContent="Pairing details";}
-      else{host.innerHTML=pairHTML(node());btn.classList.add("open");btn.textContent="Hide pairing details";}
-      return;
-    }
-    if(a==="copypairing"){const n=node();copy(JSON.stringify({pairing:n.payload.pairing,explorer:n.payload.explorer},null,2)).then(()=>flash(act,"Copied ✓"));return;}
-    if(a==="copysigned"){copy(node().signed).then(()=>flash(act,"Copied ✓"));return;}
+    if(a==="pair"){ openPair(node()); return; }
     if(a==="copyurl"){copy(act.getAttribute("data-v")).then(()=>flash(act,"✓"));return;}
   });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });

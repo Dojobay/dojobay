@@ -132,6 +132,7 @@
   .copybtn:hover{background:rgba(247,147,26,.18)}
   .copybtn.done{color:var(--up);border-color:rgba(63,185,80,.4);background:var(--up-bg)}
   .eps{margin-top:4px;display:flex;flex-direction:column;gap:8px}
+  .card-eps{margin-top:14px;display:flex;flex-direction:column;gap:7px}
   .ep{display:flex;align-items:center;gap:9px}
   .ep .k{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);min-width:62px}
   .ep .u{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

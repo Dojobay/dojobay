@@ -151,7 +151,7 @@ const DUMMY_TPUB = "tpubD6NzVbkrYhZ4XW6sCZX49tcDdbb3rADEv65WtiwyL9qteSHMyvdB7vmd
 // Send one HTTP/1.0 request over a fresh Tor stream and read the whole reply
 // (Connection: close means the server ends the body by closing). Resolves with
 // { status, body } or rejects on connect/read failure.
-function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
+export function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
   return new Promise(async (resolve, reject) => {
     let socket;
     try {

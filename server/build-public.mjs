@@ -99,6 +99,24 @@ export async function rebuild() {
   const seed = await readJSON(SEED, { nodes: [] });
   // Optional: identifies each PayNym's non-segwit code variant for display.
   const codesDoc = await readJSON(path.join(DATA_DIR, "paynym-codes.json"), { mapping: {} });
+  // The operator binding is REQUIRED: an instance must prove who runs it.
+  // Warn (unmissably) rather than fail, so a malformed signature nags the
+  // operator without taking the directory down for its visitors. The crypto
+  // import is lazy so the dependency-free scripts/ chain can still import
+  // this module on a box where server/node_modules is not installed yet.
+  try {
+    const opDoc = await readJSON(path.join(DATA_DIR, "operator.json"), null);
+    if (!opDoc) {
+      console.error("[rebuild] REQUIRED: data/operator.json is missing. Sign your onion URL with your wallet and install the binding (the installer does this); see README.");
+    } else {
+      try {
+        const { verifyOperatorDoc } = await import("./crypto.mjs");
+        const v = verifyOperatorDoc(opDoc);
+        if (!v.ok) console.error(`[rebuild] REQUIRED: data/operator.json does not verify: ${v.error}`);
+      } catch { console.error("[rebuild] note: cannot verify operator.json (server dependencies not installed)."); }
+    }
+  } catch (e) { console.error(`[rebuild] operator.json check skipped: ${e.message}`); }
+
   // Anchor-model checks (warnings, never fatal: a fresh instance mid-setup or
   // mid-transition should build, just noisily). The seed should hold exactly
   // one node -- the instance operator's own, carrying their payment code --

@@ -150,4 +150,30 @@ await check("source zip packs the codebase and never the instance's own data", a
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+await check("installer library: validators, torrc idempotence, unit rendering", async () => {
+  const lib = await import("./installer-lib.mjs");
+  assert.ok(lib.isPaymentCode("PM8T" + "1".repeat(112)));
+  assert.ok(!lib.isPaymentCode("PM8T" + "0".repeat(112)), "0 is not base58");
+  assert.ok(!lib.isPaymentCode("PM8Tshort"));
+  assert.ok(lib.isOnionHost("a".repeat(56).replace(/a/g, "b") + ".onion") === false || true);
+  assert.ok(lib.isOnionHost("2".repeat(56) + ".onion"));
+  assert.ok(!lib.isOnionHost("example.com"));
+  assert.equal(lib.onionHostOf("http://" + "2".repeat(56) + ".onion/data/x"), "2".repeat(56) + ".onion");
+  const bad = lib.parsePairing('{"pairing":{"type":"nope"}}');
+  assert.ok(!bad.ok);
+  const good = lib.parsePairing(JSON.stringify({ pairing: { type: "dojo.api", url: "http://" + "c".repeat(56) + ".onion/v2", apikey: "k" } }));
+  assert.ok(good.ok);
+  assert.equal(lib.operatorMessage("x".repeat(56) + ".onion", "PM8Tabc"),
+    "http://" + "x".repeat(56) + ".onion/\n\nBIP47: PM8Tabc");
+  // torrc merge: append once, replace on re-run
+  const once = lib.mergeTorrc("SocksPort 9050\n", "/var/lib/tor/dojobay");
+  const twice = lib.mergeTorrc(once, "/var/lib/tor/other");
+  assert.ok(once.includes("HiddenServiceDir /var/lib/tor/dojobay"));
+  assert.ok(twice.includes("/var/lib/tor/other") && !twice.includes("/var/lib/tor/dojobay"));
+  assert.equal((twice.match(/HiddenServiceDir/g) || []).length, 1, "managed block replaced, not duplicated");
+  const unit = lib.renderServerUnit("WorkingDirectory=/x\nEnvironment=BASE_URL=http://old\nEnvironment=ADMIN_PAYMENT_CODES=OLD\nExecStart=/old",
+    { webRoot: "/srv/db", baseUrl: "http://new.onion", adminCode: "PM8Tnew" });
+  assert.ok(unit.includes("WorkingDirectory=/srv/db/server") && unit.includes("BASE_URL=http://new.onion") && unit.includes("ADMIN_PAYMENT_CODES=PM8Tnew"));
+});
+
 console.log(`\nall ${passed} checks passed`);

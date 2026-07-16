@@ -46,7 +46,7 @@ function postOverTor(onionUrl, path, jsonBody, timeoutMs) {
       clearTimeout(timer);
       const i = buf.indexOf("\r\n\r\n");
       if (i < 0) return resolve(null);
-      try { resolve(extractNym(JSON.parse(buf.slice(i + 4)))); } catch { resolve(null); }
+      try { resolve(JSON.parse(buf.slice(i + 4))); } catch { resolve(null); }
     });
     socket.on("error", () => done(null));
     socket.write(req + body.toString("utf8"));
@@ -66,16 +66,30 @@ async function postClearnet(base, paymentCode, timeoutMs) {
     });
     clearTimeout(t);
     if (!r.ok) return null;
-    return extractNym(await r.json());
+    return await r.json();
   } catch { return null; }
 }
 
+// Fetch the raw nym document (codes[], nymName, ...) for a handle or payment
+// code, Tor first. Returns the parsed object or null. Never throws.
+export async function fetchNymInfo(nymOrCode, { timeoutMs = 20000, preferTor = true } = {}) {
+  if (!nymOrCode) return null;
+  let obj = null;
+  if (preferTor) obj = await postOverTor(PAYNYM_ONION, "/api/v1/nym", { nym: nymOrCode }, timeoutMs);
+  if (!obj) obj = await postClearnet(PAYNYM_CLEARNET, nymOrCode, timeoutMs);
+  return obj && typeof obj === "object" ? obj : null;
+}
+
+// Every BIP47 code variant registered for a PayNym (segwit + legacy), because
+// the wallet may sign Auth47 with either. [] when unresolvable.
+export async function fetchNymCodes(nymOrCode, opts) {
+  const info = await fetchNymInfo(nymOrCode, opts);
+  return Array.isArray(info?.codes) ? info.codes.filter((c) => c && typeof c.code === "string") : [];
+}
+
 // Resolve a payment code to its registered PayNym label, or null. Never throws.
-export async function resolvePayNym(paymentCode, { timeoutMs = 20000, preferTor = true } = {}) {
-  if (!paymentCode) return null;
-  let name = null;
-  if (preferTor) name = await postOverTor(PAYNYM_ONION, "/api/v1/nym", { nym: paymentCode }, timeoutMs);
-  if (!name) name = await postClearnet(PAYNYM_CLEARNET, paymentCode, timeoutMs);
+export async function resolvePayNym(paymentCode, opts) {
+  const name = extractNym(await fetchNymInfo(paymentCode, opts));
   if (!name) return null;
   return name.startsWith("+") ? name : "+" + name;
 }

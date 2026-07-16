@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install The Dojo Bay
+Comment=Guided installer for an onion-only Dojo directory
+Exec=sh -c 'cd "$(dirname "%k")" && ./install.sh; echo; echo "Press Enter to close"; read _'
+Terminal=true
+Categories=System;Network;

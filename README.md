@@ -61,8 +61,30 @@ separate credentials.
 ## Run your own Dojo Bay
 
 Requirements: Debian 12 or Ubuntu 24.04 (or similar), **Node.js 20 or
-newer**, `tor`, `nginx`, and `git`. Everything below assumes the site lives
-at `/var/www/dojobay`.
+newer**, plus your own Dojo and PayNym. The easiest path is the guided
+installer — download the source (any instance's footer serves it, or GitHub),
+extract, and run:
+
+```
+./install.sh
+```
+
+On a desktop, `dojobay-install.desktop` makes the same wizard double-clickable
+(right-click → Allow Launching once, as GNOME requires); over SSH it runs
+headless in the terminal. The wizard checks prerequisites (offering to
+install `tor` and `nginx`), takes your BIP47 payment code, creates the hidden
+service — or **imports your existing .onion key** if you have a vanity
+address (point it at your `hs_ed25519_secret_key`; generating vanity keys is
+outside its scope) — walks you through the **required** operator signature,
+live-probes your Dojo's pairing payload over Tor before accepting it, can
+**bootstrap your directory from a trusted existing instance** (nodes and
+their reliability histories import after that instance's operator signature
+is verified against the payment code you type in), then writes nginx, systemd
+and the first build. It shows a review screen before writing anything and is
+safe to re-run.
+
+The manual steps below do the same by hand, and assume the site lives at
+`/var/www/dojobay`.
 
 1. **Clone and install the backend's dependencies.**
 
@@ -111,11 +133,14 @@ at `/var/www/dojobay`.
    list in its seed, `scripts/migrate-seed-to-store.mjs --dry-run` shows how
    each entry would move into the operator-managed store.
 
-6. **Prove you operate the site** (optional but recommended). Sign your
-   onion URL with your wallet (Tools → Sign message) and place the result in
-   `data/operator.json` as `{ "onion", "paymentCode", "verifySigned" }`; the
-   footer's **Verify** popup then lets visitors check the signature against
-   your PayNym's notification address.
+6. **Prove you operate the site** (required). Sign this exact text with your
+   wallet (Tools → Sign message) — your onion URL, a blank line, then
+   `BIP47: <your payment code>` — and place the result in
+   `data/operator.json` as `{ "onion", "paymentCode", "verifySigned" }`. The
+   footer's **Verify** popup lets visitors check the signature against your
+   PayNym's notification address, other instances refuse to bootstrap from
+   you without it, and every rebuild verifies it and warns loudly when it is
+   missing or invalid.
 
 The deploy pipeline in `.github/workflows/deploy.yml` shows how the reference
 instance ships updates (rsync over SSH, excluding the VPS-owned data files

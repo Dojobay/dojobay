@@ -429,6 +429,67 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "updates route: anonymous 401; unreachable GitHub reported in-band to the admin");
 }
 
+// 18) operator binding + bootstrap import: the binding verifies a real
+//     wallet signature over "onion + BIP47 line"; the import refuses an
+//     instance whose binding fails or whose code differs from the one the
+//     operator trusted, and otherwise imports nodes (skipping existing ids)
+//     with full code variants and carried histories.
+{
+  const onionHost = "b".repeat(56) + ".onion";
+  const opCode = paymentCode;   // the test wallet from the Auth47 checks
+  const opMessage = `http://${onionHost}/\n\nBIP47: ${opCode}`;
+  const opSig = Buffer.from(msg.sign(opMessage, acct.getNotificationPrivateKey(), true, net47.messagePrefix)).toString("base64");
+  const opBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${opMessage}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${opSig}\n-----END BITCOIN SIGNATURE-----`;
+  const opDoc = { onion: `http://${onionHost}/`, paymentCode: opCode, verifySigned: opBlock };
+
+  const { verifyOperatorDoc } = await import("./crypto.mjs");
+  const vOk = verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });
+  const vWrongOnion = verifyOperatorDoc(opDoc, { expectedOnion: "http://" + "c".repeat(56) + ".onion" });
+  const vTampered = verifyOperatorDoc({ ...opDoc, verifySigned: opBlock.replace(onionHost, "c".repeat(56) + ".onion") });
+  ok(vOk.ok && !vWrongOnion.ok && !vTampered.ok,
+     "operator binding: valid signature accepted; wrong onion and tampered message refused");
+
+  const remoteNodes = {
+    nodes: [
+      { id: "mainnet-selftest-node", network: "mainnet", name: "selftest-node",
+        payload: { pairing: { type: "dojo.api", url: "http://" + "d".repeat(56) + ".onion/v2", apikey: "k" } } },
+      { id: "mainnet-imported", network: "mainnet", name: "imported", paynym: "+imp",
+        paymentCode: "PMimpDisplay",
+        payload: { pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } } },
+    ],
+  };
+  const remoteDocs = {
+    "/data/operator.json": opDoc,
+    "/data/dojos.json": remoteNodes,
+    "/data/history.json": { interval_minutes: 10, window_checks: 144, nodes: {
+      "mainnet-imported": { checks: [{ t: "2026-07-01 00:00", up: true }] },
+      "mainnet-selftest-node": { checks: [{ t: "2026-07-01 00:00", up: false }] },
+    } },
+    "/data/history-daily.json": { nodes: { "mainnet-imported": { days: [{ d: "2026-07-01", pct: 99, close: 1 }] } } },
+  };
+  const { bootstrapImport } = await import("../scripts/bootstrap-import.mjs");
+  const { store } = await import("./store.mjs");
+  const fetchDoc = async (p) => { if (!(p in remoteDocs)) throw new Error("404 " + p); return remoteDocs[p]; };
+  const fetchCodes = async () => [{ code: "PMimpSegwit", segwit: true }, { code: "PMimpLegacy", segwit: false }];
+
+  await ok(await bootstrapImport({
+    onionHost, trustedCode: "PM8T" + "2".repeat(112), fetchDoc, fetchCodes, dataDir: process.env.PUBLIC_DATA_DIR, log: () => {},
+  }).then(() => false, (e) => /DIFFERENT payment code/.test(e.message)),
+     "bootstrap refuses an instance operated by a different code than the one trusted");
+
+  const r = await bootstrapImport({ onionHost, trustedCode: opCode, fetchDoc, fetchCodes, dataDir: process.env.PUBLIC_DATA_DIR, log: () => {} });
+  const imp = await store.getSubmission("mainnet-imported");
+  const untouched = await store.getSubmission("mainnet-selftest-node");
+  const histAfter = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/history.json", "utf8")).nodes;
+  ok(r.imported === 1 && imp && imp.status === "approved"
+     && imp.paymentCodes.includes("PMimpSegwit") && imp.paymentCodes.includes("PMimpLegacy") && imp.paymentCodes.includes("PMimpDisplay")
+     && imp.source === `bootstrap-import:${onionHost}`
+     && untouched && !String(untouched.source || "").startsWith("bootstrap")
+     && histAfter["mainnet-imported"] && histAfter["mainnet-imported"].checks.length === 1
+     && histAfter["mainnet-selftest-node"].checks[0].t !== "2026-07-01 00:00",
+     "bootstrap imports new nodes with all code variants and history; existing ids untouched");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

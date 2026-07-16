@@ -89,3 +89,48 @@ export function verifySignedPayload({ signedText, expectedMessage, expectedAddre
   }
   return verified ? { ok: true, address: parsed.address } : { ok: false, error: "invalid signature" };
 }
+
+// ---- operator binding (data/operator.json) ----------------------------------
+// A Dojo Bay instance MUST prove who runs it: operator.json binds the onion
+// address to the operator's payment code via a wallet signature over the text
+//
+//     http://<onion>/
+//
+//     BIP47: <payment code>
+//
+// (unlike pairing blocks, the BIP47 line here is INSIDE the signed message:
+// the operator pastes the whole text into the wallet's Sign tool). Verified at
+// install, at bootstrap import before trusting a remote instance's data, and
+// on every rebuild.
+export function verifyOperatorDoc(doc, { expectedOnion } = {}) {
+  if (!doc || typeof doc !== "object") return { ok: false, error: "operator.json missing or unreadable" };
+  if (!doc.paymentCode) return { ok: false, error: "operator.json has no paymentCode" };
+  if (!doc.verifySigned) return { ok: false, error: "operator.json has no verifySigned block" };
+  const t = String(doc.verifySigned).replace(/\r\n/g, "\n");
+  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
+  const addrM = t.match(/Address:\s*(\S+)/);
+  const sigM = t.match(/\n([A-Za-z0-9+\/=]{80,})\n-----END BITCOIN SIGNATURE/);
+  if (!msgM || !addrM || !sigM) return { ok: false, error: "verifySigned is not a recognisable signed block" };
+  const signedMessage = msgM[1].replace(/\n+$/, "");
+  const norm = (u) => String(u || "").trim().replace(/\/+$/, "");
+  const firstLine = signedMessage.split("\n")[0].trim();
+  if (norm(firstLine) !== norm(doc.onion)) return { ok: false, error: "signed message does not match the declared onion" };
+  if (expectedOnion && norm(doc.onion) !== norm(expectedOnion)) {
+    return { ok: false, error: "declared onion does not match the address this document was fetched from" };
+  }
+  const bipM = signedMessage.match(/BIP47:\s*(PM8T[1-9A-HJ-NP-Za-km-z]+)/);
+  if (!bipM || bipM[1] !== doc.paymentCode) {
+    return { ok: false, error: "the BIP47 line inside the signed message does not match the declared payment code" };
+  }
+  const expectedAddr = notificationAddress(doc.paymentCode);
+  if (addrM[1].trim() !== expectedAddr) {
+    return { ok: false, error: "signed by a different address than the payment code's notification address" };
+  }
+  const net = bip47utils.networks.bitcoin;
+  try {
+    if (!message.verify(signedMessage, expectedAddr, sigM[1].trim(), net.messagePrefix)) {
+      return { ok: false, error: "invalid signature" };
+    }
+  } catch (e) { return { ok: false, error: "signature could not be verified (" + e.message + ")" }; }
+  return { ok: true, address: expectedAddr };
+}

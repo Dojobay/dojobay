@@ -26,6 +26,7 @@ const PREFIX = "dojobay/";                       // extraction lands in one fold
 const INCLUDE_FILES = [
   "index.html", "manifest.json", "sw.js", "favicon.svg", "og-image.png",
   "LICENSE", "README.md", "CONTRIBUTING.md", "package.json",
+  "install.sh", "dojobay-install.desktop",
   "data/version.json",
 ];
 const INCLUDE_DIRS = ["assets", "content", "deploy", "scripts", "server", ".github"];
@@ -76,10 +77,10 @@ const dosDate = (d) => ((((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) <
 const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n & 0xffff); return b; };
 const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
 
-function buildZip(entries) {                     // entries: [{name, data, mtime}]
+function buildZip(entries) {                     // entries: [{name, data, mtime, mode}]
   const locals = [], centrals = [];
   let offset = 0;
-  for (const { name, data, mtime } of entries) {
+  for (const { name, data, mtime, mode = 0o644 } of entries) {
     const nameBuf = Buffer.from(name, "utf8");
     const deflated = deflateRawSync(data, { level: 9 });
     const stored = deflated.length < data.length;
@@ -93,8 +94,8 @@ function buildZip(entries) {                     // entries: [{name, data, mtime
     ]);
     locals.push(Buffer.concat([u32(0x04034b50), common, nameBuf, body]));
     centrals.push(Buffer.concat([
-      u32(0x02014b50), u16(20), common, u16(0), u16(0), u16(0),
-      u32(0) /* external attrs */, u32(offset), nameBuf,
+      u32(0x02014b50), u16((3 << 8) | 20 /* unix */), common, u16(0), u16(0), u16(0),
+      u32(((0o100000 | mode) >>> 0) * 0x10000) /* unix mode in high word */, u32(offset), nameBuf,
     ]));
     offset += locals[locals.length - 1].length;
   }
@@ -112,7 +113,7 @@ export async function packSource({ root = ROOT, outDir = path.join(ROOT, "data")
   for (const rel of files) {
     const p = path.join(root, rel);
     const [data, st] = [await readFile(p), await stat(p)];
-    entries.push({ name: PREFIX + rel, data, mtime: st.mtime });
+    entries.push({ name: PREFIX + rel, data, mtime: st.mtime, mode: st.mode & 0o777 });
   }
   const zip = buildZip(entries);
   await mkdir(outDir, { recursive: true });

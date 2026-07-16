@@ -21,14 +21,18 @@ const API_HOST = "api.github.com";
 
 // One HTTPS GET to api.github.com through the Tor SOCKS proxy. HTTP/1.1 with
 // Connection: close; handles both content-length and chunked replies.
-export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 30000 } = {}) {
-  const raw = await socks5Connect(proxyHost, proxyPort, API_HOST, 443, timeoutMs);
-  return new Promise((resolve, reject) => {
+// One HTTPS GET over the Tor SOCKS proxy. Handles chunked replies, returns
+// both a text `body` and a raw `bodyBuf`, and follows GitHub's redirect from
+// api.github.com to codeload for zipball downloads (binary: true) up to a few
+// hops. Host is derived per hop so codeload.github.com is reached correctly.
+export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 30000, binary = false, _host = API_HOST, _hops = 0 } = {}) {
+  const raw = await socks5Connect(proxyHost, proxyPort, _host, 443, timeoutMs);
+  const res = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, timeoutMs);
-    const socket = tls.connect({ socket: raw, servername: API_HOST }, () => {
+    const socket = tls.connect({ socket: raw, servername: _host }, () => {
       socket.write(
-        `GET ${apiPath} HTTP/1.1\r\nHost: ${API_HOST}\r\nUser-Agent: dojobay-update-check\r\n` +
-        `Accept: application/vnd.github+json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
+        `GET ${apiPath} HTTP/1.1\r\nHost: ${_host}\r\nUser-Agent: dojobay-update-check\r\n` +
+        `Accept: ${binary ? "application/octet-stream" : "application/vnd.github+json"}\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
     });
     const chunks = [];
     socket.on("data", (d) => chunks.push(d));
@@ -36,28 +40,36 @@ export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 300
     socket.on("close", () => {
       clearTimeout(timer);
       try {
-        const all = Buffer.concat(chunks).toString("latin1");
-        const m = all.match(/^HTTP\/1\.[01] (\d{3})/);
-        const i = all.indexOf("\r\n\r\n");
-        if (!m || i < 0) return reject(new Error("malformed reply"));
-        const head = all.slice(0, i).toLowerCase();
-        let body = all.slice(i + 4);
-        if (/transfer-encoding:\s*chunked/.test(head)) {
-          let out = "", rest = body;
+        const all = Buffer.concat(chunks);
+        const headEnd = all.indexOf("\r\n\r\n");
+        if (headEnd < 0) return reject(new Error("malformed reply"));
+        const headText = all.subarray(0, headEnd).toString("latin1");
+        const m = headText.match(/^HTTP\/1\.[01] (\d{3})/);
+        if (!m) return reject(new Error("malformed reply"));
+        const status = +m[1];
+        const locM = headText.match(/\r\nlocation:\s*([^\r\n]+)/i);
+        let bodyBuf = all.subarray(headEnd + 4);
+        if (/transfer-encoding:\s*chunked/i.test(headText)) {
+          const parts = []; let p = 0;
           for (;;) {
-            const nl = rest.indexOf("\r\n");
+            const nl = bodyBuf.indexOf("\r\n", p);
             if (nl < 0) break;
-            const size = parseInt(rest.slice(0, nl), 16);
+            const size = parseInt(bodyBuf.subarray(p, nl).toString("latin1"), 16);
             if (!size) break;
-            out += rest.slice(nl + 2, nl + 2 + size);
-            rest = rest.slice(nl + 2 + size + 2);
+            parts.push(bodyBuf.subarray(nl + 2, nl + 2 + size));
+            p = nl + 2 + size + 2;
           }
-          body = out;
+          bodyBuf = Buffer.concat(parts);
         }
-        resolve({ status: +m[1], body: Buffer.from(body, "latin1").toString("utf8") });
+        resolve({ status, location: locM ? locM[1].trim() : null, bodyBuf });
       } catch (e) { reject(e); }
     });
   });
+  if ([301, 302, 307, 308].includes(res.status) && res.location && _hops < 4) {
+    const u = new URL(res.location);
+    return githubGet(u.pathname + u.search, { proxyHost, proxyPort, timeoutMs, binary, _host: u.hostname, _hops: _hops + 1 });
+  }
+  return { status: res.status, body: res.bodyBuf.toString("utf8"), bodyBuf: res.bodyBuf };
 }
 
 export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, cfg = {} } = {}) {

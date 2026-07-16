@@ -639,7 +639,11 @@ async function loadJSON(url){
   }
   let ADMIN_NOTICE = null;
   let ADMIN_UPDATES = null, ADMIN_UPDATES_LOADING = false;
+  let UPDATE_RUN = null;   // {phase, log[], done, ok, error, needsRefresh}
+  let UPDATE_POLL = null;
+  const UPDATE_PHASES = ["starting","fetching","applying","restarting"];
   function updatesLine(){
+    if(UPDATE_RUN) return updateProgress();
     if(!ADMIN_UPDATES) return ADMIN_UPDATES_LOADING ? '<p style="font-size:12px;color:var(--faint)">Checking for updates…</p>' : "";
     const u = ADMIN_UPDATES;
     if(!u.available) return '<p style="font-size:12px;color:var(--faint)">Update check unavailable: '+esc(u.error||"unknown")+'</p>';
@@ -650,12 +654,80 @@ async function loadJSON(url){
       ? (u.releases_behind>0 ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b> (latest '+esc(u.latest_release)+')'
                              : ' · latest release '+esc(u.latest_release))
       : "";
-    return '<p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel+'</p>';
+    const behindAny = u.commits_behind>0 || u.releases_behind>0;
+    const controls = '<div class="upd-controls">'
+      + '<button class="abtn ok" data-adm="update-github">Update from GitHub</button>'
+      + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button>'
+      + '</div>';
+    return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel+'</p>'
+      + (behindAny? controls : '<div class="upd-controls">'+controls+'<span style="font-size:11px;color:var(--faint)">(you can still reinstall the current code)</span></div>')
+      + '</div>';
+  }
+  function updateProgress(){
+    const j = UPDATE_RUN;
+    const idx = Math.max(0, UPDATE_PHASES.indexOf(j.phase));
+    const pct = j.done ? 100 : Math.round(((idx+0.5)/UPDATE_PHASES.length)*100);
+    const barColor = j.error ? 'var(--down)' : (j.done? 'var(--up)' : 'var(--accent)');
+    const tail = (j.log||[]).slice(-6).map(l=>esc(l)).join('<br>');
+    let head;
+    if(j.error) head = '<b style="color:var(--down)">Update failed:</b> '+esc(j.error);
+    else if(j.done && j.needsRefresh) head = '<b style="color:var(--up)">Update applied.</b> Waiting for the service to come back, then reloading…';
+    else head = '<b>Updating from '+esc(j.sourceLabel||j.source||"source")+'…</b> '+esc(j.phase);
+    return '<div class="upd-line">'
+      + '<p style="font-size:12.5px">'+head+'</p>'
+      + '<div class="upd-bar"><div class="upd-bar-fill" style="width:'+pct+'%;background:'+barColor+'"></div></div>'
+      + '<pre class="upd-log">'+tail+'</pre>'
+      + (j.error? '<button class="abtn" data-adm="update-dismiss">Dismiss</button>':'')
+      + '</div>';
+  }
+  async function startUpdate(source, extra){
+    UPDATE_RUN = { phase:"starting", log:["requesting update…"], done:false, source };
+    renderAdminPanel();
+    const r = await api.call("/admin/update","POST",{ source, ...(extra||{}) });
+    if(r.status===409){ UPDATE_RUN=null; ADMIN_NOTICE="An update is already in progress."; renderAdminPanel(); return; }
+    if(r.status!==202){ UPDATE_RUN.error=(r.body&&r.body.error)||("HTTP "+r.status); UPDATE_RUN.done=true; renderAdminPanel(); return; }
+    pollUpdate();
+  }
+  function pollUpdate(){
+    clearInterval(UPDATE_POLL);
+    let restartWaits = 0;
+    UPDATE_POLL = setInterval(async ()=>{
+      let r;
+      try{ r = await api.call("/admin/update/status"); }
+      catch(e){ r = null; }
+      // Once the service restarts, /api calls fail transiently; treat a run
+      // that reached needsRefresh as success and hard-reload when it returns.
+      if(UPDATE_RUN && UPDATE_RUN.needsRefresh){
+        if(!r || r.status!==200){ restartWaits++; return; }   // backend still down
+        // backend answered again -> new code is live -> hard reload
+        clearInterval(UPDATE_POLL);
+        location.reload(true);
+        return;
+      }
+      if(!r || r.status!==200) return;
+      const j = r.body && r.body.job;
+      if(j){ UPDATE_RUN = { ...UPDATE_RUN, ...j }; renderAdminPanel(); }
+      if(j && j.done){
+        if(j.ok && j.needsRefresh){
+          UPDATE_RUN.needsRefresh = true;   // next successful poll after restart triggers reload
+        } else {
+          clearInterval(UPDATE_POLL);
+        }
+      }
+    }, 1200);
   }
   document.addEventListener("click", async e=>{
     const b=e.target.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
     if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; ADM_EDIT_ID=null; renderAdminPanel(); return; }
+    if(act==="update-github"){ if(confirm("Update this instance from GitHub over Tor? The service will restart.")) startUpdate("github"); return; }
+    if(act==="update-peer"){
+      const onion=prompt("Trusted peer .onion to update from:"); if(!onion) return;
+      const code=prompt("That operator's BIP47 payment code (verifies who you're trusting):")||"";
+      if(confirm("Update this instance from "+onion+" over Tor? The service will restart.")) startUpdate("peer",{onion,code});
+      return;
+    }
+    if(act==="update-dismiss"){ UPDATE_RUN=null; clearInterval(UPDATE_POLL); ADMIN_UPDATES=null; renderAdminPanel(); return; }
     if(act==="edit"){ ADM_EDIT_ID=b.getAttribute("data-id"); renderAdminPanel(); return; }
     if(act==="editcancel"){ ADM_EDIT_ID=null; renderAdminPanel(); return; }
     if(act==="editsave"){

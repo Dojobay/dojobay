@@ -52,6 +52,7 @@ data/
 server/
   index.mjs                # Auth47 + submissions + moderation API (localhost)
   updates.mjs              # commits/releases-behind check against GitHub, over Tor
+  self-update.mjs          # fetch (github/peer) + verify + stage a source update
   build-public.mjs         # merges seed + approved store into dojos.json
   store.mjs, crypto.mjs, paynym.mjs, admin.mjs
   selftest.mjs             # backend test suite (see below)
@@ -62,6 +63,7 @@ scripts/
   installer-lib.mjs        # installer's pure logic: validators, config renderers
   bootstrap-import.mjs     # import nodes + history from a trusted instance (signature-gated)
   update.mjs               # ten-minute Tor prober; maintains statuses + history
+  apply-update.mjs         # detached helper: swap staged code + restart service
   migrate-seed-to-store.mjs# idempotent seed -> store migration (--dry-run)
   selftest.mjs             # offline tests of the reachability logic
   pack-source.mjs          # packs the instance's own code into data/dojobay-src.zip

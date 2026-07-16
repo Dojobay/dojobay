@@ -69,6 +69,18 @@ const cfg = (port, extra = {}) => ({
 let passed = 0;
 async function check(label, fn) { await fn(); passed++; console.log("  ok -", label); }
 
+// Minimal single-entry zip (stored), for the zip-slip rejection test.
+function makeMiniZip(name, data) {
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n & 0xffff); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+  const nb = Buffer.from(name, "utf8");
+  const common = Buffer.concat([u16(20), u16(0x0800), u16(0), u16(0), u16(0), u32(0), u32(data.length), u32(data.length), u16(nb.length), u16(0)]);
+  const local = Buffer.concat([u32(0x04034b50), common, nb, data]);
+  const central = Buffer.concat([u32(0x02014b50), u16(20), common, u16(0), u16(0), u16(0), u32(0), u32(0), nb]);
+  const end = Buffer.concat([u32(0x06054b50), u16(0), u16(0), u16(1), u16(1), u32(central.length), u32(local.length), u16(0)]);
+  return Buffer.concat([local, central, end]);
+}
+
 console.log("self-test: reachability detection");
 
 await check("reachable service returning HTTP -> up", async () => {
@@ -211,6 +223,34 @@ await check("TUI core: key decoding, form navigation/validation, frame rendering
   const prog = renderProgress({ width: 80, stepLabel: "s", title: "probing", log: ["connecting…"], spinnerIndex: 3 })
     .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
   assert.ok(prog.includes("probing") && prog.includes("connecting…") && prog.includes("please wait"));
+});
+
+await check("source zip round-trips through self-update; staging works; zip-slip rejected", async () => {
+  const { packSource } = await import("./pack-source.mjs");
+  const { unzip, applyUpdate } = await import("../server/self-update.mjs");
+  const dir = await mkdtemp(path.join(tmpdir(), "dojobay-rt-"));
+  try {
+    const r = await packSource({ outDir: dir });
+    const buf = await readFile(r.out);
+    const entries = unzip(buf);
+    const names = entries.map((e) => e.name);
+    assert.ok(names.includes("dojobay/server/index.mjs") && names.includes("dojobay/assets/js/app.js"), "core files present");
+    const pkg = entries.find((e) => e.name === "dojobay/package.json");
+    const onDisk = await readFile(path.join(process.cwd(), "package.json"));
+    assert.ok(pkg && Buffer.compare(pkg.data, onDisk) === 0, "inflated file matches source byte-for-byte");
+
+    // apply into a temp web root without spawning the helper: staging + backup exist
+    const webRoot = await mkdtemp(path.join(tmpdir(), "dojobay-web-"));
+    const res = await applyUpdate({ bytes: buf, sourceLabel: "test", version: "deadbeef", webRoot, spawnHelper: false, log: () => {} });
+    const staged = await readFile(path.join(res.staging, "server/index.mjs")).then(() => true, () => false);
+    assert.ok(staged && res.entries > 30, "new tree staged");
+    await rm(webRoot, { recursive: true, force: true });
+
+    // zip-slip: an entry escaping the top folder must be refused
+    const { deflateRawSync } = await import("node:zlib");
+    const evil = makeMiniZip("dojobay/../evil.txt", Buffer.from("x"));
+    await assert.rejects(applyUpdate({ bytes: evil, webRoot: "/tmp", spawnHelper: false, log: () => {} }), /unsafe path|does not look like/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 console.log(`\nall ${passed} checks passed`);

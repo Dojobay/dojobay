@@ -34,6 +34,7 @@ const DENY = [
   "server/data", "server/node_modules", "node_modules", ".git",
   "data/dojos.json", "data/history.json", "data/history-daily.json",
   "data/avatars", "data/seed.json", "data/operator.json", "data/paynym-codes.json",
+  "data/updates", "data/backups",
 ];
 const denied = (rel) => DENY.some((d) => rel === d || rel.startsWith(d + "/"))
   || rel.endsWith(".zip") || path.basename(rel) === ".DS_Store";

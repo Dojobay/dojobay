@@ -460,6 +460,59 @@ route("POST", /^\/api\/admin\/edit$/, async (req, res) => {
 // 12) admin: how far behind is this instance? Cached for six hours; failure
 //     (GitHub unreachable over Tor, or an undeployed dev build) is reported
 //     in-band so the admin panel can show "unavailable" without erroring.
+// A self-update runs as a single background job with polled progress. Only one
+// at a time; the job object is the source of truth the poll route returns.
+let UPDATE_JOB = null;   // { id, phase, log[], done, ok, error, source, version, needsRefresh }
+route("POST", /^\/api\/admin\/update$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  if (UPDATE_JOB && !UPDATE_JOB.done) return json(res, 409, { error: "an update is already in progress" });
+  let body; try { body = JSON.parse(await readBody(req)); } catch { body = {}; }
+
+  const id = Date.now().toString(36);
+  const job = UPDATE_JOB = { id, phase: "starting", log: [], done: false, ok: false, error: null,
+    source: body.source === "peer" ? "peer" : "github", version: null, needsRefresh: false };
+  const log = (line) => { job.log.push(line); if (job.log.length > 200) job.log.shift(); };
+
+  // Run detached from the request: reply immediately with the job id.
+  (async () => {
+    try {
+      const cfg = { proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort };
+      const { fetchFromGitHub, fetchFromPeer, applyUpdate } = await import("./self-update.mjs");
+      let fetched;
+      job.phase = "fetching";
+      if (job.source === "peer") {
+        const onionHost = String(body.onion || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+        if (!/^[a-z2-7]{56}\.onion$/.test(onionHost)) throw new Error("a valid peer .onion is required");
+        fetched = await fetchFromPeer({ onionHost, trustedCode: body.code || null, cfg, log });
+      } else {
+        fetched = await fetchFromGitHub({ cfg, log });
+      }
+      job.version = fetched.version;
+      job.phase = "applying";
+      const r = await applyUpdate({ ...fetched, webRoot: ROOT, log });
+      job.needsRefresh = true;                 // front end should hard-reload once the service is back
+      job.phase = "restarting";
+      job.ok = true; job.done = true;
+      log("update staged from " + fetched.sourceLabel + "; service is restarting.");
+    } catch (e) {
+      job.error = e.message; job.ok = false; job.done = true; job.phase = "failed";
+      log("✗ " + e.message);
+    }
+  })();
+
+  json(res, 202, { started: true, id });
+});
+
+route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  // After a successful apply the service restarts; on the way back up the
+  // helper leaves data/updates/last-result.json, which we surface so the panel
+  // can confirm completion across the restart.
+  let lastResult = null;
+  try { lastResult = JSON.parse(await readFile(path.join(process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data"), "updates", "last-result.json"), "utf8")); } catch {}
+  json(res, 200, { job: UPDATE_JOB, lastResult });
+});
+
 let UPDATES_CACHE = null;
 route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;

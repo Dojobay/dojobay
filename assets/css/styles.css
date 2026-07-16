@@ -41,6 +41,11 @@
   .onion-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-bg);padding:6px 10px;border-radius:7px;margin-left:4px}
   .onion-pill:hover{background:rgba(247,147,26,.16)}
   .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
+  .upd-line{margin:6px 0}
+  .upd-controls{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+  .upd-bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden;margin:8px 0}
+  .upd-bar-fill{height:100%;transition:width .4s ease;border-radius:6px}
+  .upd-log{font-size:11px;color:var(--faint);background:var(--panel2);border-radius:8px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;line-height:1.5;max-height:120px;overflow:auto}
   .op-avatar{width:20px;height:20px;border-radius:50%;object-fit:cover;
              border:1px solid var(--line-soft);display:inline-block;vertical-align:middle}
   /* PayNym avatar centred on the pairing QR (QR is generated at EC level H,

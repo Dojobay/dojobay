@@ -9,6 +9,8 @@ import { bitcoinMessageFactory } from "@samouraiwallet/bitcoinjs-message";
 import * as bip47utils from "@samouraiwallet/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
 import { mnemonicToSeedSync } from "bip39";
+import os from "node:os";
+import pathMod from "node:path";
 
 // point the backend at a temp store + mock proxy BEFORE importing it
 process.env.SERVER_DATA_DIR = "/tmp/dojobay-selftest";
@@ -488,6 +490,53 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && histAfter["mainnet-imported"] && histAfter["mainnet-imported"].checks.length === 1
      && histAfter["mainnet-selftest-node"].checks[0].t !== "2026-07-01 00:00",
      "bootstrap imports new nodes with all code variants and history; existing ids untouched");
+}
+
+// 19) self-update sourcing: GitHub and peer fetchers verify before trusting,
+//     apply() stages a real archive, and the admin routes are gated.
+{
+  const { fetchFromPeer, applyUpdate } = await import("./self-update.mjs");
+  const { packSource } = await import("../scripts/pack-source.mjs");
+
+  // build a real archive to feed the peer fetcher's zip step
+  const tmp = await fsp.mkdtemp(pathMod.join(os.tmpdir(), "dojobay-su-"));
+  const packed = await packSource({ outDir: tmp });
+  const zipBytes = await fsp.readFile(packed.out);
+
+  // a valid peer operator binding (reuse the operator doc from check 18 shape)
+  const peerOnion = "f".repeat(56) + ".onion";
+  const peerMsg = `http://${peerOnion}/\n\nBIP47: ${paymentCode}`;
+  const peerSig = Buffer.from(msg.sign(peerMsg, priv, true, net47.messagePrefix)).toString("base64");
+  const peerBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${peerMsg}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${peerSig}\n-----END BITCOIN SIGNATURE-----`;
+  const peerOpDoc = { onion: `http://${peerOnion}/`, paymentCode, verifySigned: peerBlock };
+  const fetchDoc = async (p) => {
+    if (p === "/data/operator.json") return { status: 200, body: JSON.stringify(peerOpDoc) };
+    if (p === "/data/version.json") return { status: 200, body: JSON.stringify({ commit: "peercommit" }) };
+    throw new Error("404 " + p);
+  };
+  const fetchZip = async () => ({ status: 200, bodyBuf: zipBytes });
+
+  // wrong trusted code -> refuse before fetching the zip
+  await ok(await fetchFromPeer({ onionHost: peerOnion, trustedCode: "PM8T" + "3".repeat(112), fetchDoc, fetchZip, log: () => {} })
+    .then(() => false, (e) => /different payment code/.test(e.message)),
+    "peer update refuses a peer whose operator code differs from the trusted one");
+
+  // correct code -> returns verified bytes, which apply() stages
+  const got = await fetchFromPeer({ onionHost: peerOnion, trustedCode: paymentCode, fetchDoc, fetchZip, log: () => {} });
+  const webRoot = await fsp.mkdtemp(pathMod.join(os.tmpdir(), "dojobay-suweb-"));
+  const applied = await applyUpdate({ ...got, webRoot, spawnHelper: false, log: () => {} });
+  const stagedOk = await fsp.readFile(pathMod.join(applied.staging, "server/index.mjs")).then(() => true, () => false);
+  ok(got.version === "peercommit" && stagedOk && applied.entries > 30,
+     "verified peer archive is staged for apply");
+  await fsp.rm(tmp, { recursive: true, force: true });
+  await fsp.rm(webRoot, { recursive: true, force: true });
+
+  // admin gating of the job routes
+  const anonStart = await fetch(base + "/api/admin/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const anonStatus = await fetch(base + "/api/admin/update/status");
+  const adminStatus = await api("/api/admin/update/status");
+  ok(anonStart.status === 401 && anonStatus.status === 401 && adminStatus.status === 200,
+     "update routes require admin; status readable by admin");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

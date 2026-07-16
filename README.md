@@ -213,9 +213,20 @@ sudo systemctl start dojobay-server
 ```
 
 The footer's build hash and `data/version.json` tell you what you are
-running. The admin console shows how far the instance is behind: it checks
-the repository over Tor (respecting `GITHUB_REPO` if you run a fork) and
-reports commits behind `main` and releases published since your build.
+running. The admin console shows how far the instance is behind (commits
+behind `main` and releases since your build, checked over Tor), and can
+**apply an update in place**: choose *Update from GitHub* or *Update from a
+peer .onion* and the console fetches the verified source over Tor, backs up
+the current code to `data/backups/`, swaps in the new tree, and restarts the
+service, showing a progress bar and hard-reloading when the instance returns.
+
+A peer update reuses the same trust gate as bootstrapping: you supply the
+peer's payment code, and nothing is applied unless that peer's operator
+signature verifies for the onion you named. Either way the archive contains
+code only, so your seed, operator binding, submission store and histories are
+never touched, and a backup under `data/backups/<timestamp>/` lets you roll
+back by hand if a build misbehaves. The manual `unzip` upgrade below remains
+available and does the same thing.
 
 ## Contributing and licence
 

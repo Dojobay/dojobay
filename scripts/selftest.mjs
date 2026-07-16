@@ -176,4 +176,41 @@ await check("installer library: validators, torrc idempotence, unit rendering", 
   assert.ok(unit.includes("WorkingDirectory=/srv/db/server") && unit.includes("BASE_URL=http://new.onion") && unit.includes("ADMIN_PAYMENT_CODES=PM8Tnew"));
 });
 
+await check("TUI core: key decoding, form navigation/validation, frame rendering", async () => {
+  const { decodeKeys, formInit, formReduce, formValues, renderForm, renderProgress } = await import("./tui.mjs");
+  // key decoding
+  assert.deepEqual(decodeKeys(Buffer.from("\x1b[A\x1b[B\x1b[C\x1b[D")), ["up", "down", "right", "left"]);
+  assert.deepEqual(decodeKeys(Buffer.from("\r\t\x7f\x03")), ["enter", "tab", "backspace", "ctrl-c"]);
+  assert.deepEqual(decodeKeys(Buffer.from("ab")), [{ char: "a" }, { char: "b" }]);
+  // form: type into field 1, toggle field 2, enter through to submit
+  let st = formInit([
+    { key: "name", label: "Name", type: "text", validate: (v) => v.length > 0 || "required" },
+    { key: "net", label: "Network", type: "toggle", options: ["mainnet", "testnet"] },
+  ]);
+  st = formReduce(st, "enter");                       // empty -> error, stays
+  assert.equal(st.fields[0].error, "required");
+  for (const ch of "yellow") st = formReduce(st, { char: ch });
+  st = formReduce(st, "enter");                       // valid -> advance to toggle
+  assert.equal(st.active, 1);
+  st = formReduce(st, "right");                       // mainnet -> testnet
+  st = formReduce(st, "enter");                       // -> continue button
+  st = formReduce(st, "enter");                       // submit
+  assert.ok(st.submitted);
+  assert.deepEqual(formValues(st), { name: "yellow", net: "testnet" });
+  // backspace + esc
+  let st2 = formInit([{ key: "a", label: "A", type: "text" }]);
+  st2 = formReduce(formReduce(st2, { char: "x" }), "backspace");
+  assert.equal(st2.fields[0].value, "");
+  assert.ok(formReduce(st2, "esc").cancelled);
+  // rendering: content present, every line within width
+  const frame = renderForm(formInit([{ key: "a", label: "Payment code", type: "text", hint: "PM8T…" }]),
+    { width: 80, stepLabel: "step 3 of 8", title: "Your identity" });
+  const plain = frame.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+  assert.ok(plain.includes("THE DOJO BAY") && plain.includes("Your identity") && plain.includes("Payment code") && plain.includes("Continue"));
+  assert.ok(plain.split("\r\n").every((l) => l.length <= 80), "no line exceeds the terminal width");
+  const prog = renderProgress({ width: 80, stepLabel: "s", title: "probing", log: ["connecting…"], spinnerIndex: 3 })
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+  assert.ok(prog.includes("probing") && prog.includes("connecting…") && prog.includes("please wait"));
+});
+
 console.log(`\nall ${passed} checks passed`);

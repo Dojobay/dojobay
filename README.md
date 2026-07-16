@@ -69,7 +69,11 @@ extract, and run:
 ./install.sh
 ```
 
-On a desktop, `dojobay-install.desktop` makes the same wizard double-clickable
+On a capable terminal this is a full-screen TUI — arrow-key forms, a
+persistent header, live progress panels for the slow Tor operations — and it
+falls back to a plain sequential flow on dumb or tiny terminals (or with
+`./install.sh --plain`). On a desktop, `dojobay-install.desktop` makes the
+same wizard double-clickable
 (right-click → Allow Launching once, as GNOME requires); over SSH it runs
 headless in the terminal. The wizard checks prerequisites (offering to
 install `tor` and `nginx`), takes your BIP47 payment code, creates the hidden

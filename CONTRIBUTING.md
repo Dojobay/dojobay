@@ -56,7 +56,10 @@ server/
   store.mjs, crypto.mjs, paynym.mjs, admin.mjs
   selftest.mjs             # backend test suite (see below)
 scripts/
-  install.mjs              # guided installer (TUI); installer-lib.mjs holds its pure logic
+  install.mjs              # guided installer; stages talk to installer-ui.mjs
+  installer-ui.mjs         # one interface, two faces: full-screen TUI + sequential
+  tui.mjs                  # TUI toolkit; pure core (keys, forms, frames) is self-tested
+  installer-lib.mjs        # installer's pure logic: validators, config renderers
   bootstrap-import.mjs     # import nodes + history from a trusted instance (signature-gated)
   update.mjs               # ten-minute Tor prober; maintains statuses + history
   migrate-seed-to-store.mjs# idempotent seed -> store migration (--dry-run)

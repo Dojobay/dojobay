@@ -237,7 +237,7 @@ route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
     paynym: s.paynym || null, paymentCodes: s.paymentCodes,
     jurisdiction: s.jurisdiction || null, country: s.country || null,
     hardware: s.hardware || null, signed: !!s.signed,
-    version: s.version || s.payload?.pairing?.version || null,
+    version: (probes[s.id] && probes[s.id].detected_version) || s.payload?.pairing?.version || null,
     pairingUrl: s.payload?.pairing?.url || null,
     created_at: s.created_at || null, updated_at: s.updated_at || null,
     probe: probes[s.id] || null,      // { status, checked_at, block_height, checks:[] }
@@ -397,11 +397,13 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   json(res, 200, { ok: true, submission: rec, note: "Submitted for review. It will appear once a maintainer approves it." });
 });
 
-// Editable metadata: name, hardware, and a Dojo-version override. These are
-// display fields, so an edit keeps the record's moderation status and its id
-// (and therefore its history); only a full resubmission re-enters moderation.
-// A rename must not collide with ANY other record's name on that network,
-// including the editor's own other records, hence the excludeId scan.
+// Editable metadata: name and hardware. The Dojo version is NOT editable it is
+// read live from the node's X-Dojo-Version response header by the updater (see
+// scripts/update.mjs), so it always reflects what the node is actually running.
+// These are display fields, so an edit keeps the record's moderation status and
+// its id (and therefore its history); only a full resubmission re-enters
+// moderation. A rename must not collide with ANY other record's name on that
+// network, including the editor's own other records, hence the excludeId scan.
 async function slugTakenByOther(network, slug, excludeId) {
   for (const r of await store.listSubmissions()) {
     if (r.id === excludeId || r.network !== network) continue;
@@ -427,8 +429,6 @@ async function applyEdit(rec, body, res) {
   rec.name = name;
   rec.name_url = nameUrl;                           // prefilled in the form, so blank is a deliberate clear
   rec.hardware = String(body.hardware || "").trim().slice(0, 120) || null;
-  const version = String(body.version || "").trim().slice(0, 24);
-  rec.version = version || null;                    // null falls back to the pairing payload's version
   rec.updated_at = new Date().toISOString();
   await store.putSubmission(rec);
   const out = rec.status === "approved" ? await tryRebuild() : null;   // approved edits publish immediately

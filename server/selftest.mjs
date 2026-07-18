@@ -328,18 +328,20 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "relisting within the grace window resurrects the history untouched");
 }
 
-// 14) display-field edits: owner can amend name, hardware and Dojo version;
-//     the id, status and history are untouched; renames respect per-network
-//     uniqueness including the owner's own other records and the seed.
+// 14) display-field edits: owner can amend name and hardware; the id, status
+//     and history are untouched; renames respect per-network uniqueness. The
+//     Dojo version is NOT editable: a version sent in the edit is ignored and
+//     the card keeps the API-derived value (here the pairing default, since no
+//     live probe has run in this test).
 {
   const ed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", hardware: "RPi5 8GB", version: "9.9.9-test" });
   const rec = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
-  ok(ed.status === 200 && rec.hardware === "RPi5 8GB" && rec.version === "9.9.9-test" && rec.status === "approved",
-     "owner edit updates hardware and version, keeps id and approved status");
+  ok(ed.status === 200 && rec.hardware === "RPi5 8GB" && rec.version == null && rec.status === "approved",
+     "owner edit updates hardware, keeps id and approved status, and cannot set a version");
   const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
   const pubNode = pub.nodes.find((n) => n.id === "mainnet-selftest-node");
-  ok(pubNode && pubNode.version === "9.9.9-test" && pubNode.paymentCode === rec.paymentCodes[0],
-     "approved edit publishes immediately; card carries version override and a payment code");
+  ok(pubNode && pubNode.version === "1.28.0" && pubNode.paymentCode === rec.paymentCodes[0],
+     "approved edit publishes immediately; card version stays the API-derived value, ignoring the edit");
 
   const clashOwn = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "zulu" });
   const clashSeed = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "Maxtannahill" });
@@ -537,6 +539,36 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const adminStatus = await api("/api/admin/update/status");
   ok(anonStart.status === 401 && anonStatus.status === 401 && adminStatus.status === 200,
      "update routes require admin; status readable by admin");
+}
+
+// 20) live-detected Dojo version (X-Dojo-Version): rebuild carries the value the
+//     updater wrote and folds it into the card version. The version is derived
+//     entirely from the node's API detected live wins, pairing is only the
+//     bootstrap fallback, and an operator edit can never change it.
+{
+  const { rebuild, effectiveVersion } = await import("./build-public.mjs");
+  const id = "mainnet-selftest-node";
+  const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
+
+  ok(effectiveVersion("1.33.7", "1.28.0") === "1.33.7"
+     && effectiveVersion(null, "1.28.0") === "1.28.0"
+     && effectiveVersion(null, null) === null,
+     "effectiveVersion: detected live version wins, pairing is the fallback");
+
+  // simulate the updater having recorded a live version on the node
+  const snap = JSON.parse(await fsp.readFile(dojosPath, "utf8"));
+  snap.nodes.find((n) => n.id === id).detected_version = "1.33.7";
+  await fsp.writeFile(dojosPath, JSON.stringify(snap, null, 2) + "\n");
+  await rebuild();
+  let n = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === id);
+  ok(n.detected_version === "1.33.7" && n.version === "1.33.7",
+     "rebuild carries detected_version and shows it as the card version");
+
+  // an edit that tries to set a version is ignored; the detected value stands
+  await api("/api/dojo/edit", "POST", { id, name: "selftest-node", hardware: "RPi5 8GB", version: "0.0.1-hax" });
+  n = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === id);
+  ok(n.version === "1.33.7" && n.detected_version === "1.33.7",
+     "an operator edit cannot override the live-detected version");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

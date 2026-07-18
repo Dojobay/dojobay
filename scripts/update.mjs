@@ -22,6 +22,12 @@
 // on the node. Nodes without an apikey fall back to a plain HTTP reachability
 // probe (active if the onion returns an HTTP response line).
 //
+// Every Dojo response carries its running version in the X-Dojo-Version header;
+// the probe reads it and records node.detected_version, so a card can show the
+// live version rather than the one frozen into the pairing payload at signing
+// time. build-public.mjs decides the effective version an operator override
+// still wins over it.
+//
 // Run once (intended to be driven by cron/systemd every 10 minutes):
 //   node scripts/update.mjs
 //
@@ -35,6 +41,8 @@
 //   RETENTION_DAYS   default 90       daily-rollup days kept per node (~3 months)
 //   CONNECT_ONLY     default 0        "1" = treat a successful Tor connect as up
 //                                     without waiting for an HTTP response line
+//   DOJO_VERSION_HEADER default X-Dojo-Version  response header carrying the
+//                                     node's running Dojo version
 // =============================================================================
 
 import net from "node:net";
@@ -54,6 +62,12 @@ const CFG = {
   windowChecks: +(process.env.WINDOW_CHECKS || 144),
   retentionDays: +(process.env.RETENTION_DAYS || 90),
   connectOnly: process.env.CONNECT_ONLY === "1",
+  // The Dojo API stamps its running version on every response via this header
+  // (Dojo's http-server appends X-Dojo-Version: <DOJO_VERSION_TAG> as global
+  // middleware). Read it during the probe so a node's displayed version tracks
+  // what it is actually running, instead of the value frozen into its pairing
+  // payload at submission time. Overridable in case a fork renames the header.
+  dojoVersionHeader: (process.env.DOJO_VERSION_HEADER || "X-Dojo-Version").toLowerCase(),
 };
 
 // ---- SOCKS5 reply codes (RFC 1928 §6) ---------------------------------------
@@ -178,6 +192,34 @@ export function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
   });
 }
 
+// ---- Dojo version from response headers -------------------------------------
+// The Dojo API sets its running version on every response (X-Dojo-Version). We
+// read it opportunistically while probing so the card can show the live value.
+// A node is only semi-trusted, so the value is validated and length-capped
+// before it can reach a data file: a version looks like 1, 1.28, 1.28.0 or
+// 1.28.0-rc1, with an optional leading v that we strip. Anything else -> null.
+export function normaliseVersion(raw) {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().replace(/^v/i, "").trim();
+  if (!v || v.length > 32) return null;
+  return /^\d+(\.\d+){0,3}([-+][0-9A-Za-z.]+)?$/.test(v) ? v : null;
+}
+
+// Pull the version out of a raw header block (the CRLF-joined header lines from
+// httpOverTor's rawHead, or the accumulated first bytes of a plain probe).
+// Header names are case-insensitive; the first occurrence wins.
+export function parseDojoVersion(rawHead, headerName = CFG.dojoVersionHeader) {
+  if (typeof rawHead !== "string" || !rawHead) return null;
+  const name = String(headerName).toLowerCase();
+  for (const line of rawHead.split(/\r?\n/)) {
+    const idx = line.indexOf(":");
+    if (idx < 0) continue;
+    if (line.slice(0, idx).trim().toLowerCase() !== name) continue;
+    return normaliseVersion(line.slice(idx + 1));
+  }
+  return null;
+}
+
 // ---- PayNym avatars ---------------------------------------------------------
 // Cards embed each node's PayNym avatar in the centre of its pairing QR. The
 // front end never fetches from third parties, so the avatar is mirrored here:
@@ -249,7 +291,10 @@ async function syncAvatars(nodes, destDir) {
 }
 
 // Authenticated health check: log in with the node's apikey, then read the
-// chain tip from GET /v2/wallet. Returns { up, reason, ms, height?, blockTime? }.
+// chain tip from GET /v2/wallet. The Dojo stamps X-Dojo-Version on every
+// response, so we harvest it from the first response that carries it (the login
+// reply always does) even on an otherwise-down cycle. Returns
+// { up, reason, ms, height?, blockTime?, detectedVersion? }.
 async function probeHeight(url, cfg) {
   const t0 = Date.now();
   const u = new URL(url);
@@ -257,6 +302,7 @@ async function probeHeight(url, cfg) {
   const port = u.port ? +u.port : 80;
   const base = (u.pathname || "/v2").replace(/\/+$/, "") || "/v2";   // e.g. /v2
   const dummy = cfg.network === "testnet" ? DUMMY_TPUB : DUMMY_XPUB;
+  let detectedVersion = null;
 
   // 1) login -> access token
   let token;
@@ -267,11 +313,12 @@ async function probeHeight(url, cfg) {
       `Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` +
       `User-Agent: dojobay-checker\r\nConnection: close\r\n\r\n${body}`;
     const res = await httpOverTor(cfg, host, port, req, cfg.timeoutMs);
-    if (res.status !== 200) return { up: false, reason: `login HTTP ${res.status || "no-response"}`, ms: Date.now() - t0 };
+    detectedVersion = parseDojoVersion(res.rawHead, cfg.dojoVersionHeader) || detectedVersion;
+    if (res.status !== 200) return { up: false, reason: `login HTTP ${res.status || "no-response"}`, ms: Date.now() - t0, detectedVersion };
     token = JSON.parse(res.body)?.authorizations?.access_token;
-    if (!token) return { up: false, reason: "login: no token", ms: Date.now() - t0 };
+    if (!token) return { up: false, reason: "login: no token", ms: Date.now() - t0, detectedVersion };
   } catch (e) {
-    return { up: false, reason: "login: " + e.message, ms: Date.now() - t0 };
+    return { up: false, reason: "login: " + e.message, ms: Date.now() - t0, detectedVersion };
   }
 
   // 2) wallet -> info.latest_block.height
@@ -281,13 +328,14 @@ async function probeHeight(url, cfg) {
       `GET ${base}/wallet?${q} HTTP/1.0\r\nHost: ${host}\r\n` +
       `Authorization: Bearer ${token}\r\nUser-Agent: dojobay-checker\r\nConnection: close\r\n\r\n`;
     const res = await httpOverTor(cfg, host, port, req, cfg.timeoutMs);
-    if (res.status !== 200) return { up: false, reason: `wallet HTTP ${res.status || "no-response"}`, ms: Date.now() - t0 };
+    detectedVersion = detectedVersion || parseDojoVersion(res.rawHead, cfg.dojoVersionHeader);
+    if (res.status !== 200) return { up: false, reason: `wallet HTTP ${res.status || "no-response"}`, ms: Date.now() - t0, detectedVersion };
     const info = JSON.parse(res.body)?.info?.latest_block;
     const height = info?.height;
-    if (typeof height !== "number") return { up: false, reason: "wallet: no block height", ms: Date.now() - t0 };
-    return { up: true, reason: "height", height, blockTime: info.time ?? null, ms: Date.now() - t0 };
+    if (typeof height !== "number") return { up: false, reason: "wallet: no block height", ms: Date.now() - t0, detectedVersion };
+    return { up: true, reason: "height", height, blockTime: info.time ?? null, ms: Date.now() - t0, detectedVersion };
   } catch (e) {
-    return { up: false, reason: "wallet: " + e.message, ms: Date.now() - t0 };
+    return { up: false, reason: "wallet: " + e.message, ms: Date.now() - t0, detectedVersion };
   }
 }
 
@@ -326,7 +374,10 @@ export async function probe(url, cfg = CFG) {
       settled = true;
       clearTimeout(timer);
       socket.destroy();
-      resolve({ up, reason, ms: Date.now() - t0 });
+      // A code-less node has no apikey, so this is the only chance to read its
+      // version; the header rides in the same first packet as the status line
+      // often enough to be worth a look. Absent -> null, harmless.
+      resolve({ up, reason, ms: Date.now() - t0, detectedVersion: parseDojoVersion(got, cfg.dojoVersionHeader) });
     };
     const timer = setTimeout(() => finish(got.length > 0, got ? "partial" : "read-timeout"), cfg.timeoutMs);
 
@@ -451,6 +502,13 @@ async function main() {
     // down cycle so the card can still show where the node last was.
     if (typeof r.height === "number") n.block_height = r.height;
     else if (!("block_height" in n)) n.block_height = null;
+    // Same sticky rule for the version read from X-Dojo-Version: update it when
+    // this cycle saw one, otherwise leave the last known value in place. The
+    // effective card version (operator override > detected > pairing default)
+    // is computed by build-public.mjs, which carries this field across the
+    // reconcile rebuild that opens every cycle.
+    if (r.detectedVersion) n.detected_version = r.detectedVersion;
+    else if (!("detected_version" in n)) n.detected_version = null;
   });
   dojos.generated_at = ts.isoSec;
   dojos.interval_minutes = dojos.interval_minutes || 10;
@@ -532,6 +590,7 @@ async function main() {
           checked_at: ts.dateTime,
           block_height: typeof r.height === "number" ? r.height
             : (prevDoc.nodes?.[s.id]?.block_height ?? null),
+          detected_version: r.detectedVersion || (prevDoc.nodes?.[s.id]?.detected_version ?? null),
           checks,
         };
       });

@@ -9,7 +9,7 @@
 
 import net from "node:net";
 import assert from "node:assert";
-import { probe, fetchAvatar } from "./update.mjs";
+import { probe, fetchAvatar, parseDojoVersion, normaliseVersion } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -40,6 +40,17 @@ function mockProxy(mode) {
         if (stage === "tunnel") {
           // we just received the request; answer like a Dojo HTTP server
           if (mode === "http") sock.write("HTTP/1.0 401 Unauthorized\r\n\r\n");
+          if (mode === "http-version") sock.write("HTTP/1.0 200 OK\r\nX-Dojo-Version: 1.31.0\r\nContent-Length: 0\r\n\r\n");
+          if (mode === "dojo") {
+            const req = d.toString("latin1");
+            if (req.includes("/auth/login")) {
+              const body = JSON.stringify({ authorizations: { access_token: "tok" } });
+              sock.write(`HTTP/1.0 200 OK\r\nX-Dojo-Version: v1.30.0\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+            } else if (req.includes("/wallet")) {
+              const body = JSON.stringify({ info: { latest_block: { height: 840000, time: 123 } } });
+              sock.write(`HTTP/1.0 200 OK\r\nX-Dojo-Version: v1.30.0\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+            } else sock.write("HTTP/1.0 404 x\r\n\r\n");
+          }
           if (mode === "avatar") {
             const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("fakepixels")]);
             sock.write(Buffer.concat([Buffer.from("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\n\r\n", "latin1"), png]));
@@ -115,6 +126,34 @@ await check("connect succeeds, CONNECT_ONLY=1 -> up", async () => {
 await check("no proxy listening -> down", async () => {
   const r = await probe("http://whatever1234567.onion/v2", cfg(1)); // nothing on :1
   assert.equal(r.up, false, JSON.stringify(r));
+});
+
+await check("parseDojoVersion reads and normalises the X-Dojo-Version header", async () => {
+  const head = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nX-Dojo-Version: v1.28.0\r\n";
+  assert.equal(parseDojoVersion(head), "1.28.0");                       // leading v stripped
+  assert.equal(parseDojoVersion("x-dojo-version: 1.29.0-rc1\r\n"), "1.29.0-rc1"); // case-insensitive name, pre-release
+  assert.equal(parseDojoVersion("X-Dojo-Version: 1.5\r\nX-Dojo-Version: 9.9\r\n"), "1.5"); // first wins
+  assert.equal(parseDojoVersion("Server: nginx\r\n"), null);            // header absent
+  assert.equal(parseDojoVersion("X-Dojo-Version: not-a-version\r\n"), null); // junk rejected
+  assert.equal(normaliseVersion("v" + "9".repeat(40)), null);           // over-long rejected
+  assert.equal(parseDojoVersion("X-Dojo-Custom: 2.0\r\n", "x-dojo-custom"), "2.0"); // configurable name
+});
+
+await check("plain probe captures X-Dojo-Version when the node sends it", async () => {
+  await withProxy("http-version", async (port) => {
+    const r = await probe("http://versionnode0000.onion/v2", cfg(port));
+    assert.equal(r.up, true, JSON.stringify(r));
+    assert.equal(r.detectedVersion, "1.31.0", JSON.stringify(r));
+  });
+});
+
+await check("authenticated probe reads chain tip and X-Dojo-Version", async () => {
+  await withProxy("dojo", async (port) => {
+    const r = await probe("http://dojonode0000000.onion/v2", cfg(port, { apikey: "k", network: "mainnet" }));
+    assert.equal(r.up, true, JSON.stringify(r));
+    assert.equal(r.height, 840000, JSON.stringify(r));
+    assert.equal(r.detectedVersion, "1.30.0", JSON.stringify(r));
+  });
 });
 
 await check("avatar fetched over the (mock) Tor proxy and written as verified PNG", async () => {

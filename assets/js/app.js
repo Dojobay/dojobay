@@ -439,7 +439,7 @@ async function loadJSON(url){
     return `<div class="medit">
       <label>Name <input class="e-name" maxlength="40" value="${esc(r.name||"")}"></label>
       <label>Hardware <input class="e-hw" maxlength="120" value="${esc(r.hardware||"")}"></label>
-      <label>Dojo version <input class="e-ver" maxlength="24" value="${esc(ver)}" placeholder="e.g. 1.27.0"></label>
+      <div class="e-ver-note" style="font-size:12px;color:var(--muted)">Dojo version is read live from the node (${esc(ver?("v"+ver):"detected on next probe")}) and can't be edited here.</div>
       <label>Link (optional; the card title links here) <input class="e-url" maxlength="200" value="${esc(r.name_url||"")}" placeholder="https://…"></label>
       <div class="medit-actions">
         <button class="copybtn" data-${actPrefix}="editsave" data-id="${esc(r.id)}">Save</button>
@@ -521,7 +521,6 @@ async function loadJSON(url){
         id:m.getAttribute("data-id"),
         name:box.querySelector(".e-name").value,
         hardware:box.querySelector(".e-hw").value,
-        version:box.querySelector(".e-ver").value,
         name_url:box.querySelector(".e-url").value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
@@ -736,7 +735,6 @@ async function loadJSON(url){
         id:b.getAttribute("data-id"),
         name:box.querySelector(".e-name").value,
         hardware:box.querySelector(".e-hw").value,
-        version:box.querySelector(".e-ver").value,
         name_url:box.querySelector(".e-url").value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }

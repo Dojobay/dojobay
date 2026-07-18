@@ -41,6 +41,21 @@ export function displayPaymentCode(sub, mapping) {
   return (legacy && legacy.code) || codes[0];
 }
 
+// The version shown on a card is derived entirely from the node's API, never
+// set by an operator. In priority order:
+//   1. the version the updater last read live from the node's X-Dojo-Version
+//      response header (detected_version, carried in dojos.json),
+//   2. the version in the pairing payload, used only as a bootstrap fallback
+//      until the first probe reads a live header (and for older nodes that do
+//      not emit the header). It is itself an API value, captured from the
+//      Dojo's pairing output at submission time.
+// There is deliberately no operator override: the version always reflects what
+// the node reports. To show nothing until a live header is read, drop the
+// pairing fallback.
+export function effectiveVersion(detected, pairing) {
+  return detected || pairing || null;
+}
+
 function toPublicNode(sub, paymentCode) {
   return {
     id: sub.id,
@@ -53,9 +68,10 @@ function toPublicNode(sub, paymentCode) {
     jurisdiction: sub.jurisdiction || null,
     country: sub.country || null,
     hardware: sub.hardware || null,
-    // `version` is an operator-editable override; the wallet pairing payload's
-    // version remains the default and is untouched by edits.
-    version: sub.version || sub.payload?.pairing?.version || null,
+    // Initial version is the pairing-payload fallback; rebuild() recomputes it
+    // via effectiveVersion once the live-detected value is known.
+    version: sub.payload?.pairing?.version || null,
+    detected_version: null,
     checked_at: null,
     payload: sub.payload,
     signed: sub.signed || null,
@@ -140,6 +156,12 @@ export async function rebuild() {
   for (const n of approved) byId.set(n.id, n);
   const nodes = [...byId.values()];
 
+  // Per-id pairing version, the bootstrap fallback used until a live version is
+  // detected. The card version is never operator-set (see effectiveVersion).
+  const pairingById = new Map();
+  for (const n of (seed.nodes || [])) pairingById.set(n.id, n.payload?.pairing?.version || null);
+  for (const s of approvedSubs) pairingById.set(s.id, s.payload?.pairing?.version || null);
+
   // Carry over the live status the updater last wrote, so a rebuild does not
   // blank a node for a probe cycle.
   const prior = await readJSON(OUT, { nodes: [] });
@@ -149,16 +171,23 @@ export async function rebuild() {
   const pending = await readJSON(PENDING_PROBE, { nodes: {} });
   for (const n of nodes) {
     const p = priorById.get(n.id);
+    const pr = (!p && approvedIds.has(n.id)) ? pending.nodes?.[n.id] : null;
     if (p) {
       n.status = p.status ?? n.status;
       n.checked_at = p.checked_at ?? n.checked_at;
       if (p.block_height != null) n.block_height = p.block_height;
-    } else if (approvedIds.has(n.id) && pending.nodes?.[n.id]) {
-      const pr = pending.nodes[n.id];
+    } else if (pr) {
       n.status = pr.status ?? n.status;
       n.checked_at = pr.checked_at ?? n.checked_at;
       if (pr.block_height != null) n.block_height = pr.block_height;
     }
+    // Carry the live-detected version (prior snapshot, then a just-approved
+    // node's pending probe) and fold it into the effective card version. The
+    // updater writes detected_version each cycle; a rebuild must preserve it,
+    // exactly as it preserves status and block height.
+    const detected = (p && p.detected_version) || (pr && pr.detected_version) || null;
+    n.detected_version = detected;
+    n.version = effectiveVersion(detected, pairingById.get(n.id));
   }
 
   await writeAtomic(OUT, {

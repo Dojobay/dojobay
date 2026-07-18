@@ -94,15 +94,18 @@ idempotence) and the export endpoint.
 **Updater** — `node scripts/selftest.mjs`. Offline checks of the
 reachability-detection logic against mock sockets.
 
-**Front end** — a JSDom harness (not committed; see the recipe below) that
-boots `assets/js/app.js` with stubbed fetch and asserts rendering behaviour:
+**Front end** — `scripts/e2e-harness.mjs`, a JSDom harness that boots
+`assets/js/app.js` with stubbed fetch and asserts rendering behaviour:
 card titles and ordering, the payment-code chip, build-hash persistence
 across re-renders, the mobile menu, Manage-panel ordering and the inline
-editor.
+editor (name, hardware and link only — the Dojo version is read live from
+the node by the updater and is not editable). The harness is committed;
+its single dependency (jsdom) is side-installed once and never added to a
+package.json, so the front end and `scripts/` stay dependency-free:
 
 ```
 mkdir -p /tmp/e2e && cd /tmp/e2e && npm init -y && npm install jsdom
-NODE_PATH=/tmp/e2e/node_modules node harness.mjs
+cd <repo> && node scripts/e2e-harness.mjs
 ```
 
 One invariant applies to every test run: the instance-owned files must be

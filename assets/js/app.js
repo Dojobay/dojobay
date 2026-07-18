@@ -110,9 +110,17 @@ async function loadJSON(url){
     }).join("");
     const closes = view.filter(d=>d.close!=null).map(d=>d.close);
     const latest = closes.length?closes[closes.length-1]:null;
+    // Day-count reliability: a day counts as up when at least half of its
+    // probe checks succeeded (pct >= 50); the percentage is derived from the
+    // same ratio so the two figures always agree, e.g. "94.4% · 68/72 days".
+    const withData = view.filter(d=>d.pct!=null);
+    const upDays = withData.filter(d=>Number(d.pct)>=50).length;
+    const relTxt = withData.length
+      ? (p=>`${p%1===0?p:p.toFixed(1)}% · ${upDays}/${withData.length} days`)(100*upDays/withData.length)
+      : `${view.length} day${view.length>1?"s":""}`;
     if(body) body.innerHTML =
       `<div class="d90strip">${bars}</div>`+
-      `<div class="d90foot"><span class="faint">${view.length} day${view.length>1?"s":""}</span>`+
+      `<div class="d90foot"><span class="faint" title="days with at least half of their checks up, of days with data">${relTxt}</span>`+
       (latest!=null?`<span class="faint">closing height ${Number(latest).toLocaleString("en-GB")}</span>`:"")+`</div>`+
       heightSparkline(view);
   }

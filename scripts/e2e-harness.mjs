@@ -140,12 +140,16 @@ assert.ok(doc.getElementById("m-name"), "node name input present in the form");
 console.log("  ok - submission form has the node-name field");
 
 
-// 90-day strip lives on the card, under the 24h strip, hydrated after render
+// 90-day strip lives on the card, under the 24h strip, hydrated after render,
+// with a day-count reliability stat ("pct% · up/total days", up = day pct>=50)
 const yellowCard = doc.querySelector('.card[data-id="mainnet-91xtx93-yellow"]');
 const rel = yellowCard.querySelector(".rel"), h90 = yellowCard.querySelector(".hist90");
 assert.ok(rel && h90 && (rel.compareDocumentPosition(h90) & 4), "hist90 rendered on the card after the 24h strip");
 assert.ok(h90.querySelectorAll(".d90").length === 2, "hist90 hydrated with daily bars, got " + h90.querySelectorAll(".d90").length);
-console.log("  ok - 90-day strip on the card below the 24h reliability strip, hydrated");
+assert.ok(/100% · 2\/2 days/.test(h90.querySelector(".d90foot").textContent), "hist90 stat line, got: " + h90.querySelector(".d90foot").textContent);
+const deadFoot = doc.querySelector('.card[data-id="mainnet-deadnode"] .hist90 .d90foot');
+assert.ok(deadFoot && /0% · 0\/7 days/.test(deadFoot.textContent), "dead node reads 0% · 0/7 days, got: " + (deadFoot && deadFoot.textContent));
+console.log("  ok - 90-day strip on the card, hydrated, with pct · up/total day stat");
 
 // hamburger: state-driven toggle
 assert.ok(doc.querySelector(".burger"), "burger button rendered");

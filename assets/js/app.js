@@ -51,14 +51,23 @@ async function loadJSON(url){
   const SRC_ICON = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 7.2v9.6M18 11.2c0 3.2-2.6 4.3-5.6 4.3H10"/></svg>`;
   const GH_LOGO = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.2 3.44 9.6 8.21 11.16.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.58-4.04-1.58-.55-1.36-1.34-1.73-1.34-1.73-1.09-.73.08-.72.08-.72 1.2.08 1.84 1.21 1.84 1.21 1.07 1.79 2.81 1.27 3.5.97.11-.76.42-1.27.76-1.56-2.67-.3-5.47-1.31-5.47-5.84 0-1.29.47-2.34 1.24-3.17-.12-.3-.54-1.52.12-3.16 0 0 1.01-.32 3.3 1.21.96-.26 1.98-.39 3-.4 1.02.01 2.04.14 3 .4 2.29-1.53 3.3-1.21 3.3-1.21.66 1.64.24 2.86.12 3.16.77.83 1.24 1.88 1.24 3.17 0 4.54-2.81 5.54-5.49 5.83.43.36.81 1.09.81 2.2 0 1.59-.01 2.87-.01 3.26 0 .31.21.68.83.56C20.56 21.88 24 17.48 24 12.29 24 5.78 18.63.5 12 .5z"/></svg>`;
 
+  // Header/hero brand mark. Same torii as favicon.svg and the PWA icons, minus
+  // the rounded background chip (it sits on the page, not on a tile) and themed
+  // via the accent variables. viewBox frames the shared artwork paths.
   const LOGO = `
-  <svg width="34" height="34" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path d="M6 13 Q24 9 42 13 L42 16 Q24 12.5 6 16 Z" fill="var(--accent)"/>
-    <rect x="10" y="19.5" width="28" height="3.2" rx="1" fill="var(--accent)"/>
-    <path d="M14 16 L16 30 L13 30 L11.5 16 Z" fill="var(--accent)"/>
-    <path d="M34 16 L32 30 L35 30 L36.5 16 Z" fill="var(--accent)"/>
-    <path d="M7 36 q4.5 -3 9 0 t9 0 t9 0 t9 0" stroke="var(--accent-2)" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.95"/>
-    <path d="M7 41 q4.5 -3 9 0 t9 0 t9 0 t9 0" stroke="var(--accent-2)" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <svg width="34" height="34" viewBox="34 89.5 252 252" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <g fill="var(--accent)">
+      <path d="M40 96 Q160 112 280 96 L280 116 Q160 132 40 116 Z"/>
+      <path d="M154 116 H166 V124 H154 Z"/>
+      <path d="M74 124 H246 V144 H74 Z"/>
+      <path d="M104 126 H124 L118 250 H98 Z"/>
+      <path d="M196 126 H216 L222 250 H202 Z"/>
+    </g>
+    <g stroke="var(--accent-2)" stroke-width="14" stroke-linecap="round" fill="none">
+      <path d="M50 272 q13.75 -13 27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0"/>
+      <path d="M50 300 q13.75 -13 27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0" opacity="0.72"/>
+      <path d="M50 328 q13.75 -13 27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0 t27.5 0" opacity="0.48"/>
+    </g>
   </svg>`;
 
   const MODAL_META = {

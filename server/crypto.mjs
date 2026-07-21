@@ -53,31 +53,45 @@ export function notificationAddress(paymentCode, network = "bitcoin") {
 // verify() the paymentcode.io lab uses.
 //
 // The signed message format Samourai/Ashigaru export wraps the payload between
-// BEGIN/END markers with a BIP47 payment code and a signature block. We accept
-// either a raw {message, address, signature} triple or that wrapped text and
-// pull the fields out of it.
+// BEGIN/END markers. CRITICAL, verified against a real wallet export: the text
+// the wallet signs is EVERYTHING between the markers, i.e. the pairing JSON
+// PLUS the trailing "BIP47:" line and payment code (no trailing newline). An
+// earlier revision excised the BIP47 tail before verifying, which made every
+// genuine wallet signature fail as "invalid signature"; the selftest did not
+// catch it because it constructed its own blocks under the same assumption.
+// Because the BIP47 line is inside the signed text, the payment code is
+// covered by the signature and can itself be verified against the signing
+// address (see verifySignedPayload).
 export function parseSignedBlock(text) {
   if (!text || typeof text !== "string") return null;
   const t = text.replace(/\r\n/g, "\n");
-  // wrapped "-----BEGIN BITCOIN SIGNED MESSAGE-----" form
-  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----\n([\s\S]*?)\n(?:BIP47:|-----BEGIN BITCOIN SIGNATURE)/);
+  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
   const addrM = t.match(/Address:\s*(\S+)/);
   const sigM = t.match(/\n([A-Za-z0-9+/=]{80,})\n-----END BITCOIN SIGNATURE/);
-  if (msgM && addrM && sigM) {
-    return { message: msgM[1].trim(), address: addrM[1].trim(), signature: sigM[1].trim() };
-  }
-  return null;
+  if (!msgM || !addrM || !sigM) return null;
+  const message = msgM[1].trim();                       // the full signed text
+  const tail = message.match(/^([\s\S]*?)\n\s*BIP47:\s*\n?(\S+)$/);
+  return {
+    message,                                            // what the signature covers
+    pairingText: tail ? tail[1].trim() : message,       // the pairing JSON alone
+    paymentCode: tail ? tail[2] : null,                 // code inside the signed text
+    address: addrM[1].trim(),
+    signature: sigM[1].trim(),
+  };
 }
 
-// Verify that `signedText` is a valid signature, by the expected notification
-// address, over `expectedMessage` (the canonical pairing JSON string).
+// Verify a signed pairing block. Checks, in order, with distinct errors:
+//   1. the block parses at all;
+//   2. the pairing JSON inside it matches the payload being submitted;
+//   3. the signature is cryptographically valid over the FULL signed text;
+//   4. (signature now known valid) the BIP47 payment code inside the signed
+//      text is a valid code whose notification address IS the signing address;
+//   5. the signing address matches the authenticated payment code's
+//      notification address (the session binding the API supplies).
 export function verifySignedPayload({ signedText, expectedMessage, expectedAddress, network = "bitcoin" }) {
   const parsed = parseSignedBlock(signedText);
   if (!parsed) return { ok: false, error: "unrecognised signed message format" };
-  if (expectedAddress && parsed.address !== expectedAddress) {
-    return { ok: false, error: "signed by a different address than the authenticated payment code" };
-  }
-  if (expectedMessage != null && parsed.message.trim() !== String(expectedMessage).trim()) {
+  if (expectedMessage != null && parsed.pairingText !== String(expectedMessage).trim()) {
     return { ok: false, error: "signed message does not match the submitted pairing code" };
   }
   const net = bip47utils.networks[network];
@@ -87,7 +101,19 @@ export function verifySignedPayload({ signedText, expectedMessage, expectedAddre
   } catch (e) {
     return { ok: false, error: "signature could not be verified (" + e.message + ")" };
   }
-  return verified ? { ok: true, address: parsed.address } : { ok: false, error: "invalid signature" };
+  if (!verified) return { ok: false, error: "invalid signature" };
+  if (parsed.paymentCode) {
+    let derived;
+    try { derived = notificationAddress(parsed.paymentCode, network); }
+    catch { return { ok: false, error: "signature is valid, but the BIP47 line inside the signed message is not a valid payment code" }; }
+    if (derived !== parsed.address) {
+      return { ok: false, error: "signature is valid, but the signing address is not the notification address of the payment code inside the message" };
+    }
+  }
+  if (expectedAddress && parsed.address !== expectedAddress) {
+    return { ok: false, error: "signed by a different address than the authenticated payment code" };
+  }
+  return { ok: true, address: parsed.address, paymentCode: parsed.paymentCode };
 }
 
 // ---- operator binding (data/operator.json) ----------------------------------

@@ -107,17 +107,72 @@ const payload = {
   explorer: { type: "explorer.btc_rpc_explorer", url: "http://eaa3qxan44q2rksr23nferh5ntxsqcdcdkjmotlyo7h56widf4y3yiqd.onion" },
 };
 const canonical = JSON.stringify({ pairing: payload.pairing, explorer: payload.explorer });
-const sigLine = Buffer.from(msg.sign(canonical, priv, true, net47.messagePrefix)).toString("base64");
-const signedBlock =
-  `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${canonical}\nBIP47:\n${paymentCode}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n${sigLine}\n-----END BITCOIN SIGNATURE-----`;
+// Real wallet exports sign the pairing JSON PLUS the BIP47 line and code (the
+// full text between the markers, no trailing newline), verified against a
+// genuine Samourai export. Construct blocks exactly that way.
+const signedTextOf = (json, code) => `${json}\n\nBIP47:\n${code}`;
+const blockOf = (msgText, addr, sig) =>
+  `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${msgText}\n-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: ${addr}\n\n${sig}\n-----END BITCOIN SIGNATURE-----`;
+const signedText = signedTextOf(canonical, paymentCode);
+const sigLine = Buffer.from(msg.sign(signedText, priv, true, net47.messagePrefix)).toString("base64");
+const signedBlock = blockOf(signedText, notifAddr, sigLine);
 const create = await api("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", jurisdiction: "Europe", hardware: "N100 16GB", payload, signed: signedBlock });
 ok(create.status === 200 && create.body.submission.status === "pending", "valid submission accepted, pending review");
 
-// 4) tampered signed payload is rejected by the signature gate
+// 4) signature gate failure modes, each with its own distinct error.
 {
   const badSigned = signedBlock.replace(notifAddr, "1BitcoinEaterAddressDontSendf59kuE");
   const r = await api("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", payload, signed: badSigned });
   ok(r.status === 400 && /signature gate/.test(r.body.error), "wrong-address signed payload rejected");
+
+  const { verifySignedPayload } = await import("./crypto.mjs");
+  // Regression for the truncated-message bug: a signature covering ONLY the
+  // pairing JSON (the old, wrong assumption) presented in a block that prints
+  // the BIP47 lines must be refused, because the wallet signs the full text.
+  const jsonOnlySig = Buffer.from(msg.sign(canonical, priv, true, net47.messagePrefix)).toString("base64");
+  const oldStyle = verifySignedPayload({ signedText: blockOf(signedText, notifAddr, jsonOnlySig), expectedMessage: canonical, expectedAddress: notifAddr });
+  const corrupted = verifySignedPayload({ signedText: signedBlock.replace(sigLine, sigLine.replace(/^./, (c) => c === "H" ? "I" : "H")), expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(!oldStyle.ok && oldStyle.error === "invalid signature" && !corrupted.ok && /invalid signature|could not be verified/.test(corrupted.error),
+     "invalid signatures (truncated-coverage and corrupted) report 'invalid signature'");
+
+  // Valid signature, but the BIP47 code inside the signed text does not derive
+  // the signing address: sign a text carrying a DIFFERENT (valid) code.
+  const other = bip47.fromSeed(mnemonicToSeedSync("legal winner thank year wave sausage worth useful legal winner thank yellow"));
+  const otherCode = other.toBase58();
+  const mixedText = signedTextOf(canonical, otherCode);
+  const mixedSig = Buffer.from(msg.sign(mixedText, priv, true, net47.messagePrefix)).toString("base64");
+  const mixed = verifySignedPayload({ signedText: blockOf(mixedText, notifAddr, mixedSig), expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(!mixed.ok && /valid, but the signing address is not the notification address/.test(mixed.error),
+     "valid signature over a mismatched payment code reports the derivation failure, not 'invalid signature'");
+
+  // Valid signature, garbage where the payment code should be.
+  const junkText = signedTextOf(canonical, "PM8TJnotacode");
+  const junkSig = Buffer.from(msg.sign(junkText, priv, true, net47.messagePrefix)).toString("base64");
+  const junk = verifySignedPayload({ signedText: blockOf(junkText, notifAddr, junkSig), expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(!junk.ok && /not a valid payment code/.test(junk.error),
+     "valid signature over an undecodable BIP47 line reports the invalid code");
+
+  // Ground truth: a GENUINE wallet export (the maxtannahill node; the apikey
+  // is public). This pins the real signed-text format independently of the
+  // blocks this suite constructs for itself, which is exactly how the
+  // truncated-message bug evaded the previous version of these tests.
+  const realBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----
+{"pairing":{"type":"dojo.api","version":"1.27.0","apikey":"jaf8fQuGD3QBWLjso6BqU4GEFZ8rW77hXGJfpXNq","url":"http://rwijn27ypfktrhsyrfnob66sjdgpyw6cvlk3ijzyzpj6w36emyk5x5ad.onion/v2"},"explorer":{"type":"explorer.btc_rpc_explorer","url":"http://mempoolhqx4isw62xs7abwphsq7ldayuidyx2v2oethdhhj6mlo2r6ad.onion"}}
+
+BIP47:
+PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9
+-----BEGIN BITCOIN SIGNATURE-----
+Version: Bitcoin-qt (1.0)
+Address: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB
+
+H6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLqipPb0fM=
+-----END BITCOIN SIGNATURE-----`;
+  const { parseSignedBlock, notificationAddress: notifOf } = await import("./crypto.mjs");
+  const rp = parseSignedBlock(realBlock);
+  const real = verifySignedPayload({ signedText: realBlock, expectedMessage: rp.pairingText, expectedAddress: notifOf(rp.paymentCode) });
+  ok(real.ok && rp.message === rp.pairingText + "\n\nBIP47:\n" + rp.paymentCode
+     && notifOf(rp.paymentCode) === rp.address,
+     "a genuine wallet export verifies: the signature covers json + BIP47 line + code");
 }
 
 // 5) connection gate: point the probe at a proxy that reports the onion down.

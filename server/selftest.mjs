@@ -508,6 +508,23 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(vOk.ok && !vWrongOnion.ok && !vTampered.ok,
      "operator binding: valid signature accepted; wrong onion and tampered message refused");
 
+  // A terminal that swallows the newline after the BEGIN marker must not break
+  // an otherwise valid binding: that newline is not part of the signed text.
+  const eaten = opBlock.replace("MESSAGE-----\n", "MESSAGE-----");
+  ok(verifyOperatorDoc({ ...opDoc, verifySigned: eaten }, { expectedOnion: `http://${onionHost}` }).ok,
+     "operator binding survives a paste that lost the newline after the BEGIN marker");
+
+  // A truncated paste must say so rather than blaming the wallet, and a
+  // signature from the wrong account must name both addresses.
+  const truncated = verifyOperatorDoc({ ...opDoc, verifySigned: opBlock.split("\n").slice(0, 3).join("\n") });
+  const otherAcct = bip47.fromSeed(mnemonicToSeedSync("legal winner thank year wave sausage worth useful legal winner thank yellow"));
+  const wrongSig = Buffer.from(msg.sign(opMessage, otherAcct.getNotificationPrivateKey(), true, net47.messagePrefix)).toString("base64");
+  const wrongSigner = verifyOperatorDoc({ ...opDoc,
+    verifySigned: `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${opMessage}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${otherAcct.getNotificationAddress()}\n\n${wrongSig}\n-----END BITCOIN SIGNATURE-----` });
+  ok(/truncated/.test(truncated.error)
+     && wrongSigner.error.includes(otherAcct.getNotificationAddress()) && wrongSigner.error.includes(notifAddr),
+     "truncated paste and wrong-signer errors are diagnosable (names what is missing / both addresses)");
+
   const remoteNodes = {
     nodes: [
       { id: "mainnet-selftest-node", network: "mainnet", name: "selftest-node",

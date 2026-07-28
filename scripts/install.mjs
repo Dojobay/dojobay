@@ -128,8 +128,11 @@ async function main() {
   let opDoc;
   for (;;) {
     const block = await ui.paste("Signed block", {
-      note: "Sign this EXACT text in your wallet (Tools → Sign message):\n\n"
+      note: "Sign this EXACT text in your wallet under PayNym → Sign message:\n\n"
         + message.split("\n").map((l) => "    " + l).join("\n")
+        + "\n\nIt must be signed under PayNym → Sign message, which uses your"
+        + "\nPayNym's notification address. Tools → Sign message signs with a"
+        + "\nwallet address instead and will not verify."
         + "\n\nThen paste the full signed block below.",
     });
     opDoc = operatorDoc(onionHost, paymentCode, block.trim());

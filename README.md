@@ -138,7 +138,9 @@ The manual steps below do the same by hand, and assume the site lives at
    each entry would move into the operator-managed store.
 
 6. **Prove you operate the site** (required). Sign this exact text with your
-   wallet (Tools → Sign message) — your onion URL, a blank line, then
+   wallet under **PayNym → Sign message**, which signs with your PayNym's
+   notification address (Tools → Sign message will not verify) — your onion
+   URL, a blank line, then
    `BIP47: <your payment code>` — and place the result in
    `data/operator.json` as `{ "onion", "paymentCode", "verifySigned" }`. The
    footer's **Verify** popup lets visitors check the signature against your

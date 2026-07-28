@@ -78,6 +78,32 @@ export function anchorSeed({ network, name, paymentCode, paynym, payload, jurisd
 export const operatorDoc = (onionHost, paymentCode, verifySigned) =>
   ({ onion: `http://${onionHost}/`, paymentCode, verifySigned });
 
+// Collect a multiline paste from a readline interface, terminated by a line
+// containing only `endWord`.
+//
+// CRITICAL: this MUST be a "line" listener, not a loop of rl.question(). A
+// paste arrives as one or a few chunks, and readline emits a "line" event for
+// every line in a chunk synchronously. A one-shot question consumes only the
+// first of them; every other line in that chunk is emitted with nothing
+// listening and is silently DROPPED. That is exactly what broke the installer's
+// operator-signature step: the block came back missing lines, failed to parse,
+// and reported "not a recognisable signed block" even though the operator had
+// pasted a perfectly good signature. Attach the listener BEFORE prompting, so
+// nothing can arrive unlistened.
+export function collectPasteFrom(rl, endWord = "END") {
+  return new Promise((resolve) => {
+    const lines = [];
+    const cleanup = () => { rl.off("line", onLine); rl.off("close", onClose); };
+    const onLine = (l) => {
+      if (l.trim() === endWord) { cleanup(); resolve(lines.join("\n")); return; }
+      lines.push(l);
+    };
+    const onClose = () => { cleanup(); resolve(lines.join("\n")); };
+    rl.on("line", onLine);
+    rl.on("close", onClose);
+  });
+}
+
 // ---- terminal theme ---------------------------------------------------------
 const TTY = process.stdout.isTTY && !process.env.NO_COLOR;
 export const red = (s) => (TTY ? `\x1b[38;5;160m${s}\x1b[0m` : s);

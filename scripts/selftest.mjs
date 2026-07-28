@@ -201,6 +201,33 @@ await check("source zip packs the codebase and never the instance's own data", a
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+await check("installer paste collector keeps every line of a one-chunk paste", async () => {
+  const { collectPasteFrom } = await import("./installer-lib.mjs");
+  const { createInterface } = await import("node:readline");
+  const { Readable } = await import("node:stream");
+  // A real paste arrives as one chunk, and readline then emits every line
+  // synchronously. The previous rl.question() loop captured only the first
+  // line of each chunk and silently dropped the rest, which produced blocks
+  // that failed to parse ("not a recognisable signed block") even though the
+  // operator had pasted a valid signature.
+  const block = [
+    "-----BEGIN BITCOIN SIGNED MESSAGE-----",
+    "http://" + "a".repeat(56) + ".onion/",
+    "",
+    "BIP47: PM8T" + "1".repeat(112),
+    "-----BEGIN BITCOIN SIGNATURE-----",
+    "Version: Bitcoin-qt (1.0)",
+    "Address: 1BitcoinEaterAddressDontSendf59kuE",
+    "",
+    "H" + "A".repeat(86) + "=",
+    "-----END BITCOIN SIGNATURE-----",
+  ].join("\n");
+  const rl = createInterface({ input: Readable.from([block + "\nEND\n"]), terminal: false });
+  const got = await collectPasteFrom(rl, "END");
+  assert.equal(got, block, "collector must return the block verbatim, losing no lines");
+  assert.equal(got.split("\n").length, 10, "all ten lines captured");
+});
+
 await check("installer library: validators, torrc idempotence, unit rendering", async () => {
   const lib = await import("./installer-lib.mjs");
   assert.ok(lib.isPaymentCode("PM8T" + "1".repeat(112)));

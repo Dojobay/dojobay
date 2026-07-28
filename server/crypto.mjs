@@ -133,10 +133,23 @@ export function verifyOperatorDoc(doc, { expectedOnion } = {}) {
   if (!doc.paymentCode) return { ok: false, error: "operator.json has no paymentCode" };
   if (!doc.verifySigned) return { ok: false, error: "operator.json has no verifySigned block" };
   const t = String(doc.verifySigned).replace(/\r\n/g, "\n");
-  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
+  // The newline after the BEGIN marker is optional: some terminals swallow it
+  // when a block is pasted. It is not part of the signed text either way, so
+  // tolerating it recovers the correct message rather than changing it.
+  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----[ \t]*\n?([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
   const addrM = t.match(/Address:\s*(\S+)/);
-  const sigM = t.match(/\n([A-Za-z0-9+\/=]{80,})\n-----END BITCOIN SIGNATURE/);
-  if (!msgM || !addrM || !sigM) return { ok: false, error: "verifySigned is not a recognisable signed block" };
+  const sigM = t.match(/\n([A-Za-z0-9+\/=]{80,})\n*-----END BITCOIN SIGNATURE/);
+  if (!msgM || !addrM || !sigM) {
+    // Name what is missing: a truncated or line-dropped paste is by far the
+    // most common cause, and "not recognisable" alone sends people hunting
+    // for a problem with their wallet instead of re-pasting.
+    const missing = [
+      !msgM && "the BEGIN BITCOIN SIGNED MESSAGE section",
+      !addrM && "the Address: line",
+      !sigM && "the signature line before END BITCOIN SIGNATURE",
+    ].filter(Boolean).join(", ");
+    return { ok: false, error: `verifySigned is not a recognisable signed block (missing ${missing}) — the paste may have been truncated; paste the whole block again` };
+  }
   const signedMessage = msgM[1].replace(/\n+$/, "");
   const norm = (u) => String(u || "").trim().replace(/\/+$/, "");
   const firstLine = signedMessage.split("\n")[0].trim();
@@ -150,7 +163,10 @@ export function verifyOperatorDoc(doc, { expectedOnion } = {}) {
   }
   const expectedAddr = notificationAddress(doc.paymentCode);
   if (addrM[1].trim() !== expectedAddr) {
-    return { ok: false, error: "signed by a different address than the payment code's notification address" };
+    // Naming both addresses matters: the usual cause is signing from a
+    // different account than the payment code entered, and the operator can
+    // only spot that if they can see which address their wallet actually used.
+    return { ok: false, error: `signed by ${addrM[1].trim()}, but the payment code's notification address is ${expectedAddr} — sign under PayNym → Sign message, which uses your PayNym's notification address` };
   }
   const net = bip47utils.networks.bitcoin;
   try {

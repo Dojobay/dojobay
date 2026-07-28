@@ -3,7 +3,7 @@
 // flow (kept for dumb terminals, tiny windows, and --plain) stay behaviourally
 // identical. Node builtins only.
 import { createInterface } from "node:readline/promises";
-import { red, dim, bold, ok as okc, bad, banner } from "./installer-lib.mjs";
+import { red, dim, bold, ok as okc, bad, banner, collectPasteFrom } from "./installer-lib.mjs";
 import { makeScreen } from "./tui.mjs";
 
 // interface:
@@ -55,13 +55,10 @@ export function sequentialUI() {
     },
     async paste(label, { note, endWord = "END" } = {}) {
       if (note) say(dim("   " + note.replace(/\n/g, "\n   ")));
+      // Listener attached before the prompt: a bulk paste must not lose lines.
+      const collected = collectPasteFrom(rl, endWord);
       say(red(" ▸ ") + label + dim(`  (paste, then a line with just ${endWord})`));
-      const lines = [];
-      for (;;) {
-        const l = await rl.question("");
-        if (l.trim() === endWord) return lines.join("\n");
-        lines.push(l);
-      }
+      return collected;
     },
     async confirm(q, dflt = true) {
       const v = (await rl.question(red(" ▸ ") + q + (dflt ? " [Y/n]: " : " [y/N]: "))).trim().toLowerCase();
@@ -99,13 +96,12 @@ export function tuiUI() {
         process.stdout.write("\n" + bold(stepTitle) + "\n");
         const merged = [noteBlock(), note].filter(Boolean).join("\n");
         if (merged) process.stdout.write(dim(merged.replace(/^/gm, "  ")) + "\n");
+        // Listener attached before the prompt: a bulk paste must not lose lines.
+        const collected = collectPasteFrom(rl, endWord);
         process.stdout.write(red(" ▸ ") + label + dim(`  (paste, then a line with just ${endWord})`) + "\n");
-        const lines = [];
-        for (;;) {
-          const l = await rl.question("");
-          if (l.trim() === endWord) { rl.close(); return lines.join("\n"); }
-          lines.push(l);
-        }
+        const text = await collected;
+        rl.close();
+        return text;
       });
     },
     async confirm(q, dflt = true) {

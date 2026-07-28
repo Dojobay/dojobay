@@ -180,7 +180,7 @@ async function loadJSON(url){
         ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
         ${(()=>{const iu=indexerUrl(n);return iu
           ?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`
-          :`<div class="ep"><span class="k">Electrum Server</span><span class="u na" title="This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0">N/A</span></div>`;})()}
+          :`<div class="ep"><span class="k">Electrum Server</span><span class="u na" title="This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0">N/A</span><button class="copybtn" disabled title="Nothing to copy: this node publishes no Electrum endpoint">copy</button></div>`;})()}
       </div>
       <button class="reveal" data-act="pair">Pairing details</button>
     </div>`;

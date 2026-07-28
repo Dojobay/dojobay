@@ -238,8 +238,16 @@ assert.strictEqual(window.__copied, "tcp://" + "i".repeat(56) + ".onion:50001", 
 const kRow = [...doc.querySelectorAll('.card[data-id="mainnet-kilombino"] .ep')].find((e) => /Electrum/.test(e.textContent));
 assert.ok(kRow, "a node with no endpoint still shows an Electrum row");
 assert.strictEqual(kRow.querySelector(".u").textContent.trim(), "N/A", "absent endpoint reads N/A");
-assert.ok(kRow.querySelector(".u").classList.contains("na") && !kRow.querySelector('[data-act="copyurl"]'), "N/A is styled as absent and offers nothing to copy");
-console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; Electrum copyable, N/A when absent");
+const kBtn = kRow.querySelector(".copybtn");
+assert.ok(kBtn && kBtn.disabled && !kBtn.getAttribute("data-act"),
+  "N/A row keeps a copy button for alignment, disabled and inert");
+window.__copied = null;
+kBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 20));
+assert.strictEqual(window.__copied, null, "clicking the disabled button copies nothing");
+assert.strictEqual(kRow.querySelectorAll(".u, .copybtn").length, elRow.querySelectorAll(".u, .copybtn").length,
+  "N/A row has the same columns as a populated endpoint row");
+console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; Electrum copyable, N/A row consistent");
 
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));

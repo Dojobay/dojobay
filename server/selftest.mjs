@@ -643,6 +643,41 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "an operator edit cannot override the live-detected version");
 }
 
+// 21) live-detected Electrum endpoint (/support/services): rebuild carries what
+//     the updater read and publishes it as indexer_url; a payload-declared URL
+//     is only the fallback, and a node that publishes none yields null so the
+//     card can show N/A.
+{
+  const { rebuild, effectiveIndexer, declaredIndexer } = await import("./build-public.mjs");
+  const id = "mainnet-selftest-node";
+  const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
+  const live = "tcp://" + "i".repeat(56) + ".onion:50001";
+  const declared = "ssl://" + "d".repeat(56) + ".onion:50002";
+
+  ok(effectiveIndexer(live, declared) === live
+     && effectiveIndexer(null, declared) === declared
+     && effectiveIndexer(null, null) === null,
+     "effectiveIndexer: the probed endpoint wins, a declared one is the fallback, null means N/A");
+
+  ok(declaredIndexer({ indexer: { url: declared } }) === declared
+     && declaredIndexer({ services: [{ type: "indexer", url: declared }] }) === declared
+     && declaredIndexer({ services: [{ type: "explorer", url: "http://x.onion" }] }) === null
+     && declaredIndexer({ indexer: { url: "http://" + "d".repeat(56) + ".onion:50002" } }) === null,
+     "declaredIndexer reads both payload shapes and rejects a non-tcp/ssl URL");
+
+  const snap = JSON.parse(await fsp.readFile(dojosPath, "utf8"));
+  snap.nodes.find((n) => n.id === id).detected_indexer = live;
+  await fsp.writeFile(dojosPath, JSON.stringify(snap, null, 2) + "\n");
+  await rebuild();
+  const n = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === id);
+  ok(n.detected_indexer === live && n.indexer_url === live,
+     "rebuild carries detected_indexer and publishes it as indexer_url");
+
+  const other = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id !== id);
+  ok(!other || other.indexer_url === null || typeof other.indexer_url === "string",
+     "nodes without a probed or declared endpoint publish null (card shows N/A)");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

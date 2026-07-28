@@ -220,6 +220,32 @@ export function parseDojoVersion(rawHead, headerName = CFG.dojoVersionHeader) {
   return null;
 }
 
+// ---- Electrum (indexer) endpoint from /support/services ---------------------
+// Dojo v1.27.0 added GET /support/services (ordinary apikey auth, not admin),
+// which returns { services: [ { type, kind, url }, … ] }. The "indexer" entry
+// is the node's Electrum server, published by the Dojo as
+// "<tcp|ssl>://<onion>:<port>" and present only when the operator exposes a
+// local indexer. Older Dojos have no such route, so absence is normal and is
+// reported as "not found" rather than an error.
+export function parseIndexerUrl(body) {
+  let doc;
+  try { doc = JSON.parse(body); } catch { return null; }
+  const list = Array.isArray(doc?.services) ? doc.services : null;
+  if (!list) return null;
+  const hit = list.find((s) => s && s.type === "indexer" && typeof s.url === "string");
+  return hit ? normaliseIndexerUrl(hit.url) : null;
+}
+
+// A listed node is only semi-trusted, so the URL is validated and length-capped
+// before it can reach a data file or be rendered as a copyable string. Same
+// shape the card already accepts: tcp/ssl, v3 onion, explicit port.
+export function normaliseIndexerUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const u = raw.trim();
+  if (!u || u.length > 120) return null;
+  return /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}$/i.test(u) ? u : null;
+}
+
 // ---- PayNym avatars ---------------------------------------------------------
 // Cards embed each node's PayNym avatar in the centre of its pairing QR. The
 // front end never fetches from third parties, so the avatar is mirrored here:
@@ -333,7 +359,22 @@ async function probeHeight(url, cfg) {
     const info = JSON.parse(res.body)?.info?.latest_block;
     const height = info?.height;
     if (typeof height !== "number") return { up: false, reason: "wallet: no block height", ms: Date.now() - t0, detectedVersion };
-    return { up: true, reason: "height", height, blockTime: info.time ?? null, ms: Date.now() - t0, detectedVersion };
+
+    // 3) services -> Electrum (indexer) endpoint. Best-effort and strictly
+    // additive: the node is already known up, so a missing route (pre-1.27.0),
+    // a node that exposes no indexer, or any error here must never downgrade
+    // the result. Absence simply means the card shows N/A.
+    let detectedIndexer = null;
+    try {
+      const sreq =
+        `GET ${base}/support/services HTTP/1.0\r\nHost: ${host}\r\n` +
+        `Authorization: Bearer ${token}\r\nUser-Agent: dojobay-checker\r\nConnection: close\r\n\r\n`;
+      const sres = await httpOverTor(cfg, host, port, sreq, cfg.timeoutMs);
+      detectedVersion = detectedVersion || parseDojoVersion(sres.rawHead, cfg.dojoVersionHeader);
+      if (sres.status === 200) detectedIndexer = parseIndexerUrl(sres.body);
+    } catch { /* leave null */ }
+
+    return { up: true, reason: "height", height, blockTime: info.time ?? null, ms: Date.now() - t0, detectedVersion, detectedIndexer };
   } catch (e) {
     return { up: false, reason: "wallet: " + e.message, ms: Date.now() - t0, detectedVersion };
   }
@@ -509,6 +550,12 @@ async function main() {
     // reconcile rebuild that opens every cycle.
     if (r.detectedVersion) n.detected_version = r.detectedVersion;
     else if (!("detected_version" in n)) n.detected_version = null;
+    // Same sticky rule for the Electrum endpoint read from /support/services:
+    // keep the last known value when a cycle didn't read one, so a node that is
+    // merely down for a cycle doesn't flip its card to N/A. build-public.mjs
+    // computes the published value and carries this field across the rebuild.
+    if (r.detectedIndexer) n.detected_indexer = r.detectedIndexer;
+    else if (!("detected_indexer" in n)) n.detected_indexer = null;
   });
   dojos.generated_at = ts.isoSec;
   dojos.interval_minutes = dojos.interval_minutes || 10;
@@ -591,6 +638,7 @@ async function main() {
           block_height: typeof r.height === "number" ? r.height
             : (prevDoc.nodes?.[s.id]?.block_height ?? null),
           detected_version: r.detectedVersion || (prevDoc.nodes?.[s.id]?.detected_version ?? null),
+          detected_indexer: r.detectedIndexer || (prevDoc.nodes?.[s.id]?.detected_indexer ?? null),
           checks,
         };
       });

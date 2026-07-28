@@ -81,14 +81,17 @@ async function loadJSON(url){
   // pattern as the Manage button and the build hash), never DOM-poked.
   let menuOpen=false;
 
-  // Electrum/indexer endpoint for the card: accept a flattened payload.indexer
-  // or pull the entry from a modern services[] array. tcp/ssl onion only.
+  // Electrum/indexer endpoint for the card. build-public.mjs publishes
+  // indexer_url (what the updater read from the node's /support/services, else
+  // whatever the pairing payload declared); the payload shapes are still read
+  // as a fallback so a stale dojos.json keeps working.
   function indexerUrl(n){
+    const ok = (u) => (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}(\/.*)?$/i.test(u)) ? u : null;
+    if(ok(n.indexer_url)) return n.indexer_url;
     const p = n.payload || {};
     let c = p.indexer;
     if((!c || !c.url) && Array.isArray(p.services)) c = p.services.find(s => s && s.type === "indexer");
-    const u = c && c.url;
-    return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}(\/.*)?$/i.test(u)) ? u : null;
+    return ok(c && c.url);
   }
 
   // ---- 90-day daily history (lazily fetched once, cached) -------------------
@@ -175,7 +178,9 @@ async function loadJSON(url){
       <div class="eps card-eps">
         <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
         ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
-        ${(()=>{const iu=indexerUrl(n);return iu?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`:"";})()}
+        ${(()=>{const iu=indexerUrl(n);return iu
+          ?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`
+          :`<div class="ep"><span class="k">Electrum Server</span><span class="u na" title="This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0">N/A</span></div>`;})()}
       </div>
       <button class="reveal" data-act="pair">Pairing details</button>
     </div>`;

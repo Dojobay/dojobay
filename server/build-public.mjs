@@ -56,6 +56,27 @@ export function effectiveVersion(detected, pairing) {
   return detected || pairing || null;
 }
 
+// The Electrum endpoint shown on a card, on the same principle as the version:
+// what the node reports about itself wins. The updater reads it from the Dojo's
+// /support/services each cycle (detected); a URL declared in the submitted
+// pairing payload is the fallback for nodes that have not been probed yet or
+// run a Dojo older than v1.27.0. Null means the card shows N/A, which is a
+// real answer (no exposed indexer) rather than an omission.
+export function effectiveIndexer(detected, declared) {
+  return detected || declared || null;
+}
+
+// The indexer URL a submission declares in its payload, if any: either a
+// flattened payload.indexer or an entry in a services[] array, matching what
+// the card accepted before endpoints were probed automatically.
+export function declaredIndexer(payload) {
+  const p = payload || {};
+  let c = p.indexer;
+  if ((!c || !c.url) && Array.isArray(p.services)) c = p.services.find((s) => s && s.type === "indexer");
+  const u = typeof c === "string" ? c : c && c.url;
+  return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}$/i.test(u.trim())) ? u.trim() : null;
+}
+
 function toPublicNode(sub, paymentCode) {
   return {
     id: sub.id,
@@ -72,6 +93,8 @@ function toPublicNode(sub, paymentCode) {
     // via effectiveVersion once the live-detected value is known.
     version: sub.payload?.pairing?.version || null,
     detected_version: null,
+    detected_indexer: null,
+    indexer_url: declaredIndexer(sub.payload),
     checked_at: null,
     payload: sub.payload,
     signed: sub.signed || null,
@@ -162,6 +185,11 @@ export async function rebuild() {
   for (const n of (seed.nodes || [])) pairingById.set(n.id, n.payload?.pairing?.version || null);
   for (const s of approvedSubs) pairingById.set(s.id, s.payload?.pairing?.version || null);
 
+  // Indexer URL declared in the payload, the fallback until a probe reads one.
+  const declaredIdxById = new Map();
+  for (const n of (seed.nodes || [])) declaredIdxById.set(n.id, declaredIndexer(n.payload));
+  for (const s of approvedSubs) declaredIdxById.set(s.id, declaredIndexer(s.payload));
+
   // Carry over the live status the updater last wrote, so a rebuild does not
   // blank a node for a probe cycle.
   const prior = await readJSON(OUT, { nodes: [] });
@@ -188,6 +216,11 @@ export async function rebuild() {
     const detected = (p && p.detected_version) || (pr && pr.detected_version) || null;
     n.detected_version = detected;
     n.version = effectiveVersion(detected, pairingById.get(n.id));
+    // Same treatment for the Electrum endpoint: carry what the updater read and
+    // publish it as indexer_url, which the card renders (N/A when null).
+    const detectedIdx = (p && p.detected_indexer) || (pr && pr.detected_indexer) || null;
+    n.detected_indexer = detectedIdx;
+    n.indexer_url = effectiveIndexer(detectedIdx, declaredIdxById.get(n.id));
   }
 
   await writeAtomic(OUT, {

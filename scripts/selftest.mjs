@@ -9,7 +9,7 @@
 
 import net from "node:net";
 import assert from "node:assert";
-import { probe, fetchAvatar, parseDojoVersion, normaliseVersion } from "./update.mjs";
+import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -49,6 +49,13 @@ function mockProxy(mode) {
             } else if (req.includes("/wallet")) {
               const body = JSON.stringify({ info: { latest_block: { height: 840000, time: 123 } } });
               sock.write(`HTTP/1.0 200 OK\r\nX-Dojo-Version: v1.30.0\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+            } else if (req.includes("/support/services")) {
+              const body = JSON.stringify({ services: [
+                { type: "explorer", kind: "btc_rpc_explorer", url: "http://" + "e".repeat(56) + ".onion" },
+                { type: "indexer", kind: "fulcrum", url: "tcp://" + "i".repeat(56) + ".onion:50001" },
+                { type: "soroban", kind: "rpc", url: "http://" + "s".repeat(56) + ".onion" },
+              ] });
+              sock.write(`HTTP/1.0 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
             } else sock.write("HTTP/1.0 404 x\r\n\r\n");
           }
           if (mode === "avatar") {
@@ -153,6 +160,32 @@ await check("authenticated probe reads chain tip and X-Dojo-Version", async () =
     assert.equal(r.up, true, JSON.stringify(r));
     assert.equal(r.height, 840000, JSON.stringify(r));
     assert.equal(r.detectedVersion, "1.30.0", JSON.stringify(r));
+  });
+});
+
+await check("parseIndexerUrl picks the indexer entry out of /support/services", async () => {
+  const onion = "i".repeat(56);
+  const doc = (services) => JSON.stringify({ services });
+  assert.equal(parseIndexerUrl(doc([
+    { type: "explorer", url: "http://" + "e".repeat(56) + ".onion" },
+    { type: "indexer", kind: "fulcrum", url: "tcp://" + onion + ".onion:50001" },
+  ])), "tcp://" + onion + ".onion:50001");                                  // picks indexer, not explorer
+  assert.equal(parseIndexerUrl(doc([{ type: "indexer", url: "ssl://" + onion + ".onion:50002" }])),
+    "ssl://" + onion + ".onion:50002");                                     // ssl accepted
+  assert.equal(parseIndexerUrl(doc([{ type: "explorer", url: "http://x.onion" }])), null); // no indexer -> null
+  assert.equal(parseIndexerUrl(doc([])), null);                             // node exposes nothing
+  assert.equal(parseIndexerUrl("not json"), null);                          // pre-1.27.0 route/HTML
+  assert.equal(parseIndexerUrl(doc([{ type: "indexer", url: "http://" + onion + ".onion:50001" }])), null); // wrong scheme
+  assert.equal(normaliseIndexerUrl("tcp://short.onion:50001"), null);       // not a v3 onion
+  assert.equal(normaliseIndexerUrl("tcp://" + onion + ".onion"), null);     // port required
+  assert.equal(normaliseIndexerUrl("  ssl://" + onion + ".onion:50002  "), "ssl://" + onion + ".onion:50002"); // trimmed
+});
+
+await check("authenticated probe captures the Electrum endpoint from /support/services", async () => {
+  await withProxy("dojo", async (port) => {
+    const r = await probe("http://dojonode0000000.onion/v2", cfg(port, { apikey: "k", network: "mainnet" }));
+    assert.equal(r.up, true, JSON.stringify(r));
+    assert.equal(r.detectedIndexer, "tcp://" + "i".repeat(56) + ".onion:50001", JSON.stringify(r));
   });
 });
 

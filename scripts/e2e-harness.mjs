@@ -33,6 +33,7 @@ const DOJOS = {
     { id: "mainnet-91xtx93-yellow", network: "mainnet", name: "yellow", paynym: "+91xTx93x3",
       paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
+      indexer_url: "tcp://" + "i".repeat(56) + ".onion:50001",
       payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "a".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-freshnode", network: "mainnet", name: "freshnode", paynym: "+fresh",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
@@ -220,7 +221,25 @@ assert.ok(eps && /Dojo API/.test(eps.textContent) && eps.textContent.includes("a
 const metaEl = yCard.querySelector(".meta");
 assert.ok(metaEl.compareDocumentPosition(eps) & 4, "endpoints sit below the meta (Last checked) block");
 assert.ok(!yCard.querySelector(".pair"), "no inline pairing section on the card");
-console.log("  ok - Dojo API/Explorer endpoints on the card below Last checked");
+
+// Electrum row: always present, below the other endpoints. A probed endpoint is
+// shown with a copy button carrying the exact TCP string; a node that publishes
+// none reads N/A with nothing to copy.
+const epRows = [...eps.querySelectorAll(".ep")].map((e) => e.querySelector(".k").textContent.trim());
+assert.strictEqual(epRows[epRows.length - 1], "Electrum Server", "Electrum is the last endpoint row: " + epRows.join(", "));
+const elRow = [...eps.querySelectorAll(".ep")].find((e) => /Electrum/.test(e.textContent));
+const elBtn = elRow.querySelector('[data-act="copyurl"]');
+assert.strictEqual(elRow.querySelector(".u").textContent.trim(), "tcp://" + "i".repeat(56) + ".onion:50001", "Electrum TCP string rendered");
+assert.strictEqual(elBtn.getAttribute("data-v"), "tcp://" + "i".repeat(56) + ".onion:50001", "copy button carries the full TCP string");
+elBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 20));
+assert.strictEqual(window.__copied, "tcp://" + "i".repeat(56) + ".onion:50001", "clicking copy puts the TCP string on the clipboard");
+
+const kRow = [...doc.querySelectorAll('.card[data-id="mainnet-kilombino"] .ep')].find((e) => /Electrum/.test(e.textContent));
+assert.ok(kRow, "a node with no endpoint still shows an Electrum row");
+assert.strictEqual(kRow.querySelector(".u").textContent.trim(), "N/A", "absent endpoint reads N/A");
+assert.ok(kRow.querySelector(".u").classList.contains("na") && !kRow.querySelector('[data-act="copyurl"]'), "N/A is styled as absent and offers nothing to copy");
+console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; Electrum copyable, N/A when absent");
 
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));

@@ -13,7 +13,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { store } from "./store.mjs";
-import { makeAuth47, notificationAddress, verifySignedPayload } from "./crypto.mjs";
+import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto.mjs";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import { resolvePayNym } from "./paynym.mjs";
@@ -347,7 +347,9 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     const sig = verifySignedPayload({
       signedText: body.signed,
       expectedMessage: canonicalPairing(body.payload),
-      expectedAddress: notificationAddress(s.paymentCode, networkOf(network)),
+      // A PayNym signs from its mainnet notification address even when the
+      // node being listed is testnet, so accept either derivation.
+      expectedAddress: notificationAddresses(s.paymentCode),
       network: networkOf(network),
     });
     if (!sig.ok) return json(res, 400, { error: "signature gate: " + sig.error });

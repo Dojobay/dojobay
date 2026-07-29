@@ -46,6 +46,20 @@ export function notificationAddress(paymentCode, network = "bitcoin") {
   return bip47.fromBase58(paymentCode, net).getNotificationAddress();
 }
 
+// Every address a given payment code could legitimately have signed from.
+// A PayNym is a MAINNET identity: an operator listing a testnet node still
+// signs with their mainnet notification address, because that is the only key
+// their wallet holds for that code. Deriving on testnet yields an "m…" address
+// that can never match, which silently made every testnet listing unverifiable.
+// Both derivations come from the same code, so accepting either is no weaker.
+export function notificationAddresses(paymentCode) {
+  const out = [];
+  for (const net of ["bitcoin", "testnet"]) {
+    try { const a = notificationAddress(paymentCode, net); if (!out.includes(a)) out.push(a); } catch { /* skip */ }
+  }
+  return out;
+}
+
 // ---- lab-style signed pairing payload verification -------------------------
 // The submitted `signed` blob is a BIP-signed message. We require it to be
 // signed by the notification address of the operator's authenticated payment
@@ -88,10 +102,35 @@ export function parseSignedBlock(text) {
 //      text is a valid code whose notification address IS the signing address;
 //   5. the signing address matches the authenticated payment code's
 //      notification address (the session binding the API supplies).
+// Does the signed pairing text describe the same payload being submitted?
+//
+// Wallets and admin panels serialise this JSON differently: pretty-printed with
+// newlines and indentation, or with the object keys in another order. All of
+// those are the SAME payload, and a byte-exact comparison against our own
+// re-serialisation rejects them, which is what made genuine, correctly signed
+// listings fail the gate. So compare the parsed structures instead: identical
+// keys and identical values, order-insensitive, at every level. Anything that
+// is not valid JSON, or that differs in any value or key, still fails.
+export function sameSignedPayload(signedText, expected) {
+  const a = String(signedText).trim(), b = String(expected).trim();
+  if (a === b) return true;
+  let pa, pb;
+  try { pa = JSON.parse(a); pb = JSON.parse(b); } catch { return false; }
+  return stableStringify(pa) === stableStringify(pb);
+}
+
+function stableStringify(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stableStringify(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
 export function verifySignedPayload({ signedText, expectedMessage, expectedAddress, network = "bitcoin" }) {
   const parsed = parseSignedBlock(signedText);
   if (!parsed) return { ok: false, error: "unrecognised signed message format" };
-  if (expectedMessage != null && parsed.pairingText !== String(expectedMessage).trim()) {
+  if (expectedMessage != null && !sameSignedPayload(parsed.pairingText, expectedMessage)) {
     return { ok: false, error: "signed message does not match the submitted pairing code" };
   }
   const net = bip47utils.networks[network];
@@ -103,14 +142,18 @@ export function verifySignedPayload({ signedText, expectedMessage, expectedAddre
   }
   if (!verified) return { ok: false, error: "invalid signature" };
   if (parsed.paymentCode) {
-    let derived;
-    try { derived = notificationAddress(parsed.paymentCode, network); }
-    catch { return { ok: false, error: "signature is valid, but the BIP47 line inside the signed message is not a valid payment code" }; }
-    if (derived !== parsed.address) {
+    const derived = notificationAddresses(parsed.paymentCode);
+    if (!derived.length) {
+      return { ok: false, error: "signature is valid, but the BIP47 line inside the signed message is not a valid payment code" };
+    }
+    if (!derived.includes(parsed.address)) {
       return { ok: false, error: "signature is valid, but the signing address is not the notification address of the payment code inside the message" };
     }
   }
-  if (expectedAddress && parsed.address !== expectedAddress) {
+  // expectedAddress may be a single address or every address the authenticated
+  // code could have signed from (see notificationAddresses).
+  const accept = expectedAddress == null ? null : (Array.isArray(expectedAddress) ? expectedAddress : [expectedAddress]);
+  if (accept && !accept.includes(parsed.address)) {
     return { ok: false, error: "signed by a different address than the authenticated payment code" };
   }
   return { ok: true, address: parsed.address, paymentCode: parsed.paymentCode };

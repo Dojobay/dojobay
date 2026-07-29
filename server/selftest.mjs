@@ -678,6 +678,46 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "nodes without a probed or declared endpoint publish null (card shows N/A)");
 }
 
+// 22) signature gate robustness, from real listings found by the store audit.
+//     Wallets and admin panels serialise the pairing JSON differently, and a
+//     PayNym signs from its mainnet notification address even for a testnet
+//     node. Both used to fail the gate despite the signature being perfect.
+{
+  const { verifySignedPayload, sameSignedPayload, notificationAddresses } = await import("./crypto.mjs");
+  const sign = (text, acct) => Buffer.from(msg.sign(text, acct.getNotificationPrivateKey(), true, net47.messagePrefix)).toString("base64");
+  const blockOf2 = (text, addr) => `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${text}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${addr}\n\n${sign(text, acct)}\n-----END BITCOIN SIGNATURE-----`;
+
+  // pretty-printed, exactly as several real listings were signed
+  const pretty = JSON.stringify(JSON.parse(canonical), null, 2);
+  const prettySigned = pretty + "\n\nBIP47:\n" + paymentCode;
+  const rPretty = verifySignedPayload({ signedText: blockOf2(prettySigned, notifAddr), expectedMessage: canonical, expectedAddress: notifAddr });
+
+  // same data, keys in a different order
+  const src = JSON.parse(canonical);
+  const reordered = JSON.stringify({ explorer: src.explorer, pairing: Object.fromEntries(Object.keys(src.pairing).reverse().map((k) => [k, src.pairing[k]])) });
+  const reSigned = reordered + "\n\nBIP47:\n" + paymentCode;
+  const rReorder = verifySignedPayload({ signedText: blockOf2(reSigned, notifAddr), expectedMessage: canonical, expectedAddress: notifAddr });
+
+  ok(rPretty.ok && rReorder.ok,
+     "pretty-printed and key-reordered signatures verify: the same payload, serialised differently");
+
+  // a changed value must still be refused
+  const changed = JSON.parse(canonical); changed.pairing.version = "9.9.9";
+  const chSigned = JSON.stringify(changed) + "\n\nBIP47:\n" + paymentCode;
+  const rChanged = verifySignedPayload({ signedText: blockOf2(chSigned, notifAddr), expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(!rChanged.ok && /does not match/.test(rChanged.error)
+     && !sameSignedPayload('{"a":1}', '{"a":2}') && sameSignedPayload('{"a":1,"b":2}', '{"b":2,"a":1}')
+     && !sameSignedPayload('{"a":1}', '{"a":1,"b":2}'),
+     "a changed value, or an added or removed field, is still refused");
+
+  // a PayNym signs from its mainnet address even for a testnet listing
+  const addrs = notificationAddresses(paymentCode);
+  ok(addrs.length === 2 && addrs[0] === notifAddr,
+     "notificationAddresses returns both derivations, mainnet first");
+  const rTestnet = verifySignedPayload({ signedText: blockOf2(signedText, notifAddr), expectedMessage: canonical, expectedAddress: addrs, network: "testnet" });
+  ok(rTestnet.ok, "a testnet listing signed with the mainnet notification address verifies");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

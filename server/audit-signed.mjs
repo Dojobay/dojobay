@@ -85,7 +85,12 @@ for (const b of ["FAILED", "ERROR", "UNSIGNED", "VERIFIED"]) {
   if (!buckets[b].length) continue;
   console.log(`${b}: ${buckets[b].length}`);
   for (const { rec, detail } of buckets[b]) {
-    console.log(`  [${b}] ${rec.id}  (${rec.status})${detail ? "\n           " + detail : ""}`);
+    // Show the name as well as the id. Ids are immutable (reliability history
+    // keys on them), so a record created before operator naming keeps its
+    // payment-code-derived id even after its operator sets a name, and the id
+    // alone is then unrecognisable.
+    const label = rec.name && `${rec.network}-${rec.name}` !== rec.id ? `${rec.id}  ("${rec.name}")` : rec.id;
+    console.log(`  [${b}] ${label}  (${rec.status})${detail ? "\n           " + detail : ""}`);
   }
   console.log("");
 }

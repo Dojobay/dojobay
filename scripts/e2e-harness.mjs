@@ -43,7 +43,8 @@ const DOJOS = {
       payload: { pairing: { type: "dojo.api", version: "1.20.0", url: "http://" + "e".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-kilombino", network: "mainnet", name: "Kilombino", paynym: null,
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
-      payload: { pairing: { type: "dojo.api", version: "1.27.0", url: "http://" + "b".repeat(56) + ".onion/v2" } } },
+      payload: { pairing: { type: "dojo.api", version: "1.27.0", url: "http://" + "b".repeat(56) + ".onion/v2" },
+                 explorer: { type: "explorer.btc_rpc_explorer", url: "" } } },
   ],
 };
 const up = (n) => Array.from({length:n},()=>({t:"2026-07-14 00:00",up:true}));
@@ -247,7 +248,23 @@ await new Promise((r) => setTimeout(r, 20));
 assert.strictEqual(window.__copied, null, "clicking the disabled button copies nothing");
 assert.strictEqual(kRow.querySelectorAll(".u, .copybtn").length, elRow.querySelectorAll(".u, .copybtn").length,
   "N/A row has the same columns as a populated endpoint row");
-console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; Electrum copyable, N/A row consistent");
+// Every endpoint row behaves the same when it has nothing to show: an explorer
+// present in the payload but carrying an unusable url must read N/A with the
+// copy button greyed out, exactly like an absent Electrum endpoint.
+const kEps = [...doc.querySelectorAll('.card[data-id="mainnet-kilombino"] .ep')];
+assert.deepStrictEqual(kEps.map((e) => e.querySelector(".k").textContent.trim()),
+  ["Dojo API", "Explorer", "Electrum Server"], "all three endpoint rows always render");
+for (const label of ["Explorer", "Electrum Server"]) {
+  const row = kEps.find((e) => e.querySelector(".k").textContent.trim() === label);
+  const btn = row.querySelector(".copybtn");
+  assert.strictEqual(row.querySelector(".u").textContent.trim(), "N/A", `${label} with no usable URL reads N/A`);
+  assert.ok(row.querySelector(".u").classList.contains("na"), `${label} N/A is styled as absent`);
+  assert.ok(btn && btn.disabled && !btn.getAttribute("data-act"), `${label} N/A copy button is greyed out and inert`);
+}
+// the card exposes the payment code so the pairing avatar can be warmed on hover
+assert.ok(/^PM8TJ/.test(yCard.getAttribute("data-pc") || ""), "card carries its payment code for avatar prefetch");
+assert.ok(!/loading="lazy"/.test(doc.documentElement.innerHTML), "the QR avatar is not lazily loaded");
+console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; N/A rows uniformly greyed out");
 
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));

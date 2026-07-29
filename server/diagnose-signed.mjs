@@ -65,7 +65,8 @@ for (const rec of recs) {
   });
   if (passes && !ALL) continue;
 
-  console.log(`\n=== ${rec.id}  (${rec.status})${passes ? "  [currently passes]" : ""}`);
+  const label = rec.name && `${rec.network}-${rec.name}` !== rec.id ? `${rec.id}  ("${rec.name}")` : rec.id;
+  console.log(`\n=== ${label}  (${rec.status})${passes ? "  [currently passes]" : ""}`);
   const p = parseSignedBlock(rec.signed);
   if (!p) { console.log("  block does not parse at all"); continue; }
 

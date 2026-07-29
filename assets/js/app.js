@@ -81,6 +81,23 @@ async function loadJSON(url){
   // pattern as the Manage button and the build hash), never DOM-poked.
   let menuOpen=false;
 
+  // One renderer for every endpoint row, so all three look and behave the same.
+  // A row is always present: with a usable URL it shows the value and a working
+  // copy button; without one it reads N/A with the copy button greyed out and
+  // inert, keeping the row's three-column geometry. Anything that is not an
+  // http(s)/tcp/ssl URL counts as absent, which covers a payload that carries
+  // an explorer with an empty or placeholder url rather than omitting it.
+  function epRow(label, url, naNote){
+    const ok = typeof url === "string" && /^(https?|tcp|ssl):\/\//i.test(url.trim());
+    if(!ok) return `<div class="ep"><span class="k">${esc(label)}</span>`
+      + `<span class="u na" title="${esc(naNote)}">N/A</span>`
+      + `<button class="copybtn" disabled title="Nothing to copy: ${esc(naNote.toLowerCase())}">copy</button></div>`;
+    const u = url.trim();
+    return `<div class="ep"><span class="k">${esc(label)}</span>`
+      + `<span class="u" title="${esc(u)}">${esc(u)}</span>`
+      + `<button class="copybtn" data-act="copyurl" data-v="${esc(u)}">copy</button></div>`;
+  }
+
   // Electrum/indexer endpoint for the card. build-public.mjs publishes
   // indexer_url (what the updater read from the node's /support/services, else
   // whatever the pairing payload declared); the payload shapes are still read
@@ -157,7 +174,7 @@ async function loadJSON(url){
     // per network and the PayNym (linked) plus payment-code chip sit directly
     // beneath, so the composite "+paynym · name" title proved redundant.
     const title = n.name || n.paynym || n.id;
-    return `<div class="card ${n.status}" data-id="${esc(n.id)}">
+    return `<div class="card ${n.status}" data-id="${esc(n.id)}" data-pc="${esc(n.paymentCode||"")}">
       <div class="ctop">
         <span class="sd ${n.status}"></span>
         ${n.name_url
@@ -176,11 +193,9 @@ async function loadJSON(url){
         <div class="full"><div class="eyebrow">Last checked</div><div class="v">${esc((n.checked_at||"").replace("T"," ").replace("Z",""))}</div></div>
       </div>
       <div class="eps card-eps">
-        <div class="ep"><span class="k">Dojo API</span><span class="u" title="${esc(n.payload.pairing.url)}">${esc(n.payload.pairing.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.pairing.url)}">copy</button></div>
-        ${n.payload.explorer?`<div class="ep"><span class="k">Explorer</span><span class="u" title="${esc(n.payload.explorer.url)}">${esc(n.payload.explorer.url)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(n.payload.explorer.url)}">copy</button></div>`:""}
-        ${(()=>{const iu=indexerUrl(n);return iu
-          ?`<div class="ep"><span class="k">Electrum Server</span><span class="u" title="${esc(iu)}">${esc(iu)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(iu)}">copy</button></div>`
-          :`<div class="ep"><span class="k">Electrum Server</span><span class="u na" title="This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0">N/A</span><button class="copybtn" disabled title="Nothing to copy: this node publishes no Electrum endpoint">copy</button></div>`;})()}
+        ${epRow("Dojo API", n.payload.pairing && n.payload.pairing.url, "This node publishes no Dojo API endpoint")}
+        ${epRow("Explorer", n.payload.explorer && n.payload.explorer.url, "This node publishes no block explorer")}
+        ${epRow("Electrum Server", indexerUrl(n), "This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0")}
       </div>
       <button class="reveal" data-act="pair">Pairing details</button>
     </div>`;
@@ -189,8 +204,13 @@ async function loadJSON(url){
   function pairHTML(n){
     const pairingOnly = JSON.stringify({pairing:n.payload.pairing, explorer:n.payload.explorer}, null, 2);
     const qr = qrSVG(JSON.stringify(n.payload), 208, "H");
+    // NOT loading="lazy": this sits at the centre of a QR in a popup that has
+    // just opened, so deferring the fetch costs a visible Tor round trip at
+    // exactly the wrong moment. High priority and eager decoding instead; the
+    // file is small, same-origin and cached for a day by nginx, and the card's
+    // Pairing details button warms it on hover (see warmAvatar).
     const avatar = n.paymentCode
-      ? `<img class="qr-avatar" alt="" loading="lazy" src="data/avatars/${encodeURIComponent(n.paymentCode)}.png" onerror="this.remove()">`
+      ? `<img class="qr-avatar" alt="" fetchpriority="high" decoding="async" src="data/avatars/${encodeURIComponent(n.paymentCode)}.png" onerror="this.remove()">`
       : "";
     const signedBox = n.signed ? `
       <div class="box signed">
@@ -359,6 +379,25 @@ async function loadJSON(url){
       '<div style="text-align:center;margin:16px 0"><div style="display:inline-block;background:#fff;border-radius:10px;padding:12px">'+qrSVG(signed,300)+'</div></div>'+
       '<div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copyverify">Copy</button></div>'+
       '<pre class="verify-pre">'+esc(signed)+'</pre>';
+  }
+
+  // Warm the PayNym avatar as soon as the operator shows intent to open a
+  // card's pairing popup, so the image is already in cache by the time the QR
+  // renders. Fetching every card's avatar up front would mean one Tor request
+  // per listed node on page load, which is far worse than one on hover.
+  const warmed = new Set();
+  function warmAvatar(card){
+    const code = card && card.getAttribute("data-pc");
+    if(!code || warmed.has(code)) return;
+    warmed.add(code);
+    const img = new Image();
+    img.src = "data/avatars/" + encodeURIComponent(code) + ".png";
+  }
+  for(const evt of ["pointerenter","focusin"]){
+    document.addEventListener(evt, e=>{
+      const t = e.target instanceof Element ? e.target.closest('[data-act="pair"]') : null;
+      if(t) warmAvatar(t.closest(".card"));
+    }, true);
   }
 
   document.addEventListener("click", e=>{

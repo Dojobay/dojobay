@@ -44,7 +44,7 @@ async function main() {
   // ---- 1. prerequisites -------------------------------------------------------
   await ui.step(1, TOTAL, "Prerequisites");
   const nodeMajor = +process.versions.node.split(".")[0];
-  if (nodeMajor < 20) await ui.fail(`Node ${process.versions.node} found; Node 20+ is required.`);
+  if (nodeMajor < 24) await ui.fail(`Node ${process.versions.node} found; Node 24+ is required (the BIP47/Auth47 libraries require it).`);
   ui.ok(`Node ${process.versions.node}`);
   const missing = [];
   for (const bin of ["tor", "nginx"]) {

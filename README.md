@@ -60,7 +60,7 @@ separate credentials.
 
 ## Run your own Dojo Bay
 
-Requirements: Debian 12 or Ubuntu 24.04 (or similar), **Node.js 20 or
+Requirements: Debian 12 or Ubuntu 24.04 (or similar), **Node.js 24 or
 newer**, plus your own Dojo and PayNym. The easiest path is the guided
 installer — download the source (any instance's footer serves it, or GitHub),
 extract, and run:

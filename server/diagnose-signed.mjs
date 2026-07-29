@@ -21,8 +21,8 @@
 // =============================================================================
 import { store } from "./store.mjs";
 import { parseSignedBlock, verifySignedPayload, notificationAddresses } from "./crypto.mjs";
-import { bitcoinMessageFactory } from "@samouraiwallet/bitcoinjs-message";
-import * as bip47utils from "@samouraiwallet/bip47/utils";
+import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
+import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
 
 const message = bitcoinMessageFactory(ecc);

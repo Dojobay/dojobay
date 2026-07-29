@@ -1,10 +1,10 @@
 // Auth47 login and BIP47 signed-payload verification for The Dojo Bay backend.
 // Thin wrappers over the audited Samourai libraries; the exact call shapes here
 // were verified against the libraries end to end (see selftest.mjs).
-import { Auth47Verifier } from "@samouraiwallet/auth47";
-import { BIP47Factory } from "@samouraiwallet/bip47";
-import { bitcoinMessageFactory } from "@samouraiwallet/bitcoinjs-message";
-import * as bip47utils from "@samouraiwallet/bip47/utils";
+import { Auth47Verifier } from "@dojo-tools/auth47";
+import { BIP47Factory } from "@dojo-tools/bip47";
+import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
+import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
 
 const bip47 = BIP47Factory(ecc);

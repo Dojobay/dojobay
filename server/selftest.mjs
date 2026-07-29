@@ -4,9 +4,9 @@
 // Auth47 challenge and the pairing payload, and drives the HTTP API.
 import net from "node:net";
 import assert from "node:assert";
-import { BIP47Factory } from "@samouraiwallet/bip47";
-import { bitcoinMessageFactory } from "@samouraiwallet/bitcoinjs-message";
-import * as bip47utils from "@samouraiwallet/bip47/utils";
+import { BIP47Factory } from "@dojo-tools/bip47";
+import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
+import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
 import { mnemonicToSeedSync } from "bip39";
 import os from "node:os";

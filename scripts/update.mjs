@@ -384,7 +384,24 @@ async function probeHeight(url, cfg) {
 // Probe a single onion URL. Returns { up, reason, ms }.
 //   up = Tor connected AND (CONNECT_ONLY, or an HTTP status line came back)
 // -----------------------------------------------------------------------------
-export async function probe(url, cfg = CFG) {
+// Fill in the transport settings a probe cannot work without. Callers pass a
+// partial config (an apikey and a network, say) and it is easy to forget to
+// spread PROBE_CFG or CFG alongside it; without these, net.connect is handed an
+// undefined port and Node reports 'The "options" or "port" or "path" argument
+// must be specified', which says nothing about the real mistake. The defaults
+// are the same ones PROBE_CFG uses, so a partial config now behaves rather than
+// failing obscurely. Explicitly supplied values always win.
+export function probeCfg(cfg = {}) {
+  return {
+    ...cfg,
+    proxyHost: cfg.proxyHost ?? (process.env.TOR_SOCKS_HOST || "127.0.0.1"),
+    proxyPort: cfg.proxyPort ?? +(process.env.TOR_SOCKS_PORT || 9050),
+    timeoutMs: cfg.timeoutMs ?? +(process.env.TIMEOUT_MS || 30000),
+  };
+}
+
+export async function probe(url, cfgIn = CFG) {
+  const cfg = probeCfg(cfgIn);
   // Preferred path: authenticated chain-tip check when an apikey is available.
   if (cfg.apikey) return probeHeight(url, cfg);
   const u = new URL(url);

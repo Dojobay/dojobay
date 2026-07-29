@@ -9,7 +9,7 @@
 
 import net from "node:net";
 import assert from "node:assert";
-import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl } from "./update.mjs";
+import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -161,6 +161,37 @@ await check("authenticated probe reads chain tip and X-Dojo-Version", async () =
     assert.equal(r.height, 840000, JSON.stringify(r));
     assert.equal(r.detectedVersion, "1.30.0", JSON.stringify(r));
   });
+});
+
+await check("a probe config missing its transport settings is filled in, not left undefined", async () => {
+  // The installer called probe() with only { apikey, network }, so proxyPort
+  // reached net.connect as undefined and Node reported 'The "options" or "port"
+  // or "path" argument must be specified' during the anchor check at step 6.
+  const filled = probeCfg({ apikey: "k", network: "mainnet" });
+  assert.equal(filled.proxyHost, "127.0.0.1");
+  assert.equal(filled.proxyPort, 9050);
+  assert.ok(filled.timeoutMs > 0, "a timeout must be set, or the probe times out immediately");
+  assert.equal(filled.apikey, "k", "caller's own fields are preserved");
+  // explicit values always win over the defaults
+  const explicit = probeCfg({ proxyHost: "10.0.0.1", proxyPort: 9150, timeoutMs: 5 });
+  assert.deepEqual([explicit.proxyHost, explicit.proxyPort, explicit.timeoutMs], ["10.0.0.1", 9150, 5]);
+  // and a partial config now probes rather than throwing a socket error
+  await withProxy("dojo", async (port) => {
+    const r = await probe("http://dojonode0000000.onion/v2", { proxyPort: port, apikey: "k", network: "mainnet" });
+    assert.equal(r.up, true, JSON.stringify(r));
+  });
+});
+
+await check("every probe call site passes the transport config", async () => {
+  // Static check: the anchor probe in the installer is only exercised by a real
+  // interactive run, so pin it here instead.
+  const { readFileSync } = await import("node:fs");
+  for (const f of ["install.mjs", "update.mjs"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    for (const m of src.matchAll(/await probe\(([\s\S]{0,200}?)\)\s*;/g)) {
+      assert.ok(/\.\.\.(PROBE_)?CFG/.test(m[1]), `probe() call in ${f} must spread PROBE_CFG/CFG: ${m[1].slice(0, 80)}`);
+    }
+  }
 });
 
 await check("parseIndexerUrl picks the indexer entry out of /support/services", async () => {

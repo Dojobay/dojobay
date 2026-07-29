@@ -161,10 +161,12 @@ async function main() {
     if (!parsed.ok) { ui.err(parsed.error); continue; }
     try {
       payload = await ui.progress("probing your Dojo over Tor", async (log) => {
-        const { probe } = await import("../server/probe.mjs");
+        const { probe, PROBE_CFG } = await import("../server/probe.mjs");
         log("connecting to " + parsed.payload.pairing.url.slice(0, 46) + "…");
+        // PROBE_CFG carries the Tor SOCKS host, port and timeout; without it the
+        // probe has no proxy to dial. Every other call site spreads it too.
         const check = await probe(parsed.payload.pairing.url, {
-          apikey: parsed.payload.pairing.apikey, network: anchor.network,
+          ...PROBE_CFG, apikey: parsed.payload.pairing.apikey, network: anchor.network,
         });
         if (!check.up) throw new Error(check.reason || "no response");
         log(`reachable ✓  block height ${check.height ?? "?"}`);

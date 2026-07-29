@@ -147,6 +147,26 @@ a BIP47 payment code — ownership, Auth47 sign-in and the card chip key on it
 records exist only as grandfathered, `/admin`-managed exceptions and cannot
 be newly created.
 
+## Maintenance scripts
+
+Three read-mostly tools live in `server/` and are run on the instance, not in
+CI. They are committed deliberately: the deploy pipeline prunes anything in the
+web root that is not in the repo, so an uncommitted script pasted onto the box
+disappears at the next deploy.
+
+```
+cd /var/www/dojobay/server
+node audit-signed.mjs          # re-check every stored signed block (read-only)
+node diagnose-signed.mjs       # explain why a block fails (read-only)
+node fix-payload-version.mjs   # dry run; --apply restores a drifted pairing version
+```
+
+`audit-signed.mjs` exits non-zero if any record fails, so it can back a cron
+check. `fix-payload-version.mjs` writes only `payload.pairing.version`, and only
+where the signed block and the stored payload are otherwise identical; because
+`store.mjs` holds the store in memory as a single writer, `--apply` refuses to
+run while `dojobay-server.service` is active.
+
 ## Brand assets
 
 The favicon, PWA icons and social image are committed so no build step is

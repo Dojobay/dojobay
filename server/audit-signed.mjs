@@ -27,13 +27,19 @@
 // UNSIGNED alone does not fail the run: those are for a per-record decision.
 // =============================================================================
 import { store } from "./store.mjs";
-import { verifySignedPayload, notificationAddress } from "./crypto.mjs";
+import { verifySignedPayload, notificationAddresses } from "./crypto.mjs";
 
 const networkOf = (rec) => (rec.network === "testnet" ? "testnet" : "bitcoin");
 const canonicalPairing = (payload) =>
   JSON.stringify({ pairing: payload?.pairing, explorer: payload?.explorer });
 
-function audit(rec) {
+// Exported so the test suite can assert this reproduces the gate's verdict.
+// This MUST mirror server/index.mjs's signature gate exactly: same canonical
+// message, and the same set of acceptable signing addresses. An earlier version
+// derived the notification address for the record's own network, which meant
+// every testnet listing was reported as failing even though the gate accepted
+// it, because a PayNym signs from its mainnet address whatever the node is.
+export function auditRecord(rec) {
   const codes = Array.isArray(rec.paymentCodes) ? rec.paymentCodes : [];
   if (!rec.signed) {
     return { bucket: "UNSIGNED", detail: codes.length ? "record has a payment code but no signed block" : "no signed block and no payment code" };
@@ -44,12 +50,11 @@ function audit(rec) {
   // A PayNym may have signed with either BIP47 variant, so every code on the
   // record is a legitimate candidate; the first that verifies wins.
   for (const code of codes) {
-    let addr;
-    try { addr = notificationAddress(code, net); }
-    catch (e) { tried.push(`${code.slice(0, 12)}…: undecodable code (${e.message})`); continue; }
-    const r = verifySignedPayload({ signedText: rec.signed, expectedMessage, expectedAddress: addr, network: net });
-    if (r.ok) return { bucket: "VERIFIED", detail: `${code.slice(0, 12)}… → ${addr}` };
-    tried.push(`${code.slice(0, 12)}… (${addr}): ${r.error}`);
+    const addrs = notificationAddresses(code);
+    if (!addrs.length) { tried.push(`${code.slice(0, 12)}…: undecodable code`); continue; }
+    const r = verifySignedPayload({ signedText: rec.signed, expectedMessage, expectedAddress: addrs, network: net });
+    if (r.ok) return { bucket: "VERIFIED", detail: `${code.slice(0, 12)}… → ${addrs[0]}` };
+    tried.push(`${code.slice(0, 12)}… (${addrs.join(" / ")}): ${r.error}`);
   }
   if (!codes.length) {
     const r = verifySignedPayload({ signedText: rec.signed, expectedMessage, network: net });
@@ -60,13 +65,18 @@ function audit(rec) {
   return { bucket: "FAILED", detail: tried.join("\n           ") };
 }
 
+// ---- CLI ---------------------------------------------------------------
+// Only runs when executed directly, so tests can import auditRecord.
+const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+if (!isMain) { /* imported for testing */ } else {
+
 const recs = (await store.listSubmissions())
   .sort((a, b) => (a.network + a.name).localeCompare(b.network + b.name));
 
 const buckets = { VERIFIED: [], FAILED: [], UNSIGNED: [], ERROR: [] };
 for (const rec of recs) {
   let res;
-  try { res = audit(rec); } catch (e) { res = { bucket: "ERROR", detail: e.message }; }
+  try { res = auditRecord(rec); } catch (e) { res = { bucket: "ERROR", detail: e.message }; }
   buckets[res.bucket].push({ rec, detail: res.detail });
 }
 
@@ -87,3 +97,4 @@ console.log(
   (buckets.UNSIGNED.length ? "\nUNSIGNED records are listed for a per-record decision and are not counted as failures." : "") +
   (bad ? `\nNON-ZERO EXIT: ${bad} record(s) need attention.` : "\nEvery signed record verifies under the current gate."));
 process.exit(bad ? 1 : 0);
+}

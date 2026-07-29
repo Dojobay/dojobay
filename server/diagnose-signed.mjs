@@ -20,7 +20,7 @@
 // Add --all to include records that already pass.
 // =============================================================================
 import { store } from "./store.mjs";
-import { parseSignedBlock, verifySignedPayload, notificationAddress } from "./crypto.mjs";
+import { parseSignedBlock, verifySignedPayload, notificationAddresses } from "./crypto.mjs";
 import { bitcoinMessageFactory } from "@samouraiwallet/bitcoinjs-message";
 import * as bip47utils from "@samouraiwallet/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
@@ -60,7 +60,7 @@ for (const rec of recs) {
   const codes = Array.isArray(rec.paymentCodes) ? rec.paymentCodes : [];
   const canon = canonicalPairing(rec.payload);
   const passes = codes.some((c) => {
-    try { return verifySignedPayload({ signedText: rec.signed, expectedMessage: canon, expectedAddress: notificationAddress(c, net), network: net }).ok; }
+    try { return verifySignedPayload({ signedText: rec.signed, expectedMessage: canon, expectedAddress: notificationAddresses(c), network: net }).ok; }
     catch { return false; }
   });
   if (passes && !ALL) continue;
@@ -72,12 +72,15 @@ for (const rec of recs) {
   // 1. internal validity
   let sigOk = false;
   try { sigOk = message.verify(p.message, p.address, p.signature, bip47utils.networks[net].messagePrefix); } catch (e) { console.log("  verify threw:", e.message); }
+  // A PayNym signs from its mainnet notification address whatever network the
+  // node is on, so both derivations are legitimate.
   let derived = null;
-  try { derived = p.paymentCode ? notificationAddress(p.paymentCode, net) : null; } catch { derived = "(undecodable)"; }
-  const bound = derived && derived === p.address;
+  try { derived = p.paymentCode ? notificationAddresses(p.paymentCode) : null; } catch { derived = null; }
+  const bound = Array.isArray(derived) && derived.includes(p.address);
+  const derivedTxt = Array.isArray(derived) ? derived.join(" / ") : "(undecodable)";
   console.log(`  signature over the block's own text : ${sigOk ? "VALID" : "INVALID"}`);
   console.log(`  signing address                     : ${p.address}`);
-  console.log(`  BIP47 code inside the signed text   : ${p.paymentCode ? p.paymentCode.slice(0, 12) + "…" : "(none)"} -> ${derived || "n/a"} ${p.paymentCode ? (bound ? "(binds)" : "(DOES NOT BIND)") : ""}`);
+  console.log(`  BIP47 code inside the signed text   : ${p.paymentCode ? p.paymentCode.slice(0, 12) + "…" : "(none)"} -> ${p.paymentCode ? derivedTxt : "n/a"} ${p.paymentCode ? (bound ? "(binds)" : "(DOES NOT BIND)") : ""}`);
   console.log(`  record's payment code(s)            : ${codes.map((c) => c.slice(0, 12) + "…").join(", ") || "(none)"}`);
   if (sigOk && bound) genuine++; else forged++;
 

@@ -718,6 +718,21 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(rTestnet.ok, "a testnet listing signed with the mainnet notification address verifies");
 }
 
+// 23) the store auditor must reproduce the gate's verdict, not its own. It
+//     once derived the notification address for the record's own network, so
+//     every testnet listing was reported as failing while the gate accepted it.
+{
+  const { auditRecord } = await import("./audit-signed.mjs");
+  const rec = (net) => ({ id: `${net}-audit`, network: net, name: "audit", status: "approved",
+    paymentCodes: [paymentCode], payload, signed: signedBlock });
+  ok(auditRecord(rec("mainnet")).bucket === "VERIFIED", "auditor verifies a good mainnet record");
+  ok(auditRecord(rec("testnet")).bucket === "VERIFIED",
+     "auditor verifies a testnet record signed with the mainnet notification address (mirrors the gate)");
+  ok(auditRecord({ ...rec("mainnet"), signed: null }).bucket === "UNSIGNED", "auditor reports an unsigned record");
+  ok(auditRecord({ ...rec("mainnet"), payload: { ...payload, pairing: { ...payload.pairing, apikey: "changed" } } }).bucket === "FAILED",
+     "auditor fails a record whose payload no longer matches what was signed");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

@@ -21,7 +21,7 @@
 //     node fix-payload-version.mjs --apply     # writes, after a backup
 //     sudo systemctl start dojobay-server.service
 //
-// The stop/start matters: server/store.mjs keeps the store in memory and is
+// The stop/start matters: server/store.ts keeps the store in memory and is
 // designed as a single writer, so editing store.json underneath a running
 // server would be overwritten by its next session or nonce write. --apply
 // refuses to run while the service is active unless you pass --force.
@@ -30,7 +30,7 @@ import { readFile, writeFile, rename, copyFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSignedBlock } from "./crypto.mjs";
+import { parseSignedBlock } from "./crypto.ts";
 
 const APPLY = process.argv.includes("--apply");
 const FORCE = process.argv.includes("--force");

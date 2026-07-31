@@ -125,7 +125,7 @@ ok(create.status === 200 && create.body.submission.status === "pending", "valid 
   const r = await api("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", payload, signed: badSigned });
   ok(r.status === 400 && /signature gate/.test(r.body.error), "wrong-address signed payload rejected");
 
-  const { verifySignedPayload } = await import("./crypto.mjs");
+  const { verifySignedPayload } = await import("./crypto.ts");
   // Regression for the truncated-message bug: a signature covering ONLY the
   // pairing JSON (the old, wrong assumption) presented in a block that prints
   // the BIP47 lines must be refused, because the wallet signs the full text.
@@ -167,7 +167,7 @@ Address: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB
 
 H6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLqipPb0fM=
 -----END BITCOIN SIGNATURE-----`;
-  const { parseSignedBlock, notificationAddress: notifOf } = await import("./crypto.mjs");
+  const { parseSignedBlock, notificationAddress: notifOf } = await import("./crypto.ts");
   const rp = parseSignedBlock(realBlock);
   const real = verifySignedPayload({ signedText: realBlock, expectedMessage: rp.pairingText, expectedAddress: notifOf(rp.paymentCode) });
   ok(real.ok && rp.message === rp.pairingText + "\n\nBIP47:\n" + rp.paymentCode
@@ -212,7 +212,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //    the wallet may sign Auth47 with either, so a record must match on
 //    membership of its paymentCodes array, not equality with one code.
 {
-  const { store } = await import("./store.mjs");   // same instance the server uses
+  const { store } = await import("./store.ts");   // same instance the server uses
   const rec = await store.getSubmission("mainnet-selftest-node");
   const legacyVariant = "PMlegacyVariantOfTheSameNym";
   rec.paymentCodes.push(legacyVariant);
@@ -259,7 +259,12 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 // 9) manage-panel ordering: /api/me returns mainnet before testnet, then
 //    alphabetical by name.
 {
-  const { store } = await import("./store.mjs");
+  const { store } = await import("./store.ts");
+  /**
+   * @param {"mainnet"|"testnet"} network
+   * @param {string} name
+   * @returns {import("../types.js").StoreRecord}
+   */
   const stub = (network, name) => ({
     id: `${network}-${name}`, network, name, paymentCodes: [paymentCode],
     paynym: null, payload: { pairing: { type: "dojo.api", url: "http://" + "a".repeat(56) + ".onion/v2" } },
@@ -446,7 +451,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "a card link is refused until the operator has a verified domain");
 
   // grant a verified domain directly in the store (the API path needs DNS)
-  const { store: st } = await import("./store.mjs");
+  const { store: st } = await import("./store.ts");
   await st.putDomain({ paymentCode, domain: "example.org", signed: "(test)",
     verified: true, verified_at: new Date().toISOString(), last_check: new Date().toISOString(),
     last_result: "ok", fail_since: null, created_at: new Date().toISOString() });
@@ -517,7 +522,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const opBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${opMessage}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${opSig}\n-----END BITCOIN SIGNATURE-----`;
   const opDoc = { onion: `http://${onionHost}/`, paymentCode: opCode, verifySigned: opBlock };
 
-  const { verifyOperatorDoc } = await import("./crypto.mjs");
+  const { verifyOperatorDoc } = await import("./crypto.ts");
   const vOk = verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });
   const vWrongOnion = verifyOperatorDoc(opDoc, { expectedOnion: "http://" + "c".repeat(56) + ".onion" });
   const vTampered = verifyOperatorDoc({ ...opDoc, verifySigned: opBlock.replace(onionHost, "c".repeat(56) + ".onion") });
@@ -560,7 +565,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
     "/data/history-daily.json": { nodes: { "mainnet-imported": { days: [{ d: "2026-07-01", pct: 99, close: 1 }] } } },
   };
   const { bootstrapImport } = await import("../scripts/bootstrap-import.mjs");
-  const { store } = await import("./store.mjs");
+  const { store } = await import("./store.ts");
   const fetchDoc = async (p) => { if (!(p in remoteDocs)) throw new Error("404 " + p); return remoteDocs[p]; };
   const fetchCodes = async () => [{ code: "PMimpSegwit", segwit: true }, { code: "PMimpLegacy", segwit: false }];
 
@@ -699,7 +704,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //     PayNym signs from its mainnet notification address even for a testnet
 //     node. Both used to fail the gate despite the signature being perfect.
 {
-  const { verifySignedPayload, sameSignedPayload, notificationAddresses } = await import("./crypto.mjs");
+  const { verifySignedPayload, sameSignedPayload, notificationAddresses } = await import("./crypto.ts");
   const sign = (text, acct) => Buffer.from(msg.sign(text, acct.getNotificationPrivateKey(), true, net47.messagePrefix)).toString("base64");
   const blockOf2 = (text, addr) => `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${text}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${addr}\n\n${sign(text, acct)}\n-----END BITCOIN SIGNATURE-----`;
 
@@ -753,9 +758,9 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //     the DoH answer shape and the grace policy), then the API path with DNS
 //     stubbed, since a self-test must not depend on the internet.
 {
-  const dom = await import("./domains.mjs");
-  const dns = await import("./dns.mjs");
-  const { store: st } = await import("./store.mjs");
+  const dom = await import("./domains.ts");
+  const dns = await import("./dns.ts");
+  const { store: st } = await import("./store.ts");
 
   // normalisation: accept what an operator is likely to type, reject the rest
   ok(dom.normaliseDomain("Example.COM").domain === "example.com"
@@ -790,7 +795,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   // the signed claim reuses the operator-binding shape
   const claim = dom.signingText("example.com", paymentCode);
   ok(claim === `https://example.com/\n\nBIP47: ${paymentCode}`, "the text to sign is the URL, a blank line, then the BIP47 line");
-  const { verifySignedUrlClaim } = await import("./crypto.mjs");
+  const { verifySignedUrlClaim } = await import("./crypto.ts");
   const blockFor = (text) => `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${text}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${Buffer.from(msg.sign(text, priv, true, net47.messagePrefix)).toString("base64")}\n-----END BITCOIN SIGNATURE-----`;
   const good = verifySignedUrlClaim({ signed: blockFor(claim), expectedUrl: "https://example.com", paymentCode });
   const wrongDomain = verifySignedUrlClaim({ signed: blockFor(claim), expectedUrl: "https://other.com", paymentCode });
@@ -801,12 +806,15 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   // grace policy: a badge survives an unreachable resolver, and only drops after
   // a sustained failure, keeping the claim so a restored record restores it
-  const base = { paymentCode, domain: "example.com", verified: true, verified_at: "2026-01-01T00:00:00Z", fail_since: null };
+  /** @type {import("../types.js").DomainClaim} */
+  const base = { paymentCode, domain: "example.com", signed: "(test)", verified: true,
+    verified_at: "2026-01-01T00:00:00Z", last_check: "2026-01-01T00:00:00Z", last_result: "ok",
+    fail_since: null, created_at: "2026-01-01T00:00:00Z" };
   const now = Date.parse("2026-07-01T00:00:00Z");
   const inc = dom.applyRecheck(base, { ok: false, inconclusive: true, error: "tor down" }, now);
-  const failed1 = dom.applyRecheck(base, { ok: false, error: "no TXT record" }, now);
-  const failedLong = dom.applyRecheck({ ...base, fail_since: "2026-06-01T00:00:00Z" }, { ok: false, error: "no TXT record" }, now);
-  const recovered = dom.applyRecheck(failedLong, { ok: true }, now);
+  const failed1 = dom.applyRecheck(base, { ok: false, inconclusive: false, error: "no TXT record" }, now);
+  const failedLong = dom.applyRecheck({ ...base, fail_since: "2026-06-01T00:00:00Z" }, { ok: false, inconclusive: false, error: "no TXT record" }, now);
+  const recovered = dom.applyRecheck(failedLong, { ok: true, inconclusive: false }, now);
   ok(inc.verified === true && inc.fail_since === null && /inconclusive/.test(inc.last_result),
      "an unreachable resolver never strips a badge");
   ok(failed1.verified === true && failed1.fail_since

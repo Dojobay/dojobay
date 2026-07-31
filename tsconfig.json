@@ -6,11 +6,23 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "target": "es2023",
-    "lib": ["es2023", "dom"],
+    "lib": [
+      "es2023",
+      "dom"
+    ],
     "strict": false,
     "erasableSyntaxOnly": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["server/**/*.mjs", "scripts/**/*.mjs", "assets/js/app.js", "types.d.ts"],
-  "exclude": ["**/node_modules/**"]
+  "include": [
+    "server/**/*.mjs",
+    "server/**/*.ts",
+    "scripts/**/*.mjs",
+    "assets/js/app.js",
+    "types.d.ts"
+  ],
+  "exclude": [
+    "**/node_modules/**"
+  ]
 }

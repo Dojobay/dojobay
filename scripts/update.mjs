@@ -645,7 +645,7 @@ async function main() {
   // Results are written server-side only (server/data/pending-probe.json), never
   // to the public data/, so an unapproved submission is not exposed over Tor.
   try {
-    const { store } = await import("../server/store.mjs");
+    const { store } = await import("../server/store.ts");
     const serverDataDir = process.env.SERVER_DATA_DIR
       || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server", "data");
     const pendingPath = path.join(serverDataDir, "pending-probe.json");

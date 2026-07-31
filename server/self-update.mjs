@@ -18,7 +18,7 @@
 // The web layer (index.mjs) runs this as a background job and streams progress
 // via a polled status object; this module just does the work and calls back
 // with progress lines. Node builtins only here except the lazily-imported
-// verifier (server/crypto.mjs), which the server always has installed.
+// verifier (server/crypto.ts), which the server always has installed.
 import { mkdir, writeFile, rm, cp, readFile, readdir, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
@@ -90,7 +90,7 @@ export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = (/** @t
     if (res.status !== 200) throw new Error(`${p}: HTTP ${res.status || "no response"}`);
     return res;
   });
-  const { verifyOperatorDoc } = await import("./crypto.mjs");
+  const { verifyOperatorDoc } = await import("./crypto.ts");
   log("fetching peer operator binding…");
   const opDoc = JSON.parse((await fetchDoc("/data/operator.json")).body);
   const v = verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });

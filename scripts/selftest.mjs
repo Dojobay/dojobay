@@ -303,7 +303,7 @@ await check("source zip packs the codebase and never the instance's own data", a
 });
 
 await check("TXT lookup over Tor: agreement required, unreachable resolvers are inconclusive", async () => {
-  const dns = await import("../server/dns.mjs");
+  const dns = await import("../server/dns.ts");
 
   // An unreachable proxy must be INCONCLUSIVE, never a failure: a Tor outage
   // must not strip a verified badge from an honest operator. This half needs no

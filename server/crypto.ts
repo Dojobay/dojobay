@@ -7,6 +7,24 @@ import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
 import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
 
+/** Outcome of a signature check: either accepted, or refused with a reason an
+ *  operator can act on. */
+export type VerifyResult =
+  | { ok: true; error?: undefined; address?: string; paymentCode?: string | null }
+  | { ok: false; error: string; address?: undefined; paymentCode?: undefined };
+
+/** The parts of a wallet-exported signed block. */
+export interface ParsedBlock {
+  /** Everything the signature covers, including the BIP47 tail. */
+  message: string;
+  /** The pairing JSON alone. */
+  pairingText: string;
+  /** The payment code inside the signed text, when present. */
+  paymentCode: string | null;
+  address: string;
+  signature: string;
+}
+
 const bip47 = BIP47Factory(ecc);
 const message = bitcoinMessageFactory(ecc);
 
@@ -31,14 +49,14 @@ export function makeAuth47(baseUrl) {
   }
 
   // Verify a posted proof. Returns { ok, paymentCode } or { ok:false, error }.
-  function verify(proof) {
+  function verify(proof: unknown): VerifyResult {
     const res = verifier.verifyProof(proof);
     if (res.result !== "ok") return { ok: false, error: res.error };
     // Auth47 defines two proof shapes: a nym proof carrying a payment code, and
     // an address proof carrying a plain address. Only the former identifies an
     // operator here, and reading .nym off the wrong one would bind a session to
     // undefined, so require it explicitly rather than assuming.
-    const nym = /** @type {{ nym?: string }} */ (res.data).nym;
+    const nym = (res.data as { nym?: string }).nym;
     if (typeof nym !== "string" || !nym) {
       return { ok: false, error: "proof does not carry a payment code (an address proof cannot identify an operator)" };
     }
@@ -49,7 +67,7 @@ export function makeAuth47(baseUrl) {
 }
 
 // ---- payment code -> notification address ----------------------------------
-export function notificationAddress(paymentCode, network = "bitcoin") {
+export function notificationAddress(paymentCode: string, network: string = "bitcoin"): string {
   const net = bip47utils.networks[network];
   return bip47.fromBase58(paymentCode, net).getNotificationAddress();
 }
@@ -60,8 +78,8 @@ export function notificationAddress(paymentCode, network = "bitcoin") {
 // their wallet holds for that code. Deriving on testnet yields an "m…" address
 // that can never match, which silently made every testnet listing unverifiable.
 // Both derivations come from the same code, so accepting either is no weaker.
-export function notificationAddresses(paymentCode) {
-  const out = [];
+export function notificationAddresses(paymentCode: string): string[] {
+  const out: string[] = [];
   for (const net of ["bitcoin", "testnet"]) {
     try { const a = notificationAddress(paymentCode, net); if (!out.includes(a)) out.push(a); } catch { /* skip */ }
   }
@@ -84,7 +102,7 @@ export function notificationAddresses(paymentCode) {
 // Because the BIP47 line is inside the signed text, the payment code is
 // covered by the signature and can itself be verified against the signing
 // address (see verifySignedPayload).
-export function parseSignedBlock(text) {
+export function parseSignedBlock(text: unknown): ParsedBlock | null {
   if (!text || typeof text !== "string") return null;
   const t = text.replace(/\r\n/g, "\n");
   const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
@@ -119,7 +137,7 @@ export function parseSignedBlock(text) {
 // listings fail the gate. So compare the parsed structures instead: identical
 // keys and identical values, order-insensitive, at every level. Anything that
 // is not valid JSON, or that differs in any value or key, still fails.
-export function sameSignedPayload(signedText, expected) {
+export function sameSignedPayload(signedText: string, expected: string): boolean {
   const a = String(signedText).trim(), b = String(expected).trim();
   if (a === b) return true;
   let pa, pb;
@@ -127,19 +145,21 @@ export function sameSignedPayload(signedText, expected) {
   return stableStringify(pa) === stableStringify(pb);
 }
 
-function stableStringify(v) {
+function stableStringify(v: unknown): string {
   if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
   if (v && typeof v === "object") {
-    return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stableStringify(v[k])).join(",") + "}";
+    const o = v as Record<string, unknown>;
+    return "{" + Object.keys(o).sort().map((k) => JSON.stringify(k) + ":" + stableStringify(o[k])).join(",") + "}";
   }
   return JSON.stringify(v) ?? "null";
 }
 
-/**
- * @param {{ signedText: string, expectedMessage?: string|null,
- *   expectedAddress?: string|string[]|null, network?: string }} args
- */
-export function verifySignedPayload({ signedText, expectedMessage, expectedAddress, network = "bitcoin" }) {
+export function verifySignedPayload({ signedText, expectedMessage, expectedAddress, network = "bitcoin" }: {
+  signedText: string;
+  expectedMessage?: string | null;
+  expectedAddress?: string | string[] | null;
+  network?: string;
+}): VerifyResult {
   const parsed = parseSignedBlock(signedText);
   if (!parsed) return { ok: false, error: "unrecognised signed message format" };
   if (expectedMessage != null && !sameSignedPayload(parsed.pairingText, expectedMessage)) {
@@ -190,13 +210,17 @@ export function verifySignedPayload({ signedText, expectedMessage, expectedAddre
 // and no new crypto. This is deliberately a separate field from the pairing
 // payload: the pairing block attests to pairing data only, and operators
 // stuffing identity material into it is exactly what this feature replaces.
-export function claimText(url, paymentCode) {
+export function claimText(url: string, paymentCode: string): string {
   return `${String(url).replace(/\/+$/, "")}/\n\nBIP47: ${paymentCode}`;
 }
 
 // Verify a signed claim over `expectedUrl` by `paymentCode`. Returns
 // { ok } or { ok: false, error } with errors an operator can act on.
-export function verifySignedUrlClaim({ signed, expectedUrl, paymentCode }) {
+export function verifySignedUrlClaim({ signed, expectedUrl, paymentCode }: {
+  signed: string;
+  expectedUrl: string;
+  paymentCode: string;
+}): VerifyResult {
   if (!signed) return { ok: false, error: "no signed block supplied" };
   if (!paymentCode) return { ok: false, error: "no payment code supplied" };
   const t = String(signed).replace(/\r\n/g, "\n");
@@ -237,8 +261,7 @@ export function verifySignedUrlClaim({ signed, expectedUrl, paymentCode }) {
   return { ok: true, address: addrM[1].trim() };
 }
 
-/** @param {any} doc @param {{ expectedOnion?: string }} [opts] */
-export function verifyOperatorDoc(doc, { expectedOnion } = {}) {
+export function verifyOperatorDoc(doc: any, { expectedOnion }: { expectedOnion?: string } = {}): VerifyResult {
   if (!doc || typeof doc !== "object") return { ok: false, error: "operator.json missing or unreadable" };
   if (!doc.paymentCode) return { ok: false, error: "operator.json has no paymentCode" };
   if (!doc.verifySigned) return { ok: false, error: "operator.json has no verifySigned block" };

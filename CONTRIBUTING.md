@@ -54,7 +54,7 @@ server/
   updates.mjs              # commits/releases-behind check against GitHub, over Tor
   self-update.mjs          # fetch (github/peer) + verify + stage a source update
   build-public.mjs         # merges seed + approved store into dojos.json
-  store.mjs, crypto.mjs, paynym.mjs, admin.mjs
+  store.ts, crypto.ts, paynym.mjs, admin.mjs
   selftest.mjs             # backend test suite (see below)
 scripts/
   install.mjs              # guided installer; stages talk to installer-ui.mjs
@@ -147,9 +147,26 @@ a BIP47 payment code — ownership, Auth47 sign-in and the card chip key on it
 records exist only as grandfathered, `/admin`-managed exceptions and cannot
 be newly created.
 
-## Type checking
+## TypeScript
 
-The code stays plain JavaScript and runs unbuilt, but it is type-checked. Shared
+`server/` is being converted to TypeScript file by file. Node 24 runs `.ts`
+directly, so there is **no build step**: `node index.mjs` and `node crypto.ts`
+work the same way, the deploy is still a plain rsync, and nothing is compiled or
+bundled. Two constraints follow from type stripping:
+
+- **Erasable syntax only.** No `enum`, no `namespace`, no parameter properties.
+  `tsconfig.json` sets `erasableSyntaxOnly` so the checker rejects these rather
+  than the runtime.
+- **Import specifiers name the real file.** A converted module is imported as
+  `./crypto.ts`, not `./crypto.js`. Mixed `.mjs` importing `.ts` is fine, so the
+  conversion can proceed one file at a time.
+
+Converted so far: `store.ts`, `dns.ts`, `domains.ts`, `crypto.ts`. Type-only
+imports must use `import type`, so they are erased and never resolved at run
+time.
+
+The rest of the code stays plain JavaScript and runs unbuilt, but it is
+type-checked. Shared
 shapes live in `types.d.ts` and are referenced from JSDoc, so a drift in a record
 shape is a type error rather than a runtime surprise:
 

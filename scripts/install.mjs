@@ -72,7 +72,7 @@ async function main() {
     await run("npm", ["ci", "--omit=dev"], { cwd: path.join(ROOT, "server") });
     log("server dependencies installed ✓");
   });
-  const crypto = await import("../server/crypto.mjs");
+  const crypto = await import("../server/crypto.ts");
 
   // ---- 3. identity -----------------------------------------------------------------
   await ui.step(3, TOTAL, "Your identity");

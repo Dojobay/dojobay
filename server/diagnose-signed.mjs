@@ -19,8 +19,8 @@
 // Run on the box:  cd /var/www/dojobay/server && node diagnose-signed.mjs
 // Add --all to include records that already pass.
 // =============================================================================
-import { store } from "./store.mjs";
-import { parseSignedBlock, verifySignedPayload, notificationAddresses } from "./crypto.mjs";
+import { store } from "./store.ts";
+import { parseSignedBlock, verifySignedPayload, notificationAddresses } from "./crypto.ts";
 import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
 import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";

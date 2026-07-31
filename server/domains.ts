@@ -24,8 +24,27 @@
 // lookalike domain verifies exactly as easily as a real one. Hence admin
 // revocation, and punycode display for anything non-ASCII.
 // =============================================================================
-import { claimText, verifySignedUrlClaim } from "./crypto.mjs";
-import { txtRecordAgreed } from "./dns.mjs";
+import { claimText, verifySignedUrlClaim } from "./crypto.ts";
+import { txtRecordAgreed } from "./dns.ts";
+import type { TxtAgreement } from "./dns.ts";
+import type { DomainClaim, ProbeCfg } from "../types.js";
+
+type LookupCfg = Partial<ProbeCfg>;
+
+/** A normalised domain, or the reason the input could not be one. */
+export type NormalisedDomain =
+  | { ok: true; domain: string; punycode: boolean; error?: undefined }
+  | { ok: false; error: string; domain?: undefined; punycode?: undefined };
+
+export interface ClaimVerification {
+  ok: boolean;
+  stage?: "signature" | "dns";
+  error?: string;
+  hint?: string | null;
+  inconclusive?: boolean;
+  agreed?: number;
+  answered?: number;
+}
 
 export const TXT_PREFIX = "_dojobay";
 export const CLAIM_VERSION = "dojobay-domain-v1";
@@ -35,12 +54,12 @@ export const GRACE_DAYS = +(process.env.DOMAIN_GRACE_DAYS || 7);
 // Accept "example.com", "example.com/", "https://example.com" or a full URL and
 // reduce it to the bare ASCII host. Rejects anything that cannot be a public
 // domain an operator could publish a TXT record on.
-export function normaliseDomain(input) {
+export function normaliseDomain(input: unknown): NormalisedDomain {
   let raw = String(input || "").trim().toLowerCase();
   if (!raw) return { ok: false, error: "enter a domain" };
   if (raw.includes(" ")) return { ok: false, error: "a domain cannot contain spaces" };
   if (!/^[a-z][a-z0-9+.-]*:\/\//.test(raw)) raw = "https://" + raw;
-  let u;
+  let u: URL;
   try { u = new URL(raw); } catch { return { ok: false, error: "that is not a valid domain" }; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, error: "use a plain domain, not a " + u.protocol.replace(":", "") + " URL" };
   if (u.username || u.password) return { ok: false, error: "a domain cannot contain a username or password" };
@@ -57,13 +76,13 @@ export function normaliseDomain(input) {
   return { ok: true, domain: host, punycode: /[^\x00-\x7F]/.test(String(input)) || host.includes("xn--") };
 }
 
-export const txtName = (domain) => `${TXT_PREFIX}.${domain}`;
-export const txtValue = (paymentCode) => `${CLAIM_VERSION} pm=${paymentCode}`;
-export const signingText = (domain, paymentCode) => claimText(`https://${domain}`, paymentCode);
+export const txtName = (domain: string): string => `${TXT_PREFIX}.${domain}`;
+export const txtValue = (paymentCode: string): string => `${CLAIM_VERSION} pm=${paymentCode}`;
+export const signingText = (domain: string, paymentCode: string): string => claimText(`https://${domain}`, paymentCode);
 
 // Does a TXT record claim this payment code? Tolerant of extra whitespace and
 // of the record being wrapped in quotes by a DNS UI, strict about the code.
-export function txtMatches(record, paymentCode) {
+export function txtMatches(record: unknown, paymentCode: string): boolean {
   const r = String(record || "").trim().replace(/^"|"$/g, "").replace(/\s+/g, " ");
   if (!r.startsWith(CLAIM_VERSION)) return false;
   const m = r.match(/\bpm=(PM8T[1-9A-HJ-NP-Za-km-z]+)/);
@@ -72,7 +91,10 @@ export function txtMatches(record, paymentCode) {
 
 // Full verification: the signature first (cheap, local, and the operator's most
 // likely mistake), then DNS (slow, over Tor).
-export async function verifyClaim({ domain, paymentCode, signed }, cfg = {}) {
+export async function verifyClaim(
+  { domain, paymentCode, signed }: { domain: string; paymentCode: string; signed: string },
+  cfg: LookupCfg = {},
+): Promise<ClaimVerification> {
   const sig = verifySignedUrlClaim({ signed, expectedUrl: `https://${domain}`, paymentCode });
   if (!sig.ok) return { ok: false, stage: "signature", error: sig.error };
   const dns = await txtRecordAgreed(txtName(domain), (r) => txtMatches(r, paymentCode), cfg);
@@ -85,14 +107,14 @@ export async function verifyClaim({ domain, paymentCode, signed }, cfg = {}) {
 
 // DNS-only re-check for the periodic sweep: the signature is immutable once
 // accepted, so there is nothing to re-verify locally.
-export async function recheckClaim(claim, cfg = {}) {
+export async function recheckClaim(claim: DomainClaim, cfg: LookupCfg = {}): Promise<TxtAgreement> {
   return txtRecordAgreed(txtName(claim.domain), (r) => txtMatches(r, claim.paymentCode), cfg);
 }
 
 // Fold a re-check result into a claim, applying the grace period. Pure, so the
 // policy is testable without any network.
-export function applyRecheck(claim, result, now = Date.now()) {
-  const next = { ...claim, last_check: new Date(now).toISOString() };
+export function applyRecheck(claim: DomainClaim, result: TxtAgreement, now: number = Date.now()): DomainClaim {
+  const next: DomainClaim = { ...claim, last_check: new Date(now).toISOString() };
   if (result.inconclusive) {
     // Could not tell. Change nothing except the timestamp, and say so.
     next.last_result = "inconclusive: " + (result.error || "no detail");
@@ -112,15 +134,15 @@ export function applyRecheck(claim, result, now = Date.now()) {
   return next;
 }
 
-export const isDue = (claim, now = Date.now()) =>
+export const isDue = (claim: DomainClaim, now: number = Date.now()): boolean =>
   !claim.last_check || (now - Date.parse(claim.last_check)) >= RECHECK_MS;
 
 // A URL is publishable as a card link only if it sits on the operator's verified
 // domain (the domain itself or a subdomain of it). This is what stops a card
 // carrying an unverifiable social profile while keeping "link to my own site".
-export function urlOnDomain(url, domain) {
+export function urlOnDomain(url: unknown, domain: string | null | undefined): boolean {
   if (!url || !domain) return false;
-  let u;
+  let u: URL;
   try { u = new URL(String(url)); } catch { return false; }
   if (u.protocol !== "https:" && u.protocol !== "http:") return false;
   const h = u.hostname.toLowerCase();

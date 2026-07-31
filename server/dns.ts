@@ -21,9 +21,30 @@
 // =============================================================================
 import tls from "node:tls";
 import { socks5Connect } from "../scripts/update.mjs";
+import type { ProbeCfg } from "../types.js";
+
+/** Transport settings a lookup needs; the caller may supply a subset. */
+type LookupCfg = Partial<ProbeCfg>;
+
+interface ResolverAnswer { host: string; records: string[] }
+export interface TxtLookup {
+  records: string[];
+  answered: number;
+  byResolver: ResolverAnswer[];
+  errors: string[];
+}
+export interface TxtAgreement {
+  ok: boolean;
+  /** True when too few resolvers replied to draw any conclusion. */
+  inconclusive: boolean;
+  /** Absent when the lookup threw before any resolver could be counted. */
+  answered?: number;
+  agreed?: number;
+  error?: string;
+}
 
 // Resolvers use different JSON paths but the same response shape.
-const RESOLVERS = [
+const RESOLVERS: { host: string; path: string }[] = [
   { host: "cloudflare-dns.com", path: "/dns-query" },
   { host: "dns.quad9.net", path: "/dns-query" },
   { host: "dns.google", path: "/resolve" },
@@ -32,7 +53,7 @@ const RESOLVERS = [
 export const DOH_AGREEMENT = Math.max(1, +(process.env.DOH_AGREEMENT || 2));
 const MAX_BODY = 64 * 1024;              // a TXT answer is tiny; cap the read
 
-function resolverList() {
+function resolverList(): { host: string; path: string }[] {
   const only = (process.env.DOH_RESOLVERS || "").trim();
   if (!only) return RESOLVERS;
   const wanted = only.split(",").map((s) => s.trim()).filter(Boolean);
@@ -42,26 +63,26 @@ function resolverList() {
 // One HTTPS GET through the Tor SOCKS proxy, returning the response body as
 // text. Deliberately minimal: no redirects (a resolver that redirects is not
 // one we want), and a hard body cap.
-/** @param {string} host @param {string} path @param {Partial<import("../types.js").ProbeCfg>} cfg */
-async function httpsGetOverTor(host, path, { proxyHost, proxyPort, timeoutMs = 20000 }) {
+async function httpsGetOverTor(host: string, path: string,
+    { proxyHost, proxyPort, timeoutMs = 20000 }: LookupCfg): Promise<string> {
   const raw = await socks5Connect(proxyHost, proxyPort, host, 443, timeoutMs);
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let done = false;
-    const finish = (fn, arg) => { if (!done) { done = true; clearTimeout(timer); try { socket.destroy(); } catch {} fn(arg); } };
+    const finish = (fn: (a?: any) => void, arg?: any) => { if (!done) { done = true; clearTimeout(timer); try { socket.destroy(); } catch {} fn(arg); } };
     const timer = setTimeout(() => finish(reject, new Error("timeout")), timeoutMs);
     const socket = tls.connect({ socket: raw, servername: host }, () => {
       socket.write(
         `GET ${path} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: dojobay-domain-check\r\n` +
         `Accept: application/dns-json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
     });
-    const chunks = [];
+    const chunks: Buffer[] = [];
     let size = 0;
-    socket.on("data", (d) => {
+    socket.on("data", (d: Buffer) => {
       size += d.length;
       if (size > MAX_BODY) return finish(reject, new Error("response too large"));
       chunks.push(d);
     });
-    socket.on("error", (e) => finish(reject, e));
+    socket.on("error", (e: Error) => finish(reject, e));
     socket.on("close", () => {
       if (done) return;
       try {
@@ -74,7 +95,7 @@ async function httpsGetOverTor(host, path, { proxyHost, proxyPort, timeoutMs = 2
         if (+m[1] !== 200) return finish(reject, new Error("HTTP " + m[1]));
         let body = all.subarray(headEnd + 4);
         if (/transfer-encoding:\s*chunked/i.test(headText)) {
-          const parts = []; let p = 0;
+          const parts: Buffer[] = []; let p = 0;
           for (;;) {
             const nl = body.indexOf("\r\n", p);
             if (nl < 0) break;
@@ -93,26 +114,25 @@ async function httpsGetOverTor(host, path, { proxyHost, proxyPort, timeoutMs = 2
 
 // A DoH JSON answer gives TXT data as a quoted string, and a long record as
 // several quoted strings that must be concatenated. Normalise both to one line.
-export function parseTxtAnswer(json) {
-  let doc;
+export function parseTxtAnswer(json: string): string[] | null {
+  let doc: any;
   try { doc = JSON.parse(json); } catch { return null; }
   if (typeof doc !== "object" || doc === null) return null;
   if (doc.Status === 3) return [];                      // NXDOMAIN: no records
   if (doc.Status !== 0) return null;                    // SERVFAIL etc: no answer
   const answers = Array.isArray(doc.Answer) ? doc.Answer : [];
   return answers
-    .filter((a) => a && (a.type === 16 || a.type === undefined))
-    .map((a) => String(a.data || ""))
-    .map((d) => (d.includes('"') ? (d.match(/"([^"]*)"/g) || []).map((s) => s.slice(1, -1)).join("") : d))
-    .map((d) => d.trim())
+    .filter((a: any) => a && (a.type === 16 || a.type === undefined))
+    .map((a: any) => String(a.data || ""))
+    .map((d: string) => (d.includes('"') ? (d.match(/"([^"]*)"/g) || []).map((s) => s.slice(1, -1)).join("") : d))
+    .map((d: string) => d.trim())
     .filter(Boolean);
 }
 
 // Look up TXT records for `name` across the resolvers. Returns
 // { records, answered, byResolver, errors } where `records` is the set of
 // records seen and `answered` counts resolvers that gave a usable answer.
-/** @param {string} name @param {Partial<import("../types.js").ProbeCfg>} [cfg] */
-export async function lookupTxt(name, cfg = {}) {
+export async function lookupTxt(name: string, cfg: LookupCfg = {}): Promise<TxtLookup> {
   const resolvers = resolverList();
   const q = `?name=${encodeURIComponent(name)}&type=TXT`;
   const results = await Promise.allSettled(resolvers.map(async (r) => {
@@ -121,8 +141,8 @@ export async function lookupTxt(name, cfg = {}) {
     if (recs === null) throw new Error("resolver returned no usable answer");
     return { host: r.host, records: recs };
   }));
-  const byResolver = [];
-  const errors = [];
+  const byResolver: ResolverAnswer[] = [];
+  const errors: string[] = [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];                       // a local, so the union narrows
     if (r.status === "fulfilled") byResolver.push(r.value);
@@ -134,8 +154,8 @@ export async function lookupTxt(name, cfg = {}) {
 
 // Do at least DOH_AGREEMENT resolvers see a record satisfying `predicate`?
 // Distinguishes "not there" from "we could not tell".
-/** @param {string} name @param {(r: string) => boolean} predicate @param {Partial<import("../types.js").ProbeCfg>} [cfg] */
-export async function txtRecordAgreed(name, predicate, cfg = {}) {
+export async function txtRecordAgreed(name: string, predicate: (r: string) => boolean,
+    cfg: LookupCfg = {}): Promise<TxtAgreement> {
   const { answered, byResolver, errors, records } = await lookupTxt(name, cfg);
   if (answered < DOH_AGREEMENT) {
     return { ok: false, inconclusive: true, answered, agreed: 0,

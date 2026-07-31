@@ -5,35 +5,49 @@ import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import type { StoreRecord, DomainClaim } from "../types.js";
+
+/** A short-lived, single-use Auth47 nonce. */
+export interface Nonce { expires: number; [k: string]: unknown }
+/** A signed-in operator's session, keyed by a random cookie id. */
+export interface Session { paymentCode: string; expires: number; [k: string]: unknown }
+
+interface StoreShape {
+  submissions: Record<string, StoreRecord>;
+  sessions: Record<string, Session>;
+  nonces: Record<string, Nonce>;
+  domains: Record<string, DomainClaim>;
+}
 
 const DIR = process.env.SERVER_DATA_DIR
   || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
 const FILE = path.join(DIR, "store.json");
 
-const EMPTY = { submissions: {}, sessions: {}, nonces: {}, domains: {} };
-let cache = null;
+const EMPTY: StoreShape = { submissions: {}, sessions: {}, nonces: {}, domains: {} };
+let cache: StoreShape | null = null;
 
 // A submission's ownership is a paymentCodes ARRAY, because one PayNym often
 // carries two BIP47 codes (segwit and legacy variants) and the wallet may sign
 // Auth47 with either. Records written before this schema carried a scalar
 // paymentCode; normalise those on read so old store files keep working.
-function normaliseSubmission(rec) {
+function normaliseSubmission<T>(rec: T): T {
   if (!rec || typeof rec !== "object") return rec;
-  if (!Array.isArray(rec.paymentCodes)) {
-    rec.paymentCodes = rec.paymentCode ? [rec.paymentCode] : [];
+  const r = rec as { paymentCodes?: unknown; paymentCode?: string };
+  if (!Array.isArray(r.paymentCodes)) {
+    r.paymentCodes = r.paymentCode ? [r.paymentCode] : [];
   }
-  rec.paymentCodes = [...new Set(rec.paymentCodes.filter((c) => typeof c === "string" && c))];
-  delete rec.paymentCode;
+  r.paymentCodes = [...new Set((r.paymentCodes as unknown[]).filter((c): c is string => typeof c === "string" && !!c))];
+  delete r.paymentCode;
   return rec;
 }
 
-async function load() {
+async function load(): Promise<StoreShape> {
   if (cache) return cache;
   await mkdir(DIR, { recursive: true });
   try {
     cache = { ...EMPTY, ...JSON.parse(await readFile(FILE, "utf8")) };
   } catch (e) {
-    if (e.code !== "ENOENT") throw e;
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     cache = structuredClone(EMPTY);
   }
   for (const rec of Object.values(cache.submissions)) normaliseSubmission(rec);
@@ -51,14 +65,14 @@ export const store = {
   async save() { await persist(); },
 
   // --- nonces (single-use, short lived) ---
-  async putNonce(nonce, data) { (await load()).nonces[nonce] = data; await persist(); },
-  async takeNonce(nonce) {
+  async putNonce(nonce: string, data: Nonce) { (await load()).nonces[nonce] = data; await persist(); },
+  async takeNonce(nonce: string): Promise<Nonce | null> {
     const s = await load();
     const n = s.nonces[nonce];
     if (n) { delete s.nonces[nonce]; await persist(); }
     return n || null;
   },
-  async gcNonces(now = Date.now()) {
+  async gcNonces(now: number = Date.now()) {
     const s = await load();
     let changed = false;
     for (const [k, v] of Object.entries(s.nonces)) {
@@ -68,14 +82,14 @@ export const store = {
   },
 
   // --- sessions ---
-  async putSession(data) {
+  async putSession(data: Session): Promise<string> {
     const s = await load();
     const id = randomBytes(32).toString("hex");
     s.sessions[id] = data;
     await persist();
     return id;
   },
-  async getSession(id) {
+  async getSession(id: string | null | undefined): Promise<Session | null> {
     if (!id) return null;
     const s = await load();
     const sess = s.sessions[id];
@@ -83,28 +97,28 @@ export const store = {
     if (sess.expires < Date.now()) { delete s.sessions[id]; await persist(); return null; }
     return sess;
   },
-  async dropSession(id) {
+  async dropSession(id: string) {
     const s = await load();
     if (s.sessions[id]) { delete s.sessions[id]; await persist(); }
   },
 
   // --- submissions (keyed by network + name slug; owned by paymentCodes[]) ---
-  async listSubmissions() { return Object.values((await load()).submissions); },
-  async submissionsFor(paymentCode) {
+  async listSubmissions(): Promise<StoreRecord[]> { return Object.values((await load()).submissions); },
+  async submissionsFor(paymentCode: string): Promise<StoreRecord[]> {
     return Object.values((await load()).submissions)
       .filter((r) => Array.isArray(r.paymentCodes) && r.paymentCodes.includes(paymentCode));
   },
-  async putSubmission(rec) {
+  async putSubmission(rec: StoreRecord): Promise<StoreRecord> {
     const s = await load();
     s.submissions[rec.id] = normaliseSubmission(rec);
     await persist();
     return rec;
   },
-  async getSubmission(id) {
+  async getSubmission(id: string): Promise<StoreRecord | null> {
     const rec = (await load()).submissions[id] || null;
     return rec ? normaliseSubmission(rec) : null;
   },
-  async deleteSubmission(id) {
+  async deleteSubmission(id: string) {
     const s = await load();
     if (s.submissions[id]) { delete s.submissions[id]; await persist(); }
   },
@@ -112,22 +126,22 @@ export const store = {
   // --- verified operator domains (keyed by payment code) ---------------------
   // One claim per code. A record is kept even after it stops verifying, so
   // restoring the TXT record restores the badge without a fresh signature.
-  async listDomains() { return Object.values((await load()).domains || {}); },
-  async getDomain(paymentCode) { return ((await load()).domains || {})[paymentCode] || null; },
-  async putDomain(claim) {
+  async listDomains(): Promise<DomainClaim[]> { return Object.values((await load()).domains || {}); },
+  async getDomain(paymentCode: string): Promise<DomainClaim | null> { return ((await load()).domains || {})[paymentCode] || null; },
+  async putDomain(claim: DomainClaim): Promise<DomainClaim> {
     const s = await load();
     s.domains = s.domains || {};
     s.domains[claim.paymentCode] = claim;
     await persist();
     return claim;
   },
-  async deleteDomain(paymentCode) {
+  async deleteDomain(paymentCode: string) {
     const s = await load();
     if (s.domains && s.domains[paymentCode]) { delete s.domains[paymentCode]; await persist(); }
   },
   // Every verified domain, as a payment code -> domain map, for the rebuild.
-  async verifiedDomainMap() {
-    const out = new Map();
+  async verifiedDomainMap(): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
     for (const c of Object.values((await load()).domains || {})) {
       if (c && c.verified && c.domain) out.set(c.paymentCode, c.domain);
     }

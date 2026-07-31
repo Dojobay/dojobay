@@ -26,8 +26,8 @@
 // Exits non-zero if anything is FAILED or ERROR, so it can back a cron check.
 // UNSIGNED alone does not fail the run: those are for a per-record decision.
 // =============================================================================
-import { store } from "./store.mjs";
-import { verifySignedPayload, notificationAddresses } from "./crypto.mjs";
+import { store } from "./store.ts";
+import { verifySignedPayload, notificationAddresses } from "./crypto.ts";
 
 const networkOf = (rec) => (rec.network === "testnet" ? "testnet" : "bitcoin");
 const canonicalPairing = (payload) =>

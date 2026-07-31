@@ -5,7 +5,7 @@
 //   node admin.mjs reject  <id>            reject a submission
 //   node admin.mjs remove  <id>            delete a submission outright
 // After approving/rejecting, run build-public.mjs to regenerate the public list.
-import { store } from "./store.mjs";
+import { store } from "./store.ts";
 import { resolvePayNym } from "./paynym.mjs";
 
 const [cmd, id, extra] = process.argv.slice(2);

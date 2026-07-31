@@ -32,7 +32,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { store } from "../server/store.mjs";
+import { store } from "../server/store.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");

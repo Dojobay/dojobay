@@ -8,7 +8,7 @@
 //
 // Trust is verified before anything is imported: the remote instance's
 // data/operator.json must bind that onion to exactly the payment code YOU
-// typed in, under a valid wallet signature (server/crypto.mjs). If the
+// typed in, under a valid wallet signature (server/crypto.ts). If the
 // signature does not verify, or binds a different onion or code, nothing is
 // fetched further. After that: dojos.json supplies the nodes, both history
 // files supply the record, and each PayNym is resolved against paynym.rs
@@ -19,7 +19,7 @@ import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { httpOverTor } from "./update.mjs";
-import { store } from "../server/store.mjs";
+import { store } from "../server/store.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
@@ -62,7 +62,7 @@ export async function bootstrapImport({
 
   // 1) trust gate: the remote operator binding must verify for THIS onion and
   //    exactly the payment code the operator typed in.
-  const { verifyOperatorDoc } = await import("../server/crypto.mjs");
+  const { verifyOperatorDoc } = await import("../server/crypto.ts");
   const opDoc = await fetchDoc("/data/operator.json");
   const v = verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });
   if (!v.ok) throw new Error(`refusing to import: remote operator binding does not verify (${v.error})`);

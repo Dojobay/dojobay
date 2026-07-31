@@ -13,8 +13,8 @@ import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
-import { store } from "./store.mjs";
-import { urlOnDomain } from "./domains.mjs";
+import { store } from "./store.ts";
+import { urlOnDomain } from "./domains.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -151,7 +151,7 @@ export async function rebuild() {
       console.error("[rebuild] REQUIRED: data/operator.json is missing. Sign your onion URL with your wallet and install the binding (the installer does this); see README.");
     } else {
       try {
-        const { verifyOperatorDoc } = await import("./crypto.mjs");
+        const { verifyOperatorDoc } = await import("./crypto.ts");
         const v = verifyOperatorDoc(opDoc);
         if (!v.ok) console.error(`[rebuild] REQUIRED: data/operator.json does not verify: ${v.error}`);
       } catch { console.error("[rebuild] note: cannot verify operator.json (server dependencies not installed)."); }

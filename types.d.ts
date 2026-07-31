@@ -54,19 +54,26 @@ export interface StoreRecord {
   id: string;
   network: "mainnet" | "testnet";
   name: string;
-  name_url: string | null;
   /** Moderation state; ids are immutable so history survives a rename. */
   status: "pending" | "approved" | "rejected";
-  paynym: string | null;
   /** A PayNym usually has two BIP47 variants; either may have signed. */
   paymentCodes: string[];
-  jurisdiction: string | null;
-  country: string | null;
-  hardware: string | null;
   payload: PairingPayload;
-  signed: string | null;
+  // Everything below is genuinely optional: records written by different paths
+  // (submission, migration, bootstrap import) carry different subsets, and an
+  // absent field and an explicit null both occur in the live store.
+  name_url?: string | null;
+  paynym?: string | null;
+  jurisdiction?: string | null;
+  country?: string | null;
+  hardware?: string | null;
+  signed?: string | null;
+  /** The probe result recorded when the submission was accepted. */
+  last_probe?: ProbeResult;
   created_at?: string;
   updated_at?: string;
+  /** Provenance when the record arrived via scripts/bootstrap-import. */
+  source?: string;
 }
 
 /** A verified operator domain, keyed by payment code. */

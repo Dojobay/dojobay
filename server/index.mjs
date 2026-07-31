@@ -12,14 +12,14 @@
 // Runs behind nginx on 127.0.0.1. No passwords, no external database.
 import http from "node:http";
 import { randomBytes } from "node:crypto";
-import { store } from "./store.mjs";
-import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto.mjs";
+import { store } from "./store.ts";
+import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import {
   normaliseDomain, txtName, txtValue, signingText, verifyClaim,
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
-} from "./domains.mjs";
+} from "./domains.ts";
 import { resolvePayNym } from "./paynym.mjs";
 import { rebuild } from "./build-public.mjs";
 import { readFile } from "node:fs/promises";
@@ -330,6 +330,7 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
 
+  /** @type {"mainnet" | "testnet" | null} */
   const network = body.network === "testnet" ? "testnet" : (body.network === "mainnet" ? "mainnet" : null);
   if (!network) return json(res, 400, { error: "network must be mainnet or testnet" });
 
@@ -380,6 +381,7 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   // Resolve the registered PayNym from paynym.rs (best-effort, over Tor). Keep a
   // previously resolved value if the lookup is momentarily unavailable.
   const resolvedNym = await resolvePayNym(s.paymentCode).catch(() => null);
+  /** @type {import("../types.js").StoreRecord} */
   const rec = {
     id, network, name,
     // Union with any codes already on the record, so a record migrated with

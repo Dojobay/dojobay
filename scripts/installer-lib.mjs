@@ -29,7 +29,7 @@ export function parsePairing(text) {
 }
 
 // The exact text the operator signs in the wallet: onion URL, blank line,
-// BIP47 line. This whole text is inside the signature (see crypto.mjs).
+// BIP47 line. This whole text is inside the signature (see crypto.ts).
 export const operatorMessage = (onionHost, paymentCode) =>
   `http://${onionHost}/\n\nBIP47: ${paymentCode}`;
 

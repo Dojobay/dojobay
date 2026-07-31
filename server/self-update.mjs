@@ -79,7 +79,11 @@ const cfgFrom = (o) => ({ proxyHost: o.proxyHost || "127.0.0.1", proxyPort: o.pr
 
 // A peer Dojo Bay serves its own code at /data/dojobay-src.zip. Verify who runs
 // it before trusting a byte, exactly like bootstrap-import.
-export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = () => {}, fetchDoc, fetchZip }) {
+/**
+ * @param {{ onionHost: string, trustedCode: string, cfg?: any,
+ *   log?: (msg: string) => void, fetchDoc?: any, fetchZip?: any }} args
+ */
+export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = (/** @type {string} */ _msg) => {}, fetchDoc, fetchZip }) {
   const c = cfgFrom(cfg || {});
   fetchDoc = fetchDoc || (async (p) => {
     const res = await httpOverTor(c, onionHost, 80, `GET ${p} HTTP/1.0\r\nHost: ${onionHost}\r\nConnection: close\r\n\r\n`, 30000);
@@ -106,7 +110,11 @@ export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = () => {
 
 // GitHub's zipball for a ref, over Tor. The archive nests under a generated
 // "<owner>-<repo>-<sha>/" folder, which stripTopLevel handles the same way.
-export async function fetchFromGitHub({ repo = "Dojobay/dojobay", ref = "main", cfg, log = () => {}, transport } = {}) {
+/**
+ * @param {{ repo?: string, ref?: string, cfg?: any,
+ *   log?: (msg: string) => void, transport?: any }} [args]
+ */
+export async function fetchFromGitHub({ repo = "Dojobay/dojobay", ref = "main", cfg, log = (/** @type {string} */ _msg) => {}, transport } = {}) {
   const c = cfgFrom(cfg || {});
   transport = transport || githubGet;
   log("resolving latest commit…");
@@ -124,7 +132,11 @@ export async function fetchFromGitHub({ repo = "Dojobay/dojobay", ref = "main", 
 // Stages the new tree next to the web root, backs up the current one, then
 // spawns a detached helper that swaps and restarts. Returns before the swap so
 // the caller can reply "restarting" to the browser.
-export async function applyUpdate({ bytes, sourceLabel, version, webRoot = ROOT, log = () => {}, spawnHelper = true } = {}) {
+/**
+ * @param {{ bytes?: Buffer, sourceLabel?: string, version?: any, webRoot?: string,
+ *   log?: (msg: string) => void, spawnHelper?: boolean }} [args]
+ */
+export async function applyUpdate({ bytes, sourceLabel, version, webRoot = ROOT, log = (/** @type {string} */ _msg) => {}, spawnHelper = true } = {}) {
   log("verifying archive…");
   const entries = stripTopLevel(unzip(bytes));
   if (!entries.some((e) => e.rel === "server/index.mjs") || !entries.some((e) => e.rel === "assets/js/app.js")) {

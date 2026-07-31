@@ -147,6 +147,23 @@ a BIP47 payment code — ownership, Auth47 sign-in and the card chip key on it
 records exist only as grandfathered, `/admin`-managed exceptions and cannot
 be newly created.
 
+## Type checking
+
+The code stays plain JavaScript and runs unbuilt, but it is type-checked. Shared
+shapes live in `types.d.ts` and are referenced from JSDoc, so a drift in a record
+shape is a type error rather than a runtime surprise:
+
+```
+npm install          # once, at the repo root: typescript + @types/node
+npm run typecheck    # must exit 0
+```
+
+TypeScript is a root devDependency only. The deploy runs `npm ci` inside
+`server/` alone, so it is never installed on an instance, and nothing here is
+compiled or shipped. Run it alongside the three suites before committing; it
+catches a class of bug the tests do not, and has already found a stale call site
+and an unchecked Auth47 proof shape.
+
 ## Maintenance scripts
 
 Three read-mostly tools live in `server/` and are run on the instance, not in

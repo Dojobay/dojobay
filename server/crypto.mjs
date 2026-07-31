@@ -34,7 +34,15 @@ export function makeAuth47(baseUrl) {
   function verify(proof) {
     const res = verifier.verifyProof(proof);
     if (res.result !== "ok") return { ok: false, error: res.error };
-    return { ok: true, paymentCode: res.data.nym };
+    // Auth47 defines two proof shapes: a nym proof carrying a payment code, and
+    // an address proof carrying a plain address. Only the former identifies an
+    // operator here, and reading .nym off the wrong one would bind a session to
+    // undefined, so require it explicitly rather than assuming.
+    const nym = /** @type {{ nym?: string }} */ (res.data).nym;
+    if (typeof nym !== "string" || !nym) {
+      return { ok: false, error: "proof does not carry a payment code (an address proof cannot identify an operator)" };
+    }
+    return { ok: true, paymentCode: nym };
   }
 
   return { challengeURI, signedForm, verify, callback };
@@ -127,6 +135,10 @@ function stableStringify(v) {
   return JSON.stringify(v) ?? "null";
 }
 
+/**
+ * @param {{ signedText: string, expectedMessage?: string|null,
+ *   expectedAddress?: string|string[]|null, network?: string }} args
+ */
 export function verifySignedPayload({ signedText, expectedMessage, expectedAddress, network = "bitcoin" }) {
   const parsed = parseSignedBlock(signedText);
   if (!parsed) return { ok: false, error: "unrecognised signed message format" };
@@ -171,6 +183,61 @@ export function verifySignedPayload({ signedText, expectedMessage, expectedAddre
 // the operator pastes the whole text into the wallet's Sign tool). Verified at
 // install, at bootstrap import before trusting a remote instance's data, and
 // on every rebuild.
+// ---- signed URL claims -----------------------------------------------------
+// A verified operator domain is proven the same way the instance's own onion is:
+// the operator signs the URL, a blank line, then "BIP47: <their code>". Same
+// shape, same wallet procedure (PayNym → Sign message), so nothing new to learn
+// and no new crypto. This is deliberately a separate field from the pairing
+// payload: the pairing block attests to pairing data only, and operators
+// stuffing identity material into it is exactly what this feature replaces.
+export function claimText(url, paymentCode) {
+  return `${String(url).replace(/\/+$/, "")}/\n\nBIP47: ${paymentCode}`;
+}
+
+// Verify a signed claim over `expectedUrl` by `paymentCode`. Returns
+// { ok } or { ok: false, error } with errors an operator can act on.
+export function verifySignedUrlClaim({ signed, expectedUrl, paymentCode }) {
+  if (!signed) return { ok: false, error: "no signed block supplied" };
+  if (!paymentCode) return { ok: false, error: "no payment code supplied" };
+  const t = String(signed).replace(/\r\n/g, "\n");
+  const msgM = t.match(/BEGIN BITCOIN SIGNED MESSAGE-----[ \t]*\n?([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
+  const addrM = t.match(/Address:\s*(\S+)/);
+  const sigM = t.match(/\n([A-Za-z0-9+\/=]{80,})\n*-----END BITCOIN SIGNATURE/);
+  if (!msgM || !addrM || !sigM) {
+    const missing = [
+      !msgM && "the BEGIN BITCOIN SIGNED MESSAGE section",
+      !addrM && "the Address: line",
+      !sigM && "the signature line before END BITCOIN SIGNATURE",
+    ].filter(Boolean).join(", ");
+    return { ok: false, error: `not a recognisable signed block (missing ${missing}) — the paste may have been truncated` };
+  }
+  const signedMessage = msgM[1].replace(/\n+$/, "");
+  const norm = (u) => String(u || "").trim().replace(/\/+$/, "").toLowerCase();
+  const firstLine = signedMessage.split("\n")[0].trim();
+  if (norm(firstLine) !== norm(expectedUrl)) {
+    return { ok: false, error: `the signed message starts with ${firstLine || "(nothing)"}, but this claim is for ${expectedUrl}` };
+  }
+  const bipM = signedMessage.match(/BIP47:\s*(PM8T[1-9A-HJ-NP-Za-km-z]+)/);
+  if (!bipM) return { ok: false, error: "the signed message has no BIP47: line" };
+  if (bipM[1] !== paymentCode) {
+    return { ok: false, error: "the BIP47 line inside the signed message is a different payment code from the one you are signed in with" };
+  }
+  const accept = notificationAddresses(paymentCode);
+  if (!accept.includes(addrM[1].trim())) {
+    return { ok: false, error: `signed by ${addrM[1].trim()}, but your payment code's notification address is ${accept[0]} — sign under PayNym → Sign message, which uses your PayNym's notification address` };
+  }
+  const net = bip47utils.networks.bitcoin;
+  try {
+    if (!message.verify(signedMessage, addrM[1].trim(), sigM[1].trim(), net.messagePrefix)) {
+      return { ok: false, error: "invalid signature" };
+    }
+  } catch (e) {
+    return { ok: false, error: "signature could not be verified (" + e.message + ")" };
+  }
+  return { ok: true, address: addrM[1].trim() };
+}
+
+/** @param {any} doc @param {{ expectedOnion?: string }} [opts] */
 export function verifyOperatorDoc(doc, { expectedOnion } = {}) {
   if (!doc || typeof doc !== "object") return { ok: false, error: "operator.json missing or unreadable" };
   if (!doc.paymentCode) return { ok: false, error: "operator.json has no paymentCode" };

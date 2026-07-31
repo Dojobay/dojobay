@@ -181,6 +181,40 @@ you provide one, must verify against your payment code's notification
 address. Approved listings appear with your PayNym; you can edit the display
 fields or remove the listing at any time with the same sign-in.
 
+## Verifying a domain you own
+
+Optional, and the only way to put a link on your card. An operator may prove
+control of one clearnet domain, which then appears as a `✓ example.com` badge on
+every card they run, and lets the card title link anywhere on that domain.
+Nothing else is linkable: this deliberately replaces a freeform URL field, so a
+card cannot carry an identity claim the directory has not tested. Identity
+material also does not belong in the signed pairing payload, which attests to
+pairing data only.
+
+Proof runs in both directions, so neither half is enough on its own. In
+**Manage my Dojo → Verified domain**, enter your domain and the panel shows you:
+
+1. A **TXT record** to publish, at `_dojobay.<your-domain>`, whose value is
+   `dojobay-domain-v1 pm=<your payment code>`. Publishing it requires control of
+   the domain.
+2. The **exact text to sign**, which is `https://<your-domain>/`, a blank line,
+   then `BIP47: <your payment code>`. Sign it under **PayNym → Sign message**,
+   the same procedure as everything else here, and paste the whole signed block
+   back. Producing it requires your PayNym's notification key.
+
+The instance reads the TXT record over Tor, through several independent
+DNS-over-HTTPS resolvers, and requires more than one to agree before the badge
+appears. If it cannot reach enough resolvers it says so rather than failing you.
+
+The signature never expires; the TXT record is the revocable half. Remove the
+record and the badge disappears after a grace period, while your claim is kept,
+so restoring the record restores the badge without signing anything again. A
+domain that changes hands therefore stops being claimable by its previous owner.
+
+A badge attests that the operator **controls that domain**, and nothing more. It
+is not a statement that they are trustworthy, a lookalike domain can be verified
+just as easily as a well-known one, and a maintainer can revoke any badge.
+
 ## Verifying a directory
 
 Any Dojo Bay instance can be verified against its operator: the **Verify**

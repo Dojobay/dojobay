@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 import { store } from "./store.mjs";
+import { urlOnDomain } from "./domains.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -94,6 +95,7 @@ function toPublicNode(sub, paymentCode) {
     version: sub.payload?.pairing?.version || null,
     detected_version: null,
     detected_indexer: null,
+    operator_domain: null,
     indexer_url: declaredIndexer(sub.payload),
     checked_at: null,
     payload: sub.payload,
@@ -185,6 +187,12 @@ export async function rebuild() {
   for (const n of (seed.nodes || [])) pairingById.set(n.id, n.payload?.pairing?.version || null);
   for (const s of approvedSubs) pairingById.set(s.id, s.payload?.pairing?.version || null);
 
+  // Owner payment codes per node, for the verified-domain lookup below. The seed
+  // anchor carries a single paymentCode; store records carry paymentCodes[].
+  const ownerCodesById = new Map();
+  for (const n of (seed.nodes || [])) ownerCodesById.set(n.id, n.paymentCode ? [n.paymentCode] : []);
+  for (const sub of approvedSubs) ownerCodesById.set(sub.id, sub.paymentCodes || []);
+
   // Indexer URL declared in the payload, the fallback until a probe reads one.
   const declaredIdxById = new Map();
   for (const n of (seed.nodes || [])) declaredIdxById.set(n.id, declaredIndexer(n.payload));
@@ -197,6 +205,18 @@ export async function rebuild() {
   // Pending-probe results (updater-owned): seed a just-approved node's status
   // and height from what was observed while it was pending.
   const pending = await readJSON(PENDING_PROBE, { nodes: {} });
+  // Verified operator domains: published per node so the card can show the badge
+  // without another lookup, and used to filter the card-title link. A link that
+  // is not on the operator's verified domain is withheld rather than deleted, so
+  // an operator who verifies later gets their link back untouched.
+  const domainByCode = await store.verifiedDomainMap();
+  for (const n of nodes) {
+    const codes = ownerCodesById.get(n.id) || [];
+    const domain = codes.map((c) => domainByCode.get(c)).find(Boolean) || null;
+    n.operator_domain = domain;
+    if (n.name_url && !urlOnDomain(n.name_url, domain)) n.name_url = null;
+  }
+
   for (const n of nodes) {
     const p = priorById.get(n.id);
     const pr = (!p && approvedIds.has(n.id)) ? pending.nodes?.[n.id] : null;

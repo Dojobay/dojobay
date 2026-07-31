@@ -34,6 +34,7 @@ const DOJOS = {
       paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
       indexer_url: "tcp://" + "i".repeat(56) + ".onion:50001",
+      operator_domain: "example.org",
       payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "a".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-freshnode", network: "mainnet", name: "freshnode", paynym: "+fresh",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
@@ -103,6 +104,7 @@ window.fetch = async (url, opts) => {
     /operator\.json/.test(url) ? { onion: "http://x.onion/", paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9", verifySigned: "-----BEGIN..." } :
     /\/api\/admin\/updates/.test(url) ? { available: true, commit: "abc1234", built: "2026-01-01", commits_behind: 3, status: "behind", latest_release: "v0.1", releases_behind: 1 } :
     /\/api\/me/.test(url) ? (meCalls++, ME) :
+    /\/api\/domain$/.test(url) ? { claim: { domain: "example.org", verified: true, verified_at: "2026-07-01T00:00:00Z", last_check: "2026-07-20T00:00:00Z", last_result: "ok", failing_since: null, grace_days: 7 } } :
     null;
   if (body === null) return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}), text: async () => "" };
   return { ok: true, status: 200, headers: { get: () => null }, json: async () => body, text: async () => JSON.stringify(body) };
@@ -266,6 +268,20 @@ assert.ok(/^PM8TJ/.test(yCard.getAttribute("data-pc") || ""), "card carries its 
 assert.ok(!/loading="lazy"/.test(doc.documentElement.innerHTML), "the QR avatar is not lazily loaded");
 console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; N/A rows uniformly greyed out");
 
+// verified operator domain: a badge on the operator's card, linking to the
+// domain, and absent (not a placeholder) for an operator without one
+const vd = yCard.querySelector(".vdomain");
+assert.ok(vd, "verified domain badge renders when the node carries operator_domain");
+assert.strictEqual(vd.getAttribute("href"), "https://example.org", "badge links to the verified domain");
+assert.ok(/example\.org/.test(vd.textContent) && /✓/.test(vd.textContent), "badge shows a tick and the domain");
+assert.ok(/control of the domain, not that the operator is trustworthy/i.test(vd.getAttribute("title") || ""),
+  "badge wording is about control, not trustworthiness");
+assert.ok(vd.getAttribute("rel") === "noopener noreferrer" && vd.getAttribute("target") === "_blank",
+  "badge link does not leak a referrer");
+assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vdomain'),
+  "a node with no verified domain shows no badge at all");
+console.log("  ok - verified domain badge on the card, absent when unverified");
+
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 const ovBody = doc.getElementById("ov-body");
@@ -294,4 +310,4 @@ assert.ok(srcLink && srcLink.getAttribute("href") === "data/dojobay-src.zip", "s
 console.log("  ok - footer source-download icon links the instance's own code zip");
 
 
-console.log("\nall 16 front-end checks passed");
+console.log("\nall 17 front-end checks passed");

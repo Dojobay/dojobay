@@ -25,6 +25,11 @@ const API_HOST = "api.github.com";
 // both a text `body` and a raw `bodyBuf`, and follows GitHub's redirect from
 // api.github.com to codeload for zipball downloads (binary: true) up to a few
 // hops. Host is derived per hop so codeload.github.com is reached correctly.
+/**
+ * @param {string} apiPath
+ * @param {{ proxyHost?: string, proxyPort?: number, timeoutMs?: number,
+ *   binary?: boolean, _host?: string, _hops?: number }} [opts]
+ */
 export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 30000, binary = false, _host = API_HOST, _hops = 0 } = {}) {
   const raw = await socks5Connect(proxyHost, proxyPort, _host, 443, timeoutMs);
   const res = await new Promise((resolve, reject) => {

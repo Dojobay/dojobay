@@ -45,6 +45,10 @@ async function writeJSONAtomic(p, obj) {
 
 // fetchers are injectable for the self-test: fetchDoc(urlPath) -> object,
 // fetchCodes(paynymOrCode) -> [{code, segwit}, ...]
+/**
+ * @param {{ onionHost?: string, trustedCode?: string, dryRun?: boolean, dataDir?: string,
+ *   log?: (...a: any[]) => void, fetchDoc?: any, fetchCodes?: any }} [opts]
+ */
 export async function bootstrapImport({
   onionHost, trustedCode, dryRun = false, dataDir = DATA_DIR, log = console.error,
   fetchDoc, fetchCodes,

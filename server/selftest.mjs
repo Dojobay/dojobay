@@ -48,11 +48,11 @@ const proxy = net.createServer((s) => {
   });
   s.on("error", () => {});
 });
-await new Promise((r) => proxy.listen(19077, "127.0.0.1", r));
+await new Promise((r) => proxy.listen(19077, "127.0.0.1", () => r(null)));
 
 const { server } = await import("./index.mjs");
 await new Promise((r) => (server.listening ? r() : server.on("listening", r)));
-const base = "http://127.0.0.1:" + server.address().port;
+const base = "http://127.0.0.1:" + /** @type {import("node:net").AddressInfo} */ (server.address()).port;
 
 // --- simulated wallet ---
 const bip47 = BIP47Factory(ecc), msg = bitcoinMessageFactory(ecc), net47 = bip47utils.networks.bitcoin;
@@ -185,7 +185,7 @@ H6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLq
     });
     s.on("error", () => {});
   });
-  await new Promise((r) => down.listen(19078, "127.0.0.1", r));
+  await new Promise((r) => down.listen(19078, "127.0.0.1", () => r(null)));
   const { PROBE_CFG } = await import("./probe.mjs");
   PROBE_CFG.proxyPort = 19078;                 // live object, mutated in place
   const r = await api("/api/dojo", "POST", { network: "testnet", name: "selftest-node", payload, signed: null });
@@ -439,16 +439,32 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   // restore approved status (resubmission re-enters moderation)
   await api("/api/admin/approve", "POST", { id: "mainnet-selftest-node", paynym: "+testoperator" });
 
-  // name_url: set via edit, published, blank clears, invalid rejected
+  // name_url now requires a verified domain and must sit on it: this is what
+  // replaces a freeform link that could carry an unverifiable social profile.
+  const noDomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
+  ok(noDomain.status === 400 && /verify a domain first/.test(noDomain.body.error),
+     "a card link is refused until the operator has a verified domain");
+
+  // grant a verified domain directly in the store (the API path needs DNS)
+  const { store: st } = await import("./store.mjs");
+  await st.putDomain({ paymentCode, domain: "example.org", signed: "(test)",
+    verified: true, verified_at: new Date().toISOString(), last_check: new Date().toISOString(),
+    last_result: "ok", fail_since: null, created_at: new Date().toISOString() });
+
   const setUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
   const pubbed = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
     .nodes.find((n) => n.id === "mainnet-selftest-node");
+  const offDomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://x.com/someone" });
+  const subdomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://nodes.example.org/mine" });
   const badUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "javascript:alert(1)" });
   const clearUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "" });
   const cleared = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
   ok(setUrl.status === 200 && pubbed.name_url === "https://example.org/mynode"
+     && pubbed.operator_domain === "example.org"
+     && offDomain.status === 400 && /must be on example\.org/.test(offDomain.body.error)
+     && subdomain.status === 200
      && badUrl.status === 400 && clearUrl.status === 200 && cleared.name_url === null,
-     "name_url settable by the operator, published on the card, blank clears, non-http(s) rejected");
+     "card link accepted on the verified domain and its subdomains, refused off it, blank clears, non-http(s) rejected");
 
   // export endpoint: both windows merged, per-node filter, 404 on unknown
   const all = await api("/api/history/export");
@@ -478,7 +494,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
       ]) };
     return { status: 404, body: "{}" };
   };
-  const u = await checkUpdates({ transport });
+  const u = await checkUpdates({ transport: /** @type {any} */ (transport) });
   ok(u.commits_behind === 4 && u.releases_behind === 1 && u.latest_release === "v0.2" && u.commit === "abc1234",
      "update check: 4 commits behind, 1 release since build, latest v0.2");
 
@@ -731,6 +747,103 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(auditRecord({ ...rec("mainnet"), signed: null }).bucket === "UNSIGNED", "auditor reports an unsigned record");
   ok(auditRecord({ ...rec("mainnet"), payload: { ...payload, pairing: { ...payload.pairing, apikey: "changed" } } }).bucket === "FAILED",
      "auditor fails a record whose payload no longer matches what was signed");
+}
+
+// 24) verified operator domains: the pure parts (normalisation, the TXT record,
+//     the DoH answer shape and the grace policy), then the API path with DNS
+//     stubbed, since a self-test must not depend on the internet.
+{
+  const dom = await import("./domains.mjs");
+  const dns = await import("./dns.mjs");
+  const { store: st } = await import("./store.mjs");
+
+  // normalisation: accept what an operator is likely to type, reject the rest
+  ok(dom.normaliseDomain("Example.COM").domain === "example.com"
+     && dom.normaliseDomain("https://example.com/").domain === "example.com"
+     && dom.normaliseDomain(" https://sub.example.com/path?q=1 ").domain === "sub.example.com"
+     && dom.normaliseDomain("xn--bcher-kva.de").domain === "xn--bcher-kva.de",
+     "domain normalisation reduces what operators type to a bare ASCII host");
+  ok(!dom.normaliseDomain("").ok && !dom.normaliseDomain("localhost").ok
+     && !dom.normaliseDomain("192.168.0.1").ok && !dom.normaliseDomain("example.com:8080").ok
+     && !dom.normaliseDomain("abc.onion").ok && !dom.normaliseDomain("nodots").ok
+     && /onion address cannot be verified/.test(dom.normaliseDomain("abc.onion").error),
+     "domain normalisation refuses IPs, ports, localhost, bare labels and onions");
+
+  // the TXT record: strict about the code, tolerant of quoting and whitespace
+  const rec = dom.txtValue(paymentCode);
+  ok(dom.txtName("example.com") === "_dojobay.example.com"
+     && dom.txtMatches(rec, paymentCode)
+     && dom.txtMatches('"' + rec + '"', paymentCode)
+     && dom.txtMatches(rec.replace(" ", "   "), paymentCode)
+     && !dom.txtMatches(rec.replace(/pm=PM8T/, "pm=PM8Tx"), paymentCode)
+     && !dom.txtMatches("v=spf1 include:example.com", paymentCode)
+     && !dom.txtMatches("dojobay-domain-v1", paymentCode),
+     "the TXT record matcher accepts real-world quoting but pins the payment code");
+
+  // DoH answers, including a long record split across quoted strings
+  ok(JSON.stringify(dns.parseTxtAnswer(JSON.stringify({ Status: 0, Answer: [{ type: 16, data: '"a" "b"' }] }))) === '["ab"]'
+     && JSON.stringify(dns.parseTxtAnswer(JSON.stringify({ Status: 3 }))) === "[]"
+     && dns.parseTxtAnswer(JSON.stringify({ Status: 2 })) === null
+     && dns.parseTxtAnswer("not json") === null,
+     "DoH answers parse: split strings joined, NXDOMAIN empty, SERVFAIL unusable");
+
+  // the signed claim reuses the operator-binding shape
+  const claim = dom.signingText("example.com", paymentCode);
+  ok(claim === `https://example.com/\n\nBIP47: ${paymentCode}`, "the text to sign is the URL, a blank line, then the BIP47 line");
+  const { verifySignedUrlClaim } = await import("./crypto.mjs");
+  const blockFor = (text) => `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${text}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${Buffer.from(msg.sign(text, priv, true, net47.messagePrefix)).toString("base64")}\n-----END BITCOIN SIGNATURE-----`;
+  const good = verifySignedUrlClaim({ signed: blockFor(claim), expectedUrl: "https://example.com", paymentCode });
+  const wrongDomain = verifySignedUrlClaim({ signed: blockFor(claim), expectedUrl: "https://other.com", paymentCode });
+  const tampered = verifySignedUrlClaim({ signed: blockFor(claim).replace("example.com/", "evil.com/"), expectedUrl: "https://evil.com", paymentCode });
+  ok(good.ok && !wrongDomain.ok && /this claim is for/.test(wrongDomain.error)
+     && !tampered.ok && /invalid signature|does not/.test(tampered.error),
+     "a signed domain claim verifies, and is refused for another domain or if altered");
+
+  // grace policy: a badge survives an unreachable resolver, and only drops after
+  // a sustained failure, keeping the claim so a restored record restores it
+  const base = { paymentCode, domain: "example.com", verified: true, verified_at: "2026-01-01T00:00:00Z", fail_since: null };
+  const now = Date.parse("2026-07-01T00:00:00Z");
+  const inc = dom.applyRecheck(base, { ok: false, inconclusive: true, error: "tor down" }, now);
+  const failed1 = dom.applyRecheck(base, { ok: false, error: "no TXT record" }, now);
+  const failedLong = dom.applyRecheck({ ...base, fail_since: "2026-06-01T00:00:00Z" }, { ok: false, error: "no TXT record" }, now);
+  const recovered = dom.applyRecheck(failedLong, { ok: true }, now);
+  ok(inc.verified === true && inc.fail_since === null && /inconclusive/.test(inc.last_result),
+     "an unreachable resolver never strips a badge");
+  ok(failed1.verified === true && failed1.fail_since
+     && failedLong.verified === false
+     && recovered.verified === true && recovered.fail_since === null,
+     `a missing record drops the badge only after ${dom.GRACE_DAYS} days, and restoring it recovers without re-signing`);
+
+  ok(dom.urlOnDomain("https://example.com/x", "example.com")
+     && dom.urlOnDomain("https://a.example.com/", "example.com")
+     && !dom.urlOnDomain("https://notexample.com/", "example.com")
+     && !dom.urlOnDomain("https://example.com.evil.net/", "example.com")
+     && !dom.urlOnDomain("javascript:alert(1)", "example.com"),
+     "a card link is only on-domain for the domain itself or a true subdomain");
+
+  // API: prepare returns the exact record and text; submission verifies with DNS
+  // stubbed, and admin revocation clears the badge
+  const prep = await api("/api/domain/prepare", "POST", { domain: "Example.COM" });
+  ok(prep.status === 200 && prep.body.txt_name === "_dojobay.example.com"
+     && prep.body.txt_value === rec && prep.body.sign_text === claim,
+     "prepare returns the exact TXT record and text to sign");
+
+  await st.deleteDomain(paymentCode);
+  const listed = await api("/api/admin/domains");
+  ok(listed.status === 200 && Array.isArray(listed.body.domains), "admin can list domain claims");
+
+  await st.putDomain({ paymentCode, domain: "example.org", signed: "(test)", verified: true,
+    verified_at: new Date().toISOString(), last_check: new Date().toISOString(), last_result: "ok",
+    fail_since: null, created_at: new Date().toISOString() });
+  const revoked = await api("/api/admin/domain/revoke", "POST", { paymentCode });
+  const after = await st.getDomain(paymentCode);
+  const { rebuild: rb } = await import("./build-public.mjs");
+  await rb();
+  const node = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
+    .nodes.find((n) => n.id === "mainnet-selftest-node");
+  ok(revoked.status === 200 && after.verified === false && after.revoked === true
+     && node.operator_domain === null && node.name_url === null,
+     "admin revocation drops the badge and withholds the card link on the next rebuild");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

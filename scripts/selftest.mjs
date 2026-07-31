@@ -8,6 +8,9 @@
 // Run: node scripts/selftest.mjs   (exit 0 = all assertions passed)
 
 import net from "node:net";
+import tlsMod from "node:tls";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import assert from "node:assert";
 import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
@@ -16,6 +19,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 // Minimal SOCKS5 server. `mode` decides how it answers the CONNECT request.
+// A self-signed certificate for the mock DoH resolver, generated once. openssl
+// is present on the Debian hosts this suite runs on; if it is missing the DoH
+// transport check reports that it was skipped rather than failing the run.
+const DOH_RECORD = "dojobay-domain-v1 pm=PM8T" + "1".repeat(112);
+const DOH_ANSWER = JSON.stringify({ Status: 0, Answer: [{ type: 16, data: '"' + DOH_RECORD + '"' }] });
+let DOH_TLS = null;
+function dohTlsAvailable() {
+  if (DOH_TLS) return true;
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), "dojobay-doh-"));
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes",
+      "-keyout", path.join(dir, "k.pem"), "-out", path.join(dir, "c.pem"),
+      "-days", "1", "-subj", "/CN=cloudflare-dns.com"], { stdio: "ignore" });
+    DOH_TLS = { key: readFileSync(path.join(dir, "k.pem")), cert: readFileSync(path.join(dir, "c.pem")) };
+    rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch { return false; }
+}
+
 function mockProxy(mode) {
   return new Promise((resolve) => {
     const server = net.createServer((sock) => {
@@ -34,6 +56,21 @@ function mockProxy(mode) {
           }
           // success reply, bound addr 0.0.0.0:0
           sock.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+          // A DoH resolver speaks TLS, so terminate it on this same socket
+          // instead of tunnelling: upgrading here, immediately after the SOCKS
+          // reply and before any client bytes arrive, avoids losing the
+          // ClientHello to a race with an upstream connect.
+          if (mode === "doh") {
+            sock.removeAllListeners("data");
+            const t = new tlsMod.TLSSocket(sock, { isServer: true, key: DOH_TLS.key, cert: DOH_TLS.cert });
+            t.on("error", () => {});
+            t.once("data", () => {
+              const body = Buffer.from(DOH_ANSWER);
+              t.end(`HTTP/1.1 200 OK\r\nContent-Type: application/dns-json\r\n` +
+                    `Content-Length: ${body.length}\r\nConnection: close\r\n\r\n` + DOH_ANSWER);
+            });
+            return;
+          }
           stage = "tunnel";
           return;
         }
@@ -263,6 +300,45 @@ await check("source zip packs the codebase and never the instance's own data", a
       /server\/data|seed\.json|operator\.json|paynym-codes|dojos\.json|history|avatars|node_modules|\.zip$/.test(n));
     assert.deepEqual(forbidden, [], "forbidden entries: " + forbidden.join(", "));
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+await check("TXT lookup over Tor: agreement required, unreachable resolvers are inconclusive", async () => {
+  const dns = await import("../server/dns.mjs");
+
+  // An unreachable proxy must be INCONCLUSIVE, never a failure: a Tor outage
+  // must not strip a verified badge from an honest operator. This half needs no
+  // TLS, so it always runs.
+  const down = await dns.txtRecordAgreed("_dojobay.example.com", () => true,
+    { proxyHost: "127.0.0.1", proxyPort: 1, timeoutMs: 400 });
+  assert.ok(!down.ok && down.inconclusive, "unreachable resolvers are inconclusive: " + JSON.stringify(down));
+  assert.equal(down.agreed, 0);
+
+  if (!dohTlsAvailable()) {
+    console.log("       (note: openssl unavailable, TLS half of the DoH check skipped)");
+    return;
+  }
+  // Full path against a mock resolver behind the mock SOCKS proxy: SOCKS
+  // connect, TLS, HTTP/1.1, DoH JSON, agreement counting.
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";              // self-signed test cert
+  try {
+    await withProxy("doh", async (port) => {
+      const cfg = { proxyHost: "127.0.0.1", proxyPort: port, timeoutMs: 5000 };
+      const found = await dns.lookupTxt("_dojobay.example.com", cfg);
+      assert.ok(found.records.includes(DOH_RECORD),
+        "the TXT record is read back: " + JSON.stringify(found.records) + " errors=" + JSON.stringify(found.errors));
+      assert.ok(found.answered >= dns.DOH_AGREEMENT, "enough resolvers answered, got " + found.answered);
+
+      const agreed = await dns.txtRecordAgreed("_dojobay.example.com", (r) => r === DOH_RECORD, cfg);
+      assert.ok(agreed.ok && agreed.agreed >= dns.DOH_AGREEMENT, "agreement reached: " + JSON.stringify(agreed));
+
+      // present but not matching is a definite failure, not "cannot tell"
+      const missing = await dns.txtRecordAgreed("_dojobay.example.com", () => false, cfg);
+      assert.ok(!missing.ok && !missing.inconclusive, "a non-matching record fails rather than being inconclusive");
+      assert.ok(/not matching/.test(missing.error), "and says the record is present but not matching: " + missing.error);
+    });
+  } finally {
+    delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  }
 });
 
 await check("installer paste collector keeps every line of a one-chunk paste", async () => {

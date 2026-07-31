@@ -66,6 +66,10 @@ export function renderNginx(template, { webRoot }) {
 }
 
 // ---- seed / operator documents ----------------------------------------------
+/**
+ * @param {{ network: string, name: string, paymentCode: string, paynym?: string|null,
+ *   payload: any, jurisdiction?: string|null, hardware?: string|null, name_url?: string|null }} n
+ */
 export function anchorSeed({ network, name, paymentCode, paynym, payload, jurisdiction, hardware, name_url }) {
   const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return { nodes: [{

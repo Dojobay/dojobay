@@ -259,6 +259,11 @@ const PAYNYM_ONION = process.env.PAYNYM_ONION_HOST || "paynym25chftmsywv4v2r67ag
 const AVATAR_MAX_AGE_MS = 7 * 86400000;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
+/**
+ * @param {string} paymentCode
+ * @param {{ proxyHost?: string, proxyPort?: number, destDir?: string,
+ *   timeoutMs?: number, host?: string, port?: number }} [opts]
+ */
 export async function fetchAvatar(paymentCode, { proxyHost, proxyPort, destDir, timeoutMs = 25000, host = PAYNYM_ONION, port = 80 } = {}) {
   const cfg = { proxyHost, proxyPort };
   let pathPart = `/${encodeURIComponent(paymentCode)}/avatar`;
@@ -391,6 +396,10 @@ async function probeHeight(url, cfg) {
 // must be specified', which says nothing about the real mistake. The defaults
 // are the same ones PROBE_CFG uses, so a partial config now behaves rather than
 // failing obscurely. Explicitly supplied values always win.
+/**
+ * @param {Partial<import("../types.js").ProbeCfg>} [cfg]
+ * @returns {import("../types.js").ProbeCfg}
+ */
 export function probeCfg(cfg = {}) {
   return {
     ...cfg,
@@ -400,6 +409,11 @@ export function probeCfg(cfg = {}) {
   };
 }
 
+/**
+ * @param {string} url
+ * @param {Partial<import("../types.js").ProbeCfg>} [cfgIn]
+ * @returns {Promise<import("../types.js").ProbeResult>}
+ */
 export async function probe(url, cfgIn = CFG) {
   const cfg = probeCfg(cfgIn);
   // Preferred path: authenticated chain-tip check when an apikey is available.

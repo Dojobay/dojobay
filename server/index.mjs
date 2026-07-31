@@ -16,6 +16,10 @@ import { store } from "./store.mjs";
 import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto.mjs";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
+import {
+  normaliseDomain, txtName, txtValue, signingText, verifyClaim,
+  recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
+} from "./domains.mjs";
 import { resolvePayNym } from "./paynym.mjs";
 import { rebuild } from "./build-public.mjs";
 import { readFile } from "node:fs/promises";
@@ -341,6 +345,10 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   body.signed = cleanSigned(body.signed);
   const nameUrl = cleanUrl(body.name_url);
   if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
+  if (nameUrl) {
+    const nu = await checkNameUrl(s.paymentCode, nameUrl);
+    if (!nu.ok) return json(res, 400, { error: nu.error });
+  }
 
   // signature gate (optional field, but if present it must verify)
   if (body.signed) {
@@ -428,6 +436,13 @@ async function applyEdit(rec, body, res) {
   if (taken) return json(res, 409, { error: `name "${name}" is taken on ${rec.network}: ${taken}` });
   const nameUrl = cleanUrl(body.name_url);
   if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
+  if (nameUrl) {
+    // Checked against the RECORD's operator, so an admin editing someone else's
+    // listing is held to that operator's verified domain, not their own.
+    const owner = (rec.paymentCodes || [])[0];
+    const nu = await checkNameUrl(owner, nameUrl);
+    if (!nu.ok) return json(res, 400, { error: nu.error });
+  }
   rec.name = name;
   rec.name_url = nameUrl;                           // prefilled in the form, so blank is a deliberate clear
   rec.hardware = String(body.hardware || "").trim().slice(0, 120) || null;
@@ -569,6 +584,156 @@ route("POST", /^\/api\/dojo\/delete$/, async (req, res) => {
   await store.deleteSubmission(body.id);
   json(res, 200, { ok: true });
 });
+
+// A card link is only publishable on the operator's verified domain. This is the
+// constraint that replaces a freeform URL field: "link to my own site" survives,
+// an unverifiable social profile does not.
+async function checkNameUrl(paymentCode, url) {
+  if (url === null || url === undefined) return { ok: true };
+  const claim = await store.getDomain(paymentCode);
+  if (!claim || !claim.verified) {
+    return { ok: false, error: "verify a domain first: the card link must point at a domain you have proven you control" };
+  }
+  if (!urlOnDomain(url, claim.domain)) {
+    return { ok: false, error: `the card link must be on ${claim.domain} (or a subdomain of it), which is the domain you have verified` };
+  }
+  return { ok: true };
+}
+
+// ---- verified operator domains ---------------------------------------------
+// An operator proves control of one clearnet domain: the domain names their
+// payment code in a TXT record, and they sign a statement naming the domain.
+// The badge on their cards, and the card-title link, both depend on it.
+
+const domainCfg = () => ({ proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort });
+
+// What the operator has, plus exactly what to publish and sign. Returning the
+// instructions from the server keeps them identical to what verification checks.
+route("GET", /^\/api\/domain$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  const claim = await store.getDomain(s.paymentCode);
+  json(res, 200, {
+    claim: claim ? {
+      domain: claim.domain, verified: !!claim.verified, verified_at: claim.verified_at || null,
+      last_check: claim.last_check || null, last_result: claim.last_result || null,
+      failing_since: claim.fail_since || null, grace_days: GRACE_DAYS,
+    } : null,
+    txt_prefix: txtName("<your-domain>"),
+    txt_value: txtValue(s.paymentCode),
+    signing_hint: "Sign under PayNym → Sign message, which uses your PayNym's notification address.",
+  });
+});
+
+// Instructions for a specific domain, so the console can show the exact record
+// and text before the operator has signed anything.
+route("POST", /^\/api\/domain\/prepare$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const norm = normaliseDomain(body?.domain);
+  if (!norm.ok) return json(res, 400, { error: norm.error });
+  json(res, 200, {
+    domain: norm.domain,
+    punycode: !!norm.punycode,
+    txt_name: txtName(norm.domain),
+    txt_value: txtValue(s.paymentCode),
+    sign_text: signingText(norm.domain, s.paymentCode),
+  });
+});
+
+route("POST", /^\/api\/domain$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const norm = normaliseDomain(body?.domain);
+  if (!norm.ok) return json(res, 400, { error: norm.error });
+  const signed = String(body?.signed || "").trim();
+  if (!signed) return json(res, 400, { error: "paste the signed block" });
+
+  // A domain already verified by a different operator is not fatal (a host may
+  // run several operators' nodes) but it is worth surfacing to an admin.
+  const clash = (await store.listDomains())
+    .find((c) => c && c.verified && c.domain === norm.domain && c.paymentCode !== s.paymentCode);
+
+  const r = await verifyClaim({ domain: norm.domain, paymentCode: s.paymentCode, signed }, domainCfg());
+  if (!r.ok) {
+    return json(res, r.inconclusive ? 503 : 400, {
+      error: r.error, stage: r.stage, hint: r.hint || null, inconclusive: !!r.inconclusive,
+    });
+  }
+  const now = new Date().toISOString();
+  const prev = await store.getDomain(s.paymentCode);
+  await store.putDomain({
+    paymentCode: s.paymentCode, domain: norm.domain, signed,
+    verified: true, verified_at: now, last_check: now, last_result: "ok",
+    fail_since: null, created_at: (prev && prev.created_at) || now,
+    also_claimed_by: clash ? clash.paymentCode : null,
+  });
+  // A changed domain can invalidate an existing card link, so republish.
+  const rebuilt = await tryRebuild();
+  json(res, 200, { ok: true, domain: norm.domain, resolvers_agreed: r.agreed, rebuild: rebuilt });
+});
+
+route("DELETE", /^\/api\/domain$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  await store.deleteDomain(s.paymentCode);
+  const rebuilt = await tryRebuild();
+  json(res, 200, { ok: true, rebuild: rebuilt });
+});
+
+// Admin revocation. A badge attests to control, not to trustworthiness, so
+// there must be a way to remove one from a lookalike or abusive domain.
+route("POST", /^\/api\/admin\/domain\/revoke$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+  const code = String(body?.paymentCode || "");
+  const claim = await store.getDomain(code);
+  if (!claim) return json(res, 404, { error: "no domain claim for that payment code" });
+  await store.putDomain({ ...claim, verified: false, revoked: true,
+    last_result: "revoked by admin", last_check: new Date().toISOString() });
+  const rebuilt = await tryRebuild();
+  json(res, 200, { ok: true, rebuild: rebuilt });
+});
+
+route("GET", /^\/api\/admin\/domains$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  const list = (await store.listDomains()).map((c) => ({
+    paymentCode: c.paymentCode, domain: c.domain, verified: !!c.verified, revoked: !!c.revoked,
+    verified_at: c.verified_at || null, last_check: c.last_check || null,
+    last_result: c.last_result || null, failing_since: c.fail_since || null,
+    also_claimed_by: c.also_claimed_by || null,
+  }));
+  json(res, 200, { domains: list, grace_days: GRACE_DAYS });
+});
+
+// Periodic re-check. This lives in the backend rather than the ten-minute
+// updater because the store is owned by the backend's user; the updater runs as
+// a different user and must not write it. DNS changes slowly, so the sweep is
+// daily per claim, and it never lets an unreachable resolver strip a badge.
+async function sweepDomains() {
+  let changed = false;
+  for (const claim of await store.listDomains()) {
+    if (claim.revoked || !isDue(claim)) continue;
+    let result;
+    try { result = await recheckClaim(claim, domainCfg()); }
+    catch (e) { result = { ok: false, inconclusive: true, error: e.message }; }
+    const next = applyRecheck(claim, result);
+    if (JSON.stringify(next) !== JSON.stringify(claim)) {
+      await store.putDomain(next);
+      if (next.verified !== claim.verified) changed = true;
+    }
+  }
+  if (changed) await tryRebuild();
+  return changed;
+}
+
+if (process.env.DOMAIN_SWEEP !== "0") {
+  const every = +(process.env.DOMAIN_SWEEP_HOURS || 6) * 3600 * 1000;
+  const t = setInterval(() => { sweepDomains().catch(() => {}); }, every);
+  t.unref?.();
+}
 
 // ---- server ----------------------------------------------------------------
 const server = http.createServer(async (req, res) => {

@@ -141,6 +141,23 @@
   .ep{display:flex;align-items:center;gap:9px}
   .ep .k{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);min-width:62px}
   .ep .u{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Verified operator domain: a quiet badge, not a trust mark. It sits beside the
+     payment-code chip and attests to control of the domain only. */
+  .vdomain{display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;
+    font-size:11px;padding:4px 8px;border-radius:6px;text-decoration:none;
+    color:var(--up);border:1px solid rgba(63,185,80,.35);background:var(--up-bg);white-space:nowrap;
+    max-width:190px;overflow:hidden;text-overflow:ellipsis}
+  .vdomain:hover{border-color:rgba(63,185,80,.6)}
+  /* Verified-domain setup box in Manage. */
+  .dbox{border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--panel2);margin-bottom:12px}
+  .dbox p{margin:0 0 8px}
+  .dbox .dnote{font-size:12.5px;color:var(--muted)}
+  .dbox .dmsg{font-size:12.5px;color:var(--accent);margin-top:8px}
+  .dbox .ok-tick{color:var(--up)}
+  .dbox .ep{margin-bottom:6px}
+  .dsign{font-size:11.5px;background:var(--panel);border:1px solid var(--line);border-radius:6px;
+    padding:9px 10px;white-space:pre-wrap;word-break:break-all;color:var(--muted);margin:0 0 8px}
+  .dbox textarea{width:100%;font-family:'JetBrains Mono',monospace;font-size:11.5px}
   .ep .copybtn{flex-shrink:0}
   /* An endpoint the node does not publish. The field keeps the same box as the
      other endpoints so the rows line up; only the text colour marks it as not

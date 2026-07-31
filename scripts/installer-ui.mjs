@@ -47,12 +47,15 @@ export function sequentialUI() {
   }
   return {
     async step(n, total, title) { stepLabel = `${n}/${total}`; say("\n" + red("── ") + bold(`${n}. ${title}`) + red(" " + "─".repeat(Math.max(2, 50 - title.length)))); },
+    /** @param {any[]} fields @param {{ note?: string }} [opts] */
     async form(fields, { note } = {}) {
       if (note) say(dim("   " + note.replace(/\n/g, "\n   ")));
       const out = {};
       for (const f of fields) out[f.key] = await askOne(f, out);
       return out;
     },
+    /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
+    /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
     async paste(label, { note, endWord = "END" } = {}) {
       if (note) say(dim("   " + note.replace(/\n/g, "\n   ")));
       // Listener attached before the prompt: a bulk paste must not lose lines.
@@ -85,10 +88,12 @@ export function tuiUI() {
   process.on("exit", () => screen.leave());
   return {
     async step(n, total, title) { stepLabel = `The Dojo Bay installer · step ${n} of ${total}`; stepTitle = title; },
+    /** @param {any[]} fields @param {{ note?: string }} [opts] */
     async form(fields, { note } = {}) {
       const merged = [noteBlock(), note].filter(Boolean).join("\n");
       return screen.runForm(fields, { stepLabel, title: stepTitle, note: merged });
     },
+    /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
     async paste(label, { note, endWord = "END" } = {}) {
       // cooked-mode paste: raw-mode paste handling is unreliable across SSH clients
       return screen.suspend(async () => {

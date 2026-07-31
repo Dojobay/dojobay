@@ -26,6 +26,7 @@ const PREFIX = "dojobay/";                       // extraction lands in one fold
 const INCLUDE_FILES = [
   "index.html", "manifest.json", "sw.js", "favicon.svg", "og-image.png",
   "LICENSE", "README.md", "CONTRIBUTING.md", "package.json",
+  "tsconfig.json", "types.d.ts",
   "install.sh", "dojobay-install.desktop",
   "data/version.json",
 ];

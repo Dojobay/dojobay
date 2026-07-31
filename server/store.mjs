@@ -10,7 +10,7 @@ const DIR = process.env.SERVER_DATA_DIR
   || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
 const FILE = path.join(DIR, "store.json");
 
-const EMPTY = { submissions: {}, sessions: {}, nonces: {} };
+const EMPTY = { submissions: {}, sessions: {}, nonces: {}, domains: {} };
 let cache = null;
 
 // A submission's ownership is a paymentCodes ARRAY, because one PayNym often
@@ -107,5 +107,30 @@ export const store = {
   async deleteSubmission(id) {
     const s = await load();
     if (s.submissions[id]) { delete s.submissions[id]; await persist(); }
+  },
+
+  // --- verified operator domains (keyed by payment code) ---------------------
+  // One claim per code. A record is kept even after it stops verifying, so
+  // restoring the TXT record restores the badge without a fresh signature.
+  async listDomains() { return Object.values((await load()).domains || {}); },
+  async getDomain(paymentCode) { return ((await load()).domains || {})[paymentCode] || null; },
+  async putDomain(claim) {
+    const s = await load();
+    s.domains = s.domains || {};
+    s.domains[claim.paymentCode] = claim;
+    await persist();
+    return claim;
+  },
+  async deleteDomain(paymentCode) {
+    const s = await load();
+    if (s.domains && s.domains[paymentCode]) { delete s.domains[paymentCode]; await persist(); }
+  },
+  // Every verified domain, as a payment code -> domain map, for the rebuild.
+  async verifiedDomainMap() {
+    const out = new Map();
+    for (const c of Object.values((await load()).domains || {})) {
+      if (c && c.verified && c.domain) out.set(c.paymentCode, c.domain);
+    }
+    return out;
   },
 };

@@ -184,6 +184,7 @@ async function loadJSON(url){
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
       ${n.paymentCode?`<button class="pcode mono" data-act="copycode" data-v="${esc(n.paymentCode)}" title="${esc(n.paymentCode)} — click to copy">${esc(n.paymentCode.slice(0,8))}…${esc(n.paymentCode.slice(-8))}</button>`:""}
+      ${n.operator_domain?`<a class="vdomain" href="https://${esc(n.operator_domain)}" target="_blank" rel="noopener noreferrer" title="The operator proved control of ${esc(n.operator_domain)}: a TXT record on the domain names their payment code, and they signed a statement naming the domain. This proves control of the domain, not that the operator is trustworthy.">✓ ${esc(n.operator_domain)}</a>`:""}
       ${relStrip(checks)}
       <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">Reliability · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
       <div class="meta">
@@ -395,18 +396,18 @@ async function loadJSON(url){
   }
   for(const evt of ["pointerenter","focusin"]){
     document.addEventListener(evt, e=>{
-      const t = e.target instanceof Element ? e.target.closest('[data-act="pair"]') : null;
+      const t = e.target instanceof Element ? evEl(e)?.closest('[data-act="pair"]') : null;
       if(t) warmAvatar(t.closest(".card"));
     }, true);
   }
 
   document.addEventListener("click", e=>{
-    const netBtn=e.target.closest("[data-net]");
+    const netBtn=evEl(e)?.closest("[data-net]");
     if(netBtn){net=netBtn.getAttribute("data-net");render();return;}
-    const mBtn=e.target.closest("[data-modal]");
+    const mBtn=evEl(e)?.closest("[data-modal]");
     if(mBtn){ if(menuOpen){menuOpen=false;render();} openModal(mBtn.getAttribute("data-modal"));return;}
-    const act=e.target.closest("[data-act]");
-    if(!act){ if(e.target.id==="ov") closeModal(); return; }
+    const act=evEl(e)?.closest("[data-act]");
+    if(!act){ if(evEl(e)?.id==="ov") closeModal(); return; }
     const a=act.getAttribute("data-act");
     if(a==="burger"){menuOpen=!menuOpen;render();return;}
     if(a==="dismiss"){try{localStorage.setItem("db_banner","off")}catch(e){}render();return;}
@@ -418,7 +419,7 @@ async function loadJSON(url){
     const byIdAttr=()=>DOJOS.nodes.find(x=>x.id===act.getAttribute("data-id"));
     if(a==="copypairing"){const n=byIdAttr();copy(JSON.stringify({pairing:n.payload.pairing,explorer:n.payload.explorer},null,2)).then(()=>flash(act,"Copied ✓"));return;}
     if(a==="copysigned"){copy(byIdAttr().signed).then(()=>flash(act,"Copied ✓"));return;}
-    const cardEl=e.target.closest(".card");
+    const cardEl=evEl(e)?.closest(".card");
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
     if(a==="pair"){ openPair(node()); return; }
     if(a==="copyurl"){copy(act.getAttribute("data-v")).then(()=>flash(act,"✓"));return;}
@@ -429,6 +430,12 @@ async function loadJSON(url){
      Everything below is inert unless a backend answers /api/me. On the static
      step-1 onion there is no API, so the nav button stays hidden and nothing
      here runs. */
+  // e.target is typed EventTarget, which has no DOM methods; every listener here
+  // is on a rendered element. One helper narrows it, rather than casting at each
+  // call site.
+  /** @param {Event} e @returns {Element|null} */
+  const evEl = (e) => (e.target instanceof Element ? e.target : null);
+
   const api = {
     async call(path, method="GET", body){
       const r = await fetch("/api"+path, {method, headers: body?{"Content-Type":"application/json"}:{}, body: body?JSON.stringify(body):undefined, credentials:"same-origin", cache:"no-store"});
@@ -466,9 +473,64 @@ async function loadJSON(url){
   }
   async function refreshMe(){ const r=await api.call("/me"); if(r.status===200) ME=r.body; }
 
+  // ---- verified domain -----------------------------------------------------
+  // One domain per operator, proven in both directions: a TXT record on the
+  // domain names the payment code, and the operator signs a statement naming the
+  // domain. DOMAIN holds what the server reported; DOMAIN_PREP holds the exact
+  // record and text for a domain being set up, both fetched from the server so
+  // the instructions can never drift from what verification checks.
+  let DOMAIN = null, DOMAIN_PREP = null, DOMAIN_MSG = "";
+
+  async function refreshDomain(){
+    const r = await api.call("/domain","GET");
+    // Settle to an object either way, so a failed or unsupported lookup does not
+    // make every subsequent render re-request it.
+    DOMAIN = r.status===200 && r.body ? r.body : { claim:null, unavailable:true };
+  }
+
+  function domainSection(){
+    const c = DOMAIN && DOMAIN.claim;
+    const msg = DOMAIN_MSG ? `<p class="dmsg">${esc(DOMAIN_MSG)}</p>` : "";
+    if(c && c.verified){
+      return `<div class="dbox">
+        <p>Verified: <a href="https://${esc(c.domain)}" target="_blank" rel="noopener noreferrer">${esc(c.domain)}</a>
+          <span class="ok-tick">✓</span></p>
+        <p class="dnote">Shown on your cards, and your card link may point anywhere on this domain.
+          ${c.failing_since?`<b>The TXT record is currently missing</b> (since ${esc(c.failing_since.slice(0,10))}); the badge is removed if it stays missing for ${esc(String(c.grace_days))} days.`:""}
+          ${c.last_check?`Last checked ${esc(c.last_check.slice(0,10))}.`:""}</p>
+        <div class="medit-actions">
+          <button class="copybtn" data-mact="domchange">Change domain</button>
+          <button class="copybtn" data-mact="domremove">Remove</button>
+        </div>${msg}</div>`;
+    }
+    if(DOMAIN_PREP){
+      return `<div class="dbox">
+        <p>Two steps for <b>${esc(DOMAIN_PREP.domain)}</b>${DOMAIN_PREP.punycode?' <span class="dnote">(shown in punycode)</span>':""}:</p>
+        <p class="dnote">1. Publish this TXT record on your domain:</p>
+        <div class="ep"><span class="k">Name</span><span class="u mono">${esc(DOMAIN_PREP.txt_name)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.txt_name)}">copy</button></div>
+        <div class="ep"><span class="k">Value</span><span class="u mono">${esc(DOMAIN_PREP.txt_value)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.txt_value)}">copy</button></div>
+        <p class="dnote">2. Sign this EXACT text in your wallet under <b>PayNym → Sign message</b>, then paste the whole signed block below:</p>
+        <pre class="dsign mono">${esc(DOMAIN_PREP.sign_text)}</pre>
+        <button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.sign_text)}">copy the text to sign</button>
+        <label>Signed block <textarea class="d-signed" rows="7" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----"></textarea></label>
+        <div class="medit-actions">
+          <button class="copybtn" data-mact="domverify">Verify</button>
+          <button class="copybtn" data-mact="domcancel">Cancel</button>
+        </div>${msg}</div>`;
+    }
+    return `<div class="dbox">
+      <p class="dnote">Optional. Prove you control a domain and your cards show it, and your card
+        title can link to it. Verification is by DNS TXT record plus a wallet signature; nothing
+        is published until both check out. This proves control of a domain, not that you are
+        trustworthy, and a maintainer can revoke a badge.</p>
+      <label>Domain <input class="d-domain" maxlength="253" placeholder="example.com"></label>
+      <div class="medit-actions"><button class="copybtn" data-mact="domprep">Continue</button></div>${msg}</div>`;
+  }
+
   async function renderManage(){
     const body = document.getElementById("ov-body");
     if(!ME || !ME.authenticated){ return renderLogin(body); }
+    if(DOMAIN===null){ await refreshDomain(); }
     // The API already returns mainnet-then-testnet, alphabetical by name;
     // sort again here so the panel never depends on response ordering.
     const subs = (ME.submissions||[]).slice().sort((a,b)=>
@@ -479,6 +541,8 @@ async function loadJSON(url){
         <button class="copybtn" data-mact="logout" style="margin-left:8px">Sign out</button></p>
       ${ME.admin?'<p style="font-size:12.5px;color:var(--muted)">This payment code moderates the directory: <a href="/admin" style="color:var(--accent)">open the admin console →</a> (same sign-in; signing out here signs you out there too).</p>':""}
       <p style="font-size:13px;color:var(--muted)">Add or edit a Dojo you operate. Submissions are checked for a live Tor connection and, if you supply a signed payload, for a valid signature, then reviewed by a maintainer before they appear.</p>
+      <h3>Verified domain</h3>
+      ${domainSection()}
       <h3>Your Dojos</h3>
       ${subs.length? subs.map(manageRow).join("") : '<p style="color:var(--faint)">None yet.</p>'}
       <h3>Add / replace a Dojo</h3>
@@ -566,13 +630,41 @@ async function loadJSON(url){
   }
 
   document.addEventListener("click", async e=>{
-    const manageBtn = e.target.closest('[data-act="manage"]');
+    const manageBtn = evEl(e)?.closest('[data-act="manage"]');
     if(manageBtn){ if(menuOpen){menuOpen=false;render();} openManage(); return; }
-    const m = e.target.closest("[data-mact]");
+    const m = evEl(e)?.closest("[data-mact]");
     if(!m) return;
     const act = m.getAttribute("data-mact");
     const msg = document.getElementById("manage-msg");
-    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; EDIT_ID=null; renderManage(); return; }
+    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; EDIT_ID=null; DOMAIN=null; DOMAIN_PREP=null; renderManage(); return; }
+
+    // ---- verified domain ----
+    if(act==="domprep"){
+      const v=/** @type {HTMLInputElement} */ (document.querySelector(".d-domain") || {}).value||"";
+      DOMAIN_MSG=""; const r=await api.call("/domain/prepare","POST",{domain:v});
+      if(r.status!==200){ DOMAIN_MSG=(r.body&&r.body.error)||("HTTP "+r.status); }
+      else DOMAIN_PREP=r.body;
+      renderManage(); return;
+    }
+    if(act==="domcancel"){ DOMAIN_PREP=null; DOMAIN_MSG=""; renderManage(); return; }
+    if(act==="domchange"){ DOMAIN_PREP=null; DOMAIN_MSG=""; DOMAIN={claim:null}; renderManage(); return; }
+    if(act==="domremove"){
+      await api.call("/domain","DELETE",{}); DOMAIN_PREP=null; DOMAIN_MSG="Removed.";
+      await refreshDomain(); await refreshMe(); renderManage(); return;
+    }
+    if(act==="domverify"){
+      const ta=document.querySelector(".d-signed");
+      /** @type {HTMLButtonElement} */ (m).disabled=true; m.textContent="Checking DNS…"; DOMAIN_MSG="";
+      const r=await api.call("/domain","POST",{domain:DOMAIN_PREP.domain,signed:(ta&&/** @type {HTMLTextAreaElement} */ (ta).value)||""});
+      if(r.status===200){ DOMAIN_PREP=null; DOMAIN_MSG="Verified."; await refreshDomain(); }
+      else {
+        // 503 means we could not reach enough resolvers: not the operator's fault.
+        DOMAIN_MSG=((r.body&&r.body.error)||("HTTP "+r.status))
+          + (r.body&&r.body.hint?"  "+r.body.hint:"")
+          + (r.status===503?"  This is a lookup problem at our end, not a problem with your record. Try again shortly.":"");
+      }
+      renderManage(); return;
+    }
     if(act==="delete"){ await api.call("/dojo/delete","POST",{id:m.getAttribute("data-id")}); await refreshMe(); EDIT_ID=null; renderManage(); return; }
     if(act==="edit"){ EDIT_ID=m.getAttribute("data-id"); renderManage(); return; }
     if(act==="editcancel"){ EDIT_ID=null; renderManage(); return; }
@@ -580,36 +672,36 @@ async function loadJSON(url){
       const box=m.closest(".medit");
       const r=await api.call("/dojo/edit","POST",{
         id:m.getAttribute("data-id"),
-        name:box.querySelector(".e-name").value,
-        hardware:box.querySelector(".e-hw").value,
-        name_url:box.querySelector(".e-url").value,
+        name:/** @type {HTMLInputElement} */ (box.querySelector(".e-name")).value,
+        hardware:/** @type {HTMLInputElement} */ (box.querySelector(".e-hw")).value,
+        name_url:/** @type {HTMLInputElement} */ (box.querySelector(".e-url")).value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       EDIT_ID=null; await refreshMe(); renderManage(); return;
     }
     if(act==="submit"){
       let payload;
-      try{ payload = JSON.parse(document.getElementById("m-payload").value); }
+      try{ payload = JSON.parse(/** @type {HTMLInputElement} */ (document.getElementById("m-payload")).value); }
       catch(err){ if(msg) msg.innerHTML='<span style="color:var(--down)">Pairing code is not valid JSON.</span>'; return; }
       // Validate the name (required + unique across approved and pending
       // records) BEFORE the slow Tor connection gate, so a taken name fails in
       // milliseconds. The POST re-checks server-side and answers 409 anyway.
-      const name = document.getElementById("m-name").value.trim();
+      const name = /** @type {HTMLInputElement} */ (document.getElementById("m-name")).value.trim();
       if(!name){ if(msg) msg.innerHTML='<span style="color:var(--down)">Give your node a name first.</span>'; return; }
-      const nc = await api.call("/dojo/name-check?network="+encodeURIComponent(document.getElementById("m-net").value)+"&name="+encodeURIComponent(name));
+      const nc = await api.call("/dojo/name-check?network="+encodeURIComponent(/** @type {HTMLInputElement} */ (document.getElementById("m-net")).value)+"&name="+encodeURIComponent(name));
       if(nc.status!==200 || !nc.body || !nc.body.available){
         if(msg) msg.innerHTML='<span style="color:var(--down)">'+esc((nc.body&&(nc.body.reason||nc.body.error))||"That name is not available.")+'</span>'; return;
       }
       if(msg) msg.innerHTML='<span class="loading">Checking Tor connection… this can take up to 30s.</span>';
       const r = await api.call("/dojo","POST",{
-        network: document.getElementById("m-net").value,
+        network: /** @type {HTMLInputElement} */ (document.getElementById("m-net")).value,
         name,
-        jurisdiction: document.getElementById("m-jur").value,
-        country: document.getElementById("m-cc").value,
-        hardware: document.getElementById("m-hw").value,
-        name_url: document.getElementById("m-url").value,
+        jurisdiction: /** @type {HTMLInputElement} */ (document.getElementById("m-jur")).value,
+        country: /** @type {HTMLInputElement} */ (document.getElementById("m-cc")).value,
+        hardware: /** @type {HTMLInputElement} */ (document.getElementById("m-hw")).value,
+        name_url: /** @type {HTMLInputElement} */ (document.getElementById("m-url")).value,
         payload,
-        signed: document.getElementById("m-signed").value.trim() || null,
+        signed: /** @type {HTMLInputElement} */ (document.getElementById("m-signed")).value.trim() || null,
       });
       if(r.status===200){ if(msg) msg.innerHTML='<span style="color:var(--up)">'+esc(r.body.note||"Submitted.")+'</span>'; await refreshMe(); setTimeout(renderManage,1200); }
       else { if(msg) msg.innerHTML='<span style="color:var(--down)">'+esc((r.body&&r.body.error)||("Error "+r.status))+'</span>'; }
@@ -741,7 +833,8 @@ async function loadJSON(url){
       + '</div>';
   }
   async function startUpdate(source, extra){
-    UPDATE_RUN = { phase:"starting", log:["requesting update…"], done:false, source };
+    UPDATE_RUN = /** @type {{ phase: string, log: string[], done: boolean, source: any, error?: string }} */
+      ({ phase:"starting", log:["requesting update…"], done:false, source });
     renderAdminPanel();
     const r = await api.call("/admin/update","POST",{ source, ...(extra||{}) });
     if(r.status===409){ UPDATE_RUN=null; ADMIN_NOTICE="An update is already in progress."; renderAdminPanel(); return; }
@@ -761,7 +854,7 @@ async function loadJSON(url){
         if(!r || r.status!==200){ restartWaits++; return; }   // backend still down
         // backend answered again -> new code is live -> hard reload
         clearInterval(UPDATE_POLL);
-        location.reload(true);
+        location.reload();
         return;
       }
       if(!r || r.status!==200) return;
@@ -777,7 +870,7 @@ async function loadJSON(url){
     }, 1200);
   }
   document.addEventListener("click", async e=>{
-    const b=e.target.closest("[data-adm]"); if(!b) return;
+    const b=evEl(e)?.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
     if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; ADM_EDIT_ID=null; renderAdminPanel(); return; }
     if(act==="update-github"){ if(confirm("Update this instance from GitHub over Tor? The service will restart.")) startUpdate("github"); return; }
@@ -794,15 +887,15 @@ async function loadJSON(url){
       const box=b.closest(".medit");
       const r=await api.call("/admin/edit","POST",{
         id:b.getAttribute("data-id"),
-        name:box.querySelector(".e-name").value,
-        hardware:box.querySelector(".e-hw").value,
-        name_url:box.querySelector(".e-url").value,
+        name:/** @type {HTMLInputElement} */ (box.querySelector(".e-name")).value,
+        hardware:/** @type {HTMLInputElement} */ (box.querySelector(".e-hw")).value,
+        name_url:/** @type {HTMLInputElement} */ (box.querySelector(".e-url")).value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       ADM_EDIT_ID=null; renderAdminPanel(); return;
     }
     if(act==="remove" && !confirm("Remove this submission permanently?")) return;
-    b.disabled=true; const o=b.textContent; b.textContent="\u2026";
+    /** @type {HTMLButtonElement} */ (b).disabled=true; const o=b.textContent; b.textContent="\u2026";
     let r=null;
     if(act==="approve") r=await api.call("/admin/approve","POST",{id});
     else if(act==="reject") r=await api.call("/admin/reject","POST",{id});

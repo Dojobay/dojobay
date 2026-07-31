@@ -113,6 +113,10 @@ export const HEADER = [
   " ~~\\~~/~~~~~~~~~~~~~~~~~~~\\~~/~ ",
 ];
 
+/**
+ * @param {{ width?: number, stepLabel?: string, title?: string,
+ *   body?: string[], footer?: string, note?: string }} frame
+ */
 export function renderFrame({ width = 80, stepLabel = "", title = "", body = [], footer = "" }) {
   const lines = [];
   for (const l of HEADER) lines.push(R(l));
@@ -125,6 +129,10 @@ export function renderFrame({ width = 80, stepLabel = "", title = "", body = [],
   return lines.map((l) => (plainLen(l) > width ? l.slice(0, width + (l.length - plainLen(l))) : l)).join("\r\n");
 }
 
+/**
+ * @param {any} st
+ * @param {{ width?: number, stepLabel?: string, title?: string, note?: string }} frame
+ */
 export function renderForm(st, { width = 80, stepLabel, title, note }) {
   const body = [];
   if (note) { for (const l of note.split("\n")) body.push(DIM(l)); body.push(""); }

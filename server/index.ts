@@ -22,7 +22,7 @@ import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import {
-  normaliseDomain, txtName, txtValue, signingText, verifyClaim,
+  normaliseDomain, txtName, txtHost, txtValue, signingText, verifyClaim,
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
 } from "./domains.ts";
 import { resolvePayNym } from "./paynym.mjs";
@@ -624,6 +624,7 @@ route("GET", /^\/api\/domain$/, async (req, res) => {
       last_check: claim.last_check || null, last_result: claim.last_result || null,
       failing_since: claim.fail_since || null, grace_days: GRACE_DAYS,
     } : null,
+    txt_host: txtHost(),
     txt_prefix: txtName("<your-domain>"),
     txt_value: txtValue(s.paymentCode),
     signing_hint: "Sign under PayNym → Sign message, which uses your PayNym's notification address.",
@@ -641,6 +642,10 @@ route("POST", /^\/api\/domain\/prepare$/, async (req, res) => {
   json(res, 200, {
     domain: norm.domain,
     punycode: !!norm.punycode,
+    // Two forms on purpose: most panels (Namecheap, Cloudflare, Route 53) want
+    // the label relative to the zone, a few want the fully-qualified name.
+    // Handing over only the latter produces _dojobay.example.com.example.com.
+    txt_host: txtHost(),
     txt_name: txtName(norm.domain),
     txt_value: txtValue(s.paymentCode),
     sign_text: signingText(norm.domain, s.paymentCode),
@@ -662,22 +667,66 @@ route("POST", /^\/api\/domain$/, async (req, res) => {
     .find((c) => c && c.verified && c.domain === norm.domain && c.paymentCode !== s.paymentCode);
 
   const r = await verifyClaim({ domain: norm.domain, paymentCode: s.paymentCode, signed }, domainCfg());
-  if (!r.ok) {
-    return json(res, r.inconclusive ? 503 : 400, {
-      error: r.error, stage: r.stage, hint: r.hint || null, inconclusive: !!r.inconclusive,
-    });
-  }
   const now = new Date().toISOString();
   const prev = await store.getDomain(s.paymentCode);
+
+  // A bad signature is the operator's to fix and nothing is stored. A missing
+  // TXT record is usually propagation, so the claim is SAVED unverified and the
+  // sweep keeps looking: the operator does not have to sign again, and an
+  // unverified claim confers nothing (no badge, and no card link, because
+  // checkNameUrl requires a verified domain).
+  if (!r.ok && r.stage === "signature") {
+    return json(res, 400, { error: r.error, stage: r.stage });
+  }
   await store.putDomain({
     paymentCode: s.paymentCode, domain: norm.domain, signed,
-    verified: true, verified_at: now, last_check: now, last_result: "ok",
-    fail_since: null, created_at: (prev && prev.created_at) || now,
+    verified: !!r.ok,
+    verified_at: r.ok ? now : null,
+    last_check: r.ok ? now : null,       // null so the sweep retries immediately
+    last_result: r.ok ? "ok" : (r.error || "awaiting the TXT record"),
+    fail_since: null,
+    created_at: (prev && prev.created_at) || now,
     also_claimed_by: clash ? clash.paymentCode : null,
   });
+  if (!r.ok) {
+    const rebuiltPending = await tryRebuild();
+    return json(res, 202, {
+      ok: false, pending: true, domain: norm.domain,
+      error: r.error, hint: r.hint || null, inconclusive: !!r.inconclusive,
+      note: "Your signature is verified and saved. We could not see the TXT record yet, "
+        + "which usually means DNS has not propagated. This is retried automatically; "
+        + "you do not need to sign again.",
+      rebuild: rebuiltPending,
+    });
+  }
   // A changed domain can invalidate an existing card link, so republish.
   const rebuilt = await tryRebuild();
   json(res, 200, { ok: true, domain: norm.domain, resolvers_agreed: r.agreed, rebuild: rebuilt });
+});
+
+// Re-check on demand, using the signature already stored. The operator has just
+// published a TXT record and wants an answer now rather than at the next sweep;
+// they should not have to sign again, and the GET deliberately does not hand
+// their signed block back to the browser.
+route("POST", /^\/api\/domain\/recheck$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  const claim = await store.getDomain(s.paymentCode);
+  if (!claim) return json(res, 404, { error: "no domain claim to re-check" });
+  const r = await verifyClaim({ domain: claim.domain, paymentCode: claim.paymentCode, signed: claim.signed }, domainCfg());
+  const now = new Date().toISOString();
+  const next = { ...claim, last_check: now,
+    verified: !!r.ok,
+    verified_at: r.ok ? (claim.verified_at || now) : claim.verified_at,
+    last_result: r.ok ? "ok" : (r.error || "no matching TXT record"),
+    fail_since: r.ok ? null : claim.fail_since };
+  await store.putDomain(next);
+  const rebuilt = await tryRebuild();
+  json(res, r.ok ? 200 : 202, {
+    ok: !!r.ok, pending: !r.ok, domain: claim.domain,
+    error: r.ok ? undefined : r.error, hint: r.ok ? undefined : (r.hint || null),
+    inconclusive: !!r.inconclusive, rebuild: rebuilt,
+  });
 });
 
 route("DELETE", /^\/api\/domain$/, async (req, res) => {
@@ -735,7 +784,7 @@ async function sweepDomains() {
 }
 
 if (process.env.DOMAIN_SWEEP !== "0") {
-  const every = +(process.env.DOMAIN_SWEEP_HOURS || 6) * 3600 * 1000;
+  const every = +(process.env.DOMAIN_SWEEP_MINUTES || 30) * 60 * 1000;
   const t = setInterval(() => { sweepDomains().catch(() => {}); }, every);
   t.unref?.();
 }

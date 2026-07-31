@@ -49,6 +49,9 @@ export interface ClaimVerification {
 export const TXT_PREFIX = "_dojobay";
 export const CLAIM_VERSION = "dojobay-domain-v1";
 export const RECHECK_MS = +(process.env.DOMAIN_RECHECK_HOURS || 24) * 3600 * 1000;
+/** A claim awaiting its first successful lookup is retried far more often: the
+ *  operator has just published a TXT record and is waiting for propagation. */
+export const PENDING_RECHECK_MS = +(process.env.DOMAIN_PENDING_RECHECK_MINUTES || 5) * 60 * 1000;
 export const GRACE_DAYS = +(process.env.DOMAIN_GRACE_DAYS || 7);
 
 // Accept "example.com", "example.com/", "https://example.com" or a full URL and
@@ -77,6 +80,10 @@ export function normaliseDomain(input: unknown): NormalisedDomain {
 }
 
 export const txtName = (domain: string): string => `${TXT_PREFIX}.${domain}`;
+/** The Host/Name field in a DNS panel is relative to the zone, so most control
+ *  panels want just this label. Handing over the fully-qualified name instead is
+ *  the classic way to end up with _dojobay.example.com.example.com. */
+export const txtHost = (): string => TXT_PREFIX;
 export const txtValue = (paymentCode: string): string => `${CLAIM_VERSION} pm=${paymentCode}`;
 export const signingText = (domain: string, paymentCode: string): string => claimText(`https://${domain}`, paymentCode);
 
@@ -134,8 +141,11 @@ export function applyRecheck(claim: DomainClaim, result: TxtAgreement, now: numb
   return next;
 }
 
-export const isDue = (claim: DomainClaim, now: number = Date.now()): boolean =>
-  !claim.last_check || (now - Date.parse(claim.last_check)) >= RECHECK_MS;
+export const isDue = (claim: DomainClaim, now: number = Date.now()): boolean => {
+  if (!claim.last_check) return true;
+  const since = now - Date.parse(claim.last_check);
+  return since >= (claim.verified ? RECHECK_MS : PENDING_RECHECK_MS);
+};
 
 // A URL is publishable as a card link only if it sits on the operator's verified
 // domain (the domain itself or a subdomain of it). This is what stops a card

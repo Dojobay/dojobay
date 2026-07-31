@@ -870,6 +870,38 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(/export const server/.test(launcher), "the launcher re-exports the server for callers");
 }
 
+// 26) whitespace repair: the signature covers the blank line before the BIP47
+//     line, and copying a block through chat, a form or a mail client routinely
+//     eats it. A reconstruction is accepted ONLY if it verifies against an
+//     address the declared code derives, so this is search, not trust.
+{
+  const { repairSignedBlock, verifySignedPayload, notificationAddresses } = await import("./crypto.ts");
+  const intact = signedBlock;                                  // json + blank line + BIP47 line
+  const mangled = intact.replace(`${canonical}\n\nBIP47:`, `${canonical}\nBIP47:`);
+  ok(mangled !== intact, "the fixture really did lose its blank line");
+
+  const before = verifySignedPayload({ signedText: mangled, expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(!before.ok && /invalid signature/.test(before.error),
+     "a block that lost its blank line fails verification as supplied");
+
+  const fixed = repairSignedBlock(mangled);
+  ok(fixed && /blank line/.test(fixed.note || ""), "the repair reports what it changed");
+  const after = verifySignedPayload({ signedText: fixed.block, expectedMessage: canonical, expectedAddress: notifAddr });
+  ok(after.ok, "the repaired block verifies, so it is safe to store");
+
+  // an intact block is returned unchanged, with nothing to report
+  const untouched = repairSignedBlock(intact);
+  ok(untouched && untouched.note === null, "an intact block is passed through unrepaired");
+
+  // repair must never rescue a genuinely bad signature, or one whose code does
+  // not own the signing address
+  const corrupt = mangled.replace(sigLine, sigLine.replace(/^./, (c) => (c === "H" ? "I" : "H")));
+  ok(repairSignedBlock(corrupt) === null, "a corrupted signature is not rescued by repair");
+  const otherCode = bip47.fromSeed(mnemonicToSeedSync("legal winner thank year wave sausage worth useful legal winner thank yellow")).toBase58();
+  ok(repairSignedBlock(intact.replace(paymentCode, otherCode)) === null,
+     "a block whose BIP47 code does not derive the signing address is refused");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

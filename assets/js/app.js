@@ -491,6 +491,18 @@ async function loadJSON(url){
   function domainSection(){
     const c = DOMAIN && DOMAIN.claim;
     const msg = DOMAIN_MSG ? `<p class="dmsg">${esc(DOMAIN_MSG)}</p>` : "";
+    if(c && !c.verified){
+      return `<div class="dbox">
+        <p>Saved for <b>${esc(c.domain)}</b> — waiting for the TXT record.</p>
+        <p class="dnote">Your signature is verified and stored, so you do not need to sign again.
+          We re-check DNS automatically every few minutes${c.last_check?`; last looked ${esc(c.last_check.slice(0,16).replace("T"," "))} UTC`:""}.
+          ${c.last_result?`<br>Last result: <span class="dwrap">${esc(c.last_result)}</span>`:""}</p>
+        <div class="medit-actions">
+          <button class="copybtn" data-mact="domrecheck">Check now</button>
+          <button class="copybtn" data-mact="domchange">Change domain</button>
+          <button class="copybtn" data-mact="domremove">Remove</button>
+        </div>${msg}</div>`;
+    }
     if(c && c.verified){
       return `<div class="dbox">
         <p>Verified: <a href="https://${esc(c.domain)}" target="_blank" rel="noopener noreferrer">${esc(c.domain)}</a>
@@ -507,8 +519,14 @@ async function loadJSON(url){
       return `<div class="dbox">
         <p>Two steps for <b>${esc(DOMAIN_PREP.domain)}</b>${DOMAIN_PREP.punycode?' <span class="dnote">(shown in punycode)</span>':""}:</p>
         <p class="dnote">1. Publish this TXT record on your domain:</p>
-        <div class="ep"><span class="k">Name</span><span class="u mono">${esc(DOMAIN_PREP.txt_name)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.txt_name)}">copy</button></div>
+        <div class="ep"><span class="k">Host</span><span class="u mono">${esc(DOMAIN_PREP.txt_host||"_dojobay")}</span><button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.txt_host||"_dojobay")}">copy</button></div>
         <div class="ep"><span class="k">Value</span><span class="u mono">${esc(DOMAIN_PREP.txt_value)}</span><button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.txt_value)}">copy</button></div>
+        <p class="dnote">Most control panels (Namecheap, Cloudflare, Route 53) treat Host as relative to
+          your domain, so enter <b>${esc(DOMAIN_PREP.txt_host||"_dojobay")}</b> exactly. Entering the full
+          <span class="mono">${esc(DOMAIN_PREP.txt_name)}</span> there creates
+          <span class="mono">${esc(DOMAIN_PREP.txt_name)}.${esc(DOMAIN_PREP.domain)}</span> instead, which
+          will not be found. A few panels do want the full name; use it only if yours asks for an FQDN.
+          Existing records for a website are unaffected: this is a separate TXT record.</p>
         <p class="dnote">2. Sign this EXACT text in your wallet under <b>PayNym → Sign message</b>, then paste the whole signed block below:</p>
         <pre class="dsign mono">${esc(DOMAIN_PREP.sign_text)}</pre>
         <button class="copybtn" data-act="copyurl" data-v="${esc(DOMAIN_PREP.sign_text)}">copy the text to sign</button>
@@ -646,6 +664,14 @@ async function loadJSON(url){
       else DOMAIN_PREP=r.body;
       renderManage(); return;
     }
+    if(act==="domrecheck"){
+      const claim=DOMAIN&&DOMAIN.claim; if(!claim) return;
+      /** @type {HTMLButtonElement} */ (m).disabled=true; m.textContent="Checking DNS…";
+      const r=await api.call("/domain/recheck","POST",{});
+      DOMAIN_MSG = r.status===200 ? "Verified."
+        : ((r.body&&(r.body.error||r.body.note))||("HTTP "+r.status));
+      await refreshDomain(); renderManage(); return;
+    }
     if(act==="domcancel"){ DOMAIN_PREP=null; DOMAIN_MSG=""; renderManage(); return; }
     if(act==="domchange"){ DOMAIN_PREP=null; DOMAIN_MSG=""; DOMAIN={claim:null}; renderManage(); return; }
     if(act==="domremove"){
@@ -657,6 +683,7 @@ async function loadJSON(url){
       /** @type {HTMLButtonElement} */ (m).disabled=true; m.textContent="Checking DNS…"; DOMAIN_MSG="";
       const r=await api.call("/domain","POST",{domain:DOMAIN_PREP.domain,signed:(ta&&/** @type {HTMLTextAreaElement} */ (ta).value)||""});
       if(r.status===200){ DOMAIN_PREP=null; DOMAIN_MSG="Verified."; await refreshDomain(); }
+      else if(r.status===202){ DOMAIN_PREP=null; DOMAIN_MSG=(r.body&&r.body.note)||"Saved; waiting for DNS."; await refreshDomain(); }
       else {
         // 503 means we could not reach enough resolvers: not the operator's fault.
         DOMAIN_MSG=((r.body&&r.body.error)||("HTTP "+r.status))

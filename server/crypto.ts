@@ -102,6 +102,52 @@ export function notificationAddresses(paymentCode: string): string[] {
 // Because the BIP47 line is inside the signed text, the payment code is
 // covered by the signature and can itself be verified against the signing
 // address (see verifySignedPayload).
+// Repair a signed block whose whitespace was mangled in transit.
+//
+// The signature covers the exact bytes between the markers, and the blank line
+// before the "BIP47:" line is part of them. Copying a block through a chat
+// window, a web form or a mail client routinely collapses that blank line, at
+// which point a perfectly good signature stops verifying and the operator is
+// told their signature is invalid, which is both wrong and unhelpful.
+//
+// This is safe rather than a fudge: a candidate is accepted ONLY if it verifies
+// cryptographically against an address the declared payment code derives, so
+// nothing is taken on trust. The repaired block is what gets stored, so later
+// audits verify too. Returns null when no candidate verifies.
+export function repairSignedBlock(text: unknown): { block: string; note: string | null } | null {
+  const raw = String(text || "").replace(/\r\n/g, "\n");
+  const addrM = raw.match(/Address:\s*(\S+)/);
+  const sigM = raw.match(/\n([A-Za-z0-9+\/=]{80,})\n*-----END BITCOIN SIGNATURE/);
+  const innerM = raw.match(/SIGNED MESSAGE-----[ \t]*\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/);
+  if (!addrM || !sigM || !innerM) return null;
+  const address = addrM[1].trim(), signature = sigM[1].trim();
+  const inner = innerM[1];
+  const codeM = inner.match(/BIP47:\s*(PM8T[1-9A-HJ-NP-Za-km-z]+)/);
+  const json = inner.replace(/\n*[ \t]*BIP47:[\s\S]*$/, "").replace(/\n+$/, "");
+  const code = codeM ? codeM[1] : null;
+
+  const candidates: [string, string][] = [["", inner]];
+  if (code) {
+    candidates.push(
+      ["a blank line before the BIP47 line was restored", `${json}\n\nBIP47: ${code}`],
+      ["a blank line before the BIP47 line was restored", `${json}\n\nBIP47:\n${code}`],
+    );
+  }
+  const accept = code ? notificationAddresses(code) : [];
+  if (code && !accept.includes(address)) return null;   // the code does not own this address
+  const net = bip47utils.networks.bitcoin;
+  for (const [note, candidate] of candidates) {
+    let ok = false;
+    try { ok = message.verify(candidate, address, signature, net.messagePrefix); } catch { ok = false; }
+    if (!ok) continue;
+    const block = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${candidate}\n` +
+      `-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: ${address}\n\n${signature}\n` +
+      `-----END BITCOIN SIGNATURE-----`;
+    return { block, note: note || null };
+  }
+  return null;
+}
+
 export function parseSignedBlock(text: unknown): ParsedBlock | null {
   if (!text || typeof text !== "string") return null;
   const t = text.replace(/\r\n/g, "\n");

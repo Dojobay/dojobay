@@ -161,7 +161,14 @@ bundled. Two constraints follow from type stripping:
   `./crypto.ts`, not `./crypto.js`. Mixed `.mjs` importing `.ts` is fine, so the
   conversion can proceed one file at a time.
 
-Converted so far: `store.ts`, `dns.ts`, `domains.ts`, `crypto.ts`. Type-only
+Converted so far: `store.ts`, `dns.ts`, `domains.ts`, `crypto.ts`, `index.ts`.
+
+`server/index.mjs` remains, deliberately, as a small plain-JavaScript launcher.
+It checks the Node version and only then dynamically imports `index.ts`, so an
+operator on an older runtime gets a clear message rather than a syntax error
+from a file their Node cannot execute. Keeping the filename also matters beyond
+tidiness: `self-update.mjs` rejects an update archive that does not contain
+`server/index.mjs`, and systemd, `npm start` and the README all name it. Type-only
 imports must use `import type`, so they are erased and never resolved at run
 time.
 

@@ -50,7 +50,10 @@ const proxy = net.createServer((s) => {
 });
 await new Promise((r) => proxy.listen(19077, "127.0.0.1", () => r(null)));
 
-const { server } = await import("./index.mjs");
+// The suite drives the server module itself. index.mjs is a launcher whose only
+// job is to refuse an old Node before importing this; it is checked separately
+// below rather than run here, so the suite is not gated on the host's version.
+const { server } = await import("./index.ts");
 await new Promise((r) => (server.listening ? r() : server.on("listening", r)));
 const base = "http://127.0.0.1:" + /** @type {import("node:net").AddressInfo} */ (server.address()).port;
 
@@ -852,6 +855,19 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(revoked.status === 200 && after.verified === false && after.revoked === true
      && node.operator_domain === null && node.name_url === null,
      "admin revocation drops the badge and withholds the card link on the next rebuild");
+}
+
+// 25) the launcher: server/index.mjs must keep existing and must refuse an old
+//     Node before importing the TypeScript server. self-update.mjs sanity-checks
+//     an archive by looking for server/index.mjs, and systemd, npm start and the
+//     README all name it, so renaming it would break more than it appears.
+{
+  const launcher = await fsp.readFile(new URL("./index.mjs", import.meta.url), "utf8");
+  ok(/process\.versions\.node/.test(launcher) && /< 24/.test(launcher) && /process\.exit\(1\)/.test(launcher),
+     "index.mjs refuses Node older than 24 with a message, before importing index.ts");
+  ok(/await import\("\.\/index\.ts"\)/.test(launcher) && !/^import .*index\.ts/m.test(launcher),
+     "the launcher imports the server dynamically, so the version check runs first");
+  ok(/export const server/.test(launcher), "the launcher re-exports the server for callers");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

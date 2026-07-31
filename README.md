@@ -51,7 +51,8 @@ logs into each listed Dojo's API over Tor, reads the chain tip, and maintains
 Reliability history is retained under a grace stamp for fourteen days after a
 node leaves the list, so a transient mistake never destroys accumulated data.
 
-The backend (`server/index.mjs`, a dependency-light Node service on
+The backend (`server/index.ts`, launched by `server/index.mjs`, a
+dependency-light Node service on
 localhost, proxied by nginx as `/api/`) handles Auth47 challenges and
 sessions, operator submissions and edits, and the moderation console at
 `/admin`. Admin rights belong to whichever payment codes the instance

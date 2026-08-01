@@ -1,285 +1,40 @@
-#!/usr/bin/env node
-// Merge the curated seed list with APPROVED self-service submissions into the
-// public data/dojos.json that the front-end and the 10-minute updater consume.
-// The seed list (data/seed.json) stays under maintainer control; only approved
-// submissions are added. A newly-approved node inherits the status, block
-// height and reliability history the updater already recorded for it while it
-// was pending (see scripts/update.mjs and server/data/pending-probe.json), so
-// it appears active with its uptime intact the moment it is published.
+// Launcher for the public-list rebuild, which lives in build-public.ts.
 //
-// Exposes rebuild() for in-process use by the admin API; runs it when invoked
-// directly from the CLI.
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+// Kept as plain JavaScript, and kept under this name, for the same reasons as
+// index.mjs:
+//
+//   1. It parses on any Node, so an operator on an older runtime gets the
+//      message below rather than a syntax error from a file their Node cannot
+//      execute. The check must precede the import, hence the dynamic import.
+//   2. A lot of things outside this file invoke it by name: the deploy workflow,
+//      `npm run build-public`, scripts/install.mjs, and — importantly —
+//      scripts/apply-update.mjs, which spawns it during a self-update. That
+//      helper is the OLD copy still running while new files are swapped in, so
+//      an instance updating ACROSS a rename would spawn a file that no longer
+//      exists and its rebuild would fail.
+//
+// New in-process callers should import ./build-public.ts directly.
+const major = Number(process.versions.node.split(".")[0]);
+if (Number.isNaN(major) || major < 24) {
+  console.error(
+    `The Dojo Bay rebuild needs Node 24 or newer (found ${process.versions.node}).\n` +
+    "It runs TypeScript directly, which relies on type stripping added in Node 24.\n" +
+    "Upgrade Node, then re-run the rebuild.");
+  process.exit(1);
+}
+
+const mod = await import("./build-public.ts");
+export const rebuild = mod.rebuild;
+export const displayPaymentCode = mod.displayPaymentCode;
+export const effectiveVersion = mod.effectiveVersion;
+export const effectiveIndexer = mod.effectiveIndexer;
+export const declaredIndexer = mod.declaredIndexer;
+export const retireUnlisted = mod.retireUnlisted;
+
+// Run the rebuild when invoked directly (the .ts module's own check does not
+// fire in that case, because argv[1] is this launcher).
 import { pathToFileURL } from "node:url";
-import { store } from "./store.ts";
-import { urlOnDomain } from "./domains.ts";
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-async function readJSON(p, fallback) {
-  try { return JSON.parse(await readFile(p, "utf8")); }
-  catch (e) { if (e.code === "ENOENT") return fallback; throw e; }
-}
-async function writeAtomic(p, obj) {
-  await mkdir(path.dirname(p), { recursive: true });
-  const tmp = p + ".tmp";
-  await writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
-  await rename(tmp, p);
-}
-
-// The payment code shown on a card. A PayNym commonly has two BIP47 variants
-// and records store every variant; the canonical one people share (and the one
-// shown on paynym.rs profiles) is the NON-segwit code, so prefer that when the
-// paynym-codes mapping can identify it, falling back to the record's first.
-// Exported for the self-test.
-export function displayPaymentCode(sub, mapping) {
-  const codes = Array.isArray(sub.paymentCodes) ? sub.paymentCodes : [];
-  if (!codes.length) return null;
-  const entry = sub.paynym && mapping && mapping[sub.paynym];
-  const legacy = entry && (entry.codes || []).find((c) => !c.segwit && codes.includes(c.code));
-  return (legacy && legacy.code) || codes[0];
-}
-
-// The version shown on a card is derived entirely from the node's API, never
-// set by an operator. In priority order:
-//   1. the version the updater last read live from the node's X-Dojo-Version
-//      response header (detected_version, carried in dojos.json),
-//   2. the version in the pairing payload, used only as a bootstrap fallback
-//      until the first probe reads a live header (and for older nodes that do
-//      not emit the header). It is itself an API value, captured from the
-//      Dojo's pairing output at submission time.
-// There is deliberately no operator override: the version always reflects what
-// the node reports. To show nothing until a live header is read, drop the
-// pairing fallback.
-export function effectiveVersion(detected, pairing) {
-  return detected || pairing || null;
-}
-
-// The Electrum endpoint shown on a card, on the same principle as the version:
-// what the node reports about itself wins. The updater reads it from the Dojo's
-// /support/services each cycle (detected); a URL declared in the submitted
-// pairing payload is the fallback for nodes that have not been probed yet or
-// run a Dojo older than v1.27.0. Null means the card shows N/A, which is a
-// real answer (no exposed indexer) rather than an omission.
-export function effectiveIndexer(detected, declared) {
-  return detected || declared || null;
-}
-
-// The indexer URL a submission declares in its payload, if any: either a
-// flattened payload.indexer or an entry in a services[] array, matching what
-// the card accepted before endpoints were probed automatically.
-export function declaredIndexer(payload) {
-  const p = payload || {};
-  let c = p.indexer;
-  if ((!c || !c.url) && Array.isArray(p.services)) c = p.services.find((s) => s && s.type === "indexer");
-  const u = typeof c === "string" ? c : c && c.url;
-  return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}$/i.test(u.trim())) ? u.trim() : null;
-}
-
-function toPublicNode(sub, paymentCode) {
-  return {
-    id: sub.id,
-    network: sub.network,
-    name: sub.name || sub.paynym || sub.id,
-    name_url: sub.name_url || null,
-    status: "inactive",
-    paynym: sub.paynym || null,
-    paymentCode: paymentCode || null,
-    jurisdiction: sub.jurisdiction || null,
-    country: sub.country || null,
-    hardware: sub.hardware || null,
-    // Initial version is the pairing-payload fallback; rebuild() recomputes it
-    // via effectiveVersion once the live-detected value is known.
-    version: sub.payload?.pairing?.version || null,
-    detected_version: null,
-    detected_indexer: null,
-    operator_domain: null,
-    indexer_url: declaredIndexer(sub.payload),
-    checked_at: null,
-    payload: sub.payload,
-    signed: sub.signed || null,
-  };
-}
-
-// Grace-period retirement for history entries. Deleting history the instant an
-// id leaves the node list turned a transient list mistake into permanent data
-// loss (the seed-migration deploy wiped every migrated node's history seconds
-// after rsync, via the post-deploy rebuild, before the migration could run on
-// the box). Instead: an unlisted id is STAMPED `retired` and kept; it is only
-// deleted after HISTORY_GRACE_DAYS (default 14); if the id is listed again
-// within the window, the stamp is cleared and its history resumes untouched.
-// Exported because scripts/update.mjs rewrites the same two files every cycle
-// and must apply identical rules.
-export function retireUnlisted(nodesMap, isListed, nowIso, graceDays = Number(process.env.HISTORY_GRACE_DAYS || 14)) {
-  let touched = false;
-  const cutoffMs = Date.parse(nowIso) - graceDays * 86400000;
-  for (const id of Object.keys(nodesMap)) {
-    const entry = nodesMap[id];
-    if (isListed(id)) {
-      if (entry.retired) { delete entry.retired; touched = true; }
-    } else if (!entry.retired) {
-      entry.retired = nowIso; touched = true;
-    } else if (Date.parse(entry.retired) < cutoffMs) {
-      delete nodesMap[id]; touched = true;
-    }
-  }
-  return touched;
-}
-
-export async function rebuild() {
-  const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
-  const SERVER_DATA = process.env.SERVER_DATA_DIR || path.join(ROOT, "server", "data");
-  const SEED = path.join(DATA_DIR, "seed.json");
-  const OUT = path.join(DATA_DIR, "dojos.json");
-  const HIST = path.join(DATA_DIR, "history.json");
-  const DAILY = path.join(DATA_DIR, "history-daily.json");
-  const PENDING_PROBE = path.join(SERVER_DATA, "pending-probe.json");
-
-  const seed = await readJSON(SEED, { nodes: [] });
-  // Optional: identifies each PayNym's non-segwit code variant for display.
-  const codesDoc = await readJSON(path.join(DATA_DIR, "paynym-codes.json"), { mapping: {} });
-  // The operator binding is REQUIRED: an instance must prove who runs it.
-  // Warn (unmissably) rather than fail, so a malformed signature nags the
-  // operator without taking the directory down for its visitors. The crypto
-  // import is lazy so the dependency-free scripts/ chain can still import
-  // this module on a box where server/node_modules is not installed yet.
-  try {
-    const opDoc = await readJSON(path.join(DATA_DIR, "operator.json"), null);
-    if (!opDoc) {
-      console.error("[rebuild] REQUIRED: data/operator.json is missing. Sign your onion URL with your wallet and install the binding (the installer does this); see README.");
-    } else {
-      try {
-        const { verifyOperatorDoc } = await import("./crypto.ts");
-        const v = verifyOperatorDoc(opDoc);
-        if (!v.ok) console.error(`[rebuild] REQUIRED: data/operator.json does not verify: ${v.error}`);
-      } catch { console.error("[rebuild] note: cannot verify operator.json (server dependencies not installed)."); }
-    }
-  } catch (e) { console.error(`[rebuild] operator.json check skipped: ${e.message}`); }
-
-  // Anchor-model checks (warnings, never fatal: a fresh instance mid-setup or
-  // mid-transition should build, just noisily). The seed should hold exactly
-  // one node -- the instance operator's own, carrying their payment code --
-  // and every listed node should carry a BIP47 code; code-less records are
-  // grandfathered exceptions managed from /admin.
-  if ((seed.nodes || []).length !== 1) {
-    console.error(`[rebuild] note: seed carries ${(seed.nodes || []).length} node(s); the anchor model expects exactly one (the instance operator's own node).`);
-  } else if (!seed.nodes[0].paymentCode) {
-    console.error(`[rebuild] warning: the anchor seed node ${seed.nodes[0].id} has no BIP47 payment code.`);
-  }
-  const approvedSubs = (await store.listSubmissions()).filter((s) => s.status === "approved");
-  const codeless = approvedSubs.filter((s) => !(s.paymentCodes || []).length);
-  if (codeless.length) {
-    console.error(`[rebuild] warning: ${codeless.length} listed node(s) without a BIP47 payment code (legacy exceptions, /admin-managed): ${codeless.map((s) => s.id).join(", ")}`);
-  }
-  const approved = approvedSubs.map((s) => toPublicNode(s, displayPaymentCode(s, codesDoc.mapping)));
-  const approvedIds = new Set(approved.map((n) => n.id));
-
-  const byId = new Map();
-  for (const n of (seed.nodes || [])) byId.set(n.id, n);
-  for (const n of approved) byId.set(n.id, n);
-  const nodes = [...byId.values()];
-
-  // Per-id pairing version, the bootstrap fallback used until a live version is
-  // detected. The card version is never operator-set (see effectiveVersion).
-  const pairingById = new Map();
-  for (const n of (seed.nodes || [])) pairingById.set(n.id, n.payload?.pairing?.version || null);
-  for (const s of approvedSubs) pairingById.set(s.id, s.payload?.pairing?.version || null);
-
-  // Owner payment codes per node, for the verified-domain lookup below. The seed
-  // anchor carries a single paymentCode; store records carry paymentCodes[].
-  const ownerCodesById = new Map();
-  for (const n of (seed.nodes || [])) ownerCodesById.set(n.id, n.paymentCode ? [n.paymentCode] : []);
-  for (const sub of approvedSubs) ownerCodesById.set(sub.id, sub.paymentCodes || []);
-
-  // Indexer URL declared in the payload, the fallback until a probe reads one.
-  const declaredIdxById = new Map();
-  for (const n of (seed.nodes || [])) declaredIdxById.set(n.id, declaredIndexer(n.payload));
-  for (const s of approvedSubs) declaredIdxById.set(s.id, declaredIndexer(s.payload));
-
-  // Carry over the live status the updater last wrote, so a rebuild does not
-  // blank a node for a probe cycle.
-  const prior = await readJSON(OUT, { nodes: [] });
-  const priorById = new Map((prior.nodes || []).map((n) => [n.id, n]));
-  // Pending-probe results (updater-owned): seed a just-approved node's status
-  // and height from what was observed while it was pending.
-  const pending = await readJSON(PENDING_PROBE, { nodes: {} });
-  // Verified operator domains: published per node so the card can show the badge
-  // without another lookup, and used to filter the card-title link. A link that
-  // is not on the operator's verified domain is withheld rather than deleted, so
-  // an operator who verifies later gets their link back untouched.
-  const domainByCode = await store.verifiedDomainMap();
-  for (const n of nodes) {
-    const codes = ownerCodesById.get(n.id) || [];
-    const domain = codes.map((c) => domainByCode.get(c)).find(Boolean) || null;
-    n.operator_domain = domain;
-    if (n.name_url && !urlOnDomain(n.name_url, domain)) n.name_url = null;
-  }
-
-  for (const n of nodes) {
-    const p = priorById.get(n.id);
-    const pr = (!p && approvedIds.has(n.id)) ? pending.nodes?.[n.id] : null;
-    if (p) {
-      n.status = p.status ?? n.status;
-      n.checked_at = p.checked_at ?? n.checked_at;
-      if (p.block_height != null) n.block_height = p.block_height;
-    } else if (pr) {
-      n.status = pr.status ?? n.status;
-      n.checked_at = pr.checked_at ?? n.checked_at;
-      if (pr.block_height != null) n.block_height = pr.block_height;
-    }
-    // Carry the live-detected version (prior snapshot, then a just-approved
-    // node's pending probe) and fold it into the effective card version. The
-    // updater writes detected_version each cycle; a rebuild must preserve it,
-    // exactly as it preserves status and block height.
-    const detected = (p && p.detected_version) || (pr && pr.detected_version) || null;
-    n.detected_version = detected;
-    n.version = effectiveVersion(detected, pairingById.get(n.id));
-    // Same treatment for the Electrum endpoint: carry what the updater read and
-    // publish it as indexer_url, which the card renders (N/A when null).
-    const detectedIdx = (p && p.detected_indexer) || (pr && pr.detected_indexer) || null;
-    n.detected_indexer = detectedIdx;
-    n.indexer_url = effectiveIndexer(detectedIdx, declaredIdxById.get(n.id));
-  }
-
-  await writeAtomic(OUT, {
-    generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-    interval_minutes: 10,
-    nodes,
-  });
-
-  // Reliability history: ensure a bucket per node, seed a newly-approved node's
-  // history from its pending history, and retire (grace period) unlisted ids.
-  const hist = await readJSON(HIST, { interval_minutes: 10, window_checks: 144, nodes: {} });
-  let touched = false;
-  for (const n of nodes) {
-    if (!hist.nodes[n.id]) {
-      const seedChecks = (approvedIds.has(n.id) && pending.nodes?.[n.id]?.checks) || [];
-      hist.nodes[n.id] = { checks: seedChecks.slice() };
-      touched = true;
-    }
-  }
-  const nowIso = new Date().toISOString();
-  touched = retireUnlisted(hist.nodes, (id) => byId.has(id), nowIso) || touched;
-  if (touched) { hist.generated_at = hist.generated_at || null; await writeAtomic(HIST, hist); }
-
-  // 90-day daily rollup membership.
-  const dailyDoc = await readJSON(DAILY, { retention_days: 90, nodes: {} });
-  let dailyTouched = false;
-  for (const n of nodes) if (!dailyDoc.nodes[n.id]) {
-    dailyDoc.nodes[n.id] = { days: (approvedIds.has(n.id) && pending.nodes?.[n.id]?.days) ? pending.nodes[n.id].days.slice() : [] };
-    dailyTouched = true;
-  }
-  dailyTouched = retireUnlisted(dailyDoc.nodes, (id) => byId.has(id), nowIso) || dailyTouched;
-  if (dailyTouched) await writeAtomic(DAILY, dailyDoc);
-
-  const msg = `public list rebuilt: ${nodes.length} nodes (${approved.length} approved submissions).`;
-  return { nodes: nodes.length, approved: approved.length, msg };
-}
-
-// Run when invoked directly.
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
-  const r = await rebuild();
+  const r = await mod.rebuild();
   console.log(r.msg);
 }

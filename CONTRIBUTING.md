@@ -149,44 +149,100 @@ be newly created.
 
 ## TypeScript
 
-`server/` is being converted to TypeScript file by file. Node 24 runs `.ts`
-directly, so there is **no build step**: `node index.mjs` and `node crypto.ts`
-work the same way, the deploy is still a plain rsync, and nothing is compiled or
-bundled. Two constraints follow from type stripping:
-
-- **Erasable syntax only.** No `enum`, no `namespace`, no parameter properties.
-  `tsconfig.json` sets `erasableSyntaxOnly` so the checker rejects these rather
-  than the runtime.
-- **Import specifiers name the real file.** A converted module is imported as
-  `./crypto.ts`, not `./crypto.js`. Mixed `.mjs` importing `.ts` is fine, so the
-  conversion can proceed one file at a time.
-
-Converted so far: `store.ts`, `dns.ts`, `domains.ts`, `crypto.ts`, `index.ts`.
-
-`server/index.mjs` remains, deliberately, as a small plain-JavaScript launcher.
-It checks the Node version and only then dynamically imports `index.ts`, so an
-operator on an older runtime gets a clear message rather than a syntax error
-from a file their Node cannot execute. Keeping the filename also matters beyond
-tidiness: `self-update.mjs` rejects an update archive that does not contain
-`server/index.mjs`, and systemd, `npm start` and the README all name it. Type-only
-imports must use `import type`, so they are erased and never resolved at run
-time.
-
-The rest of the code stays plain JavaScript and runs unbuilt, but it is
-type-checked. Shared
-shapes live in `types.d.ts` and are referenced from JSDoc, so a drift in a record
-shape is a type error rather than a runtime surprise:
+**Everything here is type-checked; only some of it is written in TypeScript, and
+that is deliberate.** If you are considering converting another file, read the
+policy below first — the answer is often no, and the reasons are not obvious.
 
 ```
 npm install          # once, at the repo root: typescript + @types/node
-npm run typecheck    # must exit 0
+npm run typecheck    # must exit 0; run it with the three test suites
 ```
 
-TypeScript is a root devDependency only. The deploy runs `npm ci` inside
-`server/` alone, so it is never installed on an instance, and nothing here is
-compiled or shipped. Run it alongside the three suites before committing; it
-catches a class of bug the tests do not, and has already found a stale call site
-and an unchecked Auth47 proof shape.
+`tsconfig.json` includes `server/**/*.mjs`, `server/**/*.ts`, `scripts/**/*.mjs`
+and `assets/js/app.js`. So a plain `.mjs` file is checked exactly as strictly as
+a `.ts` one, using JSDoc annotations and the shared shapes in `types.d.ts`.
+**Checking is what finds bugs; converting mainly improves ergonomics.** The
+checking pass alone found a stale function call that would have thrown on first
+use, an Auth47 proof read without checking its variant (which would have bound a
+session to an undefined payment code), and two record shapes that did not match
+how records are actually written.
+
+### How conversion works here
+
+Node 24 runs `.ts` directly, so there is **no build step**: the deploy is a plain
+rsync, nothing is compiled or bundled, and a `.mjs` file may import a `.ts` one.
+Three constraints follow:
+
+- **Erasable syntax only.** No `enum`, no `namespace`, no parameter properties.
+  `tsconfig.json` sets `erasableSyntaxOnly`, so the checker rejects these rather
+  than the runtime doing so at 3am.
+- **Import specifiers name the real file**: `./crypto.ts`, not `./crypto.js`.
+- **Type-only imports must use `import type`**, so they are erased and never
+  resolved at run time. `types.d.ts` is not a runtime module.
+
+### Converted, and why
+
+`store.ts`, `crypto.ts`, `dns.ts`, `domains.ts`, `index.ts`, `build-public.ts`,
+`apply-signed-payload.ts`. These are the modules where a wrong shape is
+expensive: signature verification, the store, the published node record, and the
+request layer. Every one of these conversions corrected a type that did not match
+reality — optional fields marked required, resolver counts that cannot exist on
+an error path, contracts demanding a whole record when the function read two
+fields. That correction is the return on the work.
+
+### Not converted, and why not
+
+Do not convert these without a reason beyond consistency:
+
+- **`self-update.mjs`.** It has never run on real hardware. Changing it for
+  syntax adds risk to the code least able to absorb it. Convert it *after* it has
+  been exercised on a VM, not before.
+- **The test suites** (`server/selftest.mjs`, `scripts/selftest.mjs`,
+  `scripts/e2e-harness.mjs`). They are the safety net. Rewriting the net for
+  syntax leaves the net itself unverified while you work, and they are already
+  type-checked, which is how two of the shape corrections above were found.
+- **`assets/js/app.js`.** Browsers do not run TypeScript, and Node's type
+  stripping is a *runtime* feature that does nothing for a `<script src>` tag.
+  Converting the front end therefore requires a build step or a committed
+  compiled artefact, which breaks the principle that what is in the repository is
+  what runs, and ripples into three places that assume raw JavaScript:
+  `pack-source.mjs` ships the codebase as source, the self-update path swaps
+  files and restarts with no build stage, and the JSDom harness reads `app.js` as
+  text and evaluates it. It is already checked and its DOM narrowing is already
+  annotated, so conversion would mostly swap JSDoc casts for TypeScript casts.
+  **Leave it as checked JavaScript** unless a bundler becomes desirable for some
+  other reason.
+- **The maintenance scripts** (`audit-signed.mjs`, `diagnose-signed.mjs`,
+  `fix-payload-version.mjs`). Run by hand, output read by a human. Low value.
+
+Everything else (`paynym.mjs`, `updates.mjs`, `admin.mjs`, `probe.mjs`,
+`scripts/*.mjs`) is worth converting **opportunistically**, when you are already
+changing it for another reason. A dedicated migration commit for these is not a
+good use of risk.
+
+### The launcher pattern
+
+`server/index.mjs` and `server/build-public.mjs` remain as small plain-JavaScript
+launchers. Each checks the Node version and only then **dynamically** imports its
+`.ts` counterpart — dynamically, because a static import is hoisted and would
+fail before the check could run. This is not tidiness:
+
+- An operator on Node 20 or 22 gets an explanation instead of a syntax error from
+  a file their runtime cannot parse.
+- `self-update.mjs` rejects an update archive that does not contain
+  `server/index.mjs`, so renaming it would make every legitimate update look
+  malformed.
+- `scripts/apply-update.mjs` spawns `node build-public.mjs` during a self-update
+  while still running the *old* copy of itself, so an instance updating across a
+  rename would spawn a file that no longer exists.
+- systemd, `npm start`, `npm run build-public`, `scripts/install.mjs`, the deploy
+  workflow and the README all name these files.
+
+So: **if a file is invoked by name from outside the repository's own source, keep
+that name as a launcher and convert the implementation behind it.** In-process
+callers should import the `.ts` module directly; the launcher exists for the
+command line and for external callers. `server/selftest.mjs` asserts both
+launchers still guard and still re-export, so this cannot be undone by accident.
 
 ## Maintenance scripts
 

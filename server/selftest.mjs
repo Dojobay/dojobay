@@ -421,7 +421,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 // 15) the card shows the PayNym's canonical (non-segwit) code variant when the
 //     mapping identifies it, falling back to the record's first code.
 {
-  const { displayPaymentCode } = await import("./build-public.mjs");
+  const { displayPaymentCode } = await import("./build-public.ts");
   const sub = { paynym: "+max", paymentCodes: ["PMsegwitVariant", "PMlegacyVariant"] };
   const mapping = { "+max": { codes: [{ code: "PMsegwitVariant", segwit: true }, { code: "PMlegacyVariant", segwit: false }] } };
   ok(displayPaymentCode(sub, mapping) === "PMlegacyVariant"
@@ -642,7 +642,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //     entirely from the node's API detected live wins, pairing is only the
 //     bootstrap fallback, and an operator edit can never change it.
 {
-  const { rebuild, effectiveVersion } = await import("./build-public.mjs");
+  const { rebuild, effectiveVersion } = await import("./build-public.ts");
   const id = "mainnet-selftest-node";
   const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
 
@@ -672,7 +672,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //     is only the fallback, and a node that publishes none yields null so the
 //     card can show N/A.
 {
-  const { rebuild, effectiveIndexer, declaredIndexer } = await import("./build-public.mjs");
+  const { rebuild, effectiveIndexer, declaredIndexer } = await import("./build-public.ts");
   const id = "mainnet-selftest-node";
   const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
   const live = "tcp://" + "i".repeat(56) + ".onion:50001";
@@ -848,7 +848,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
     fail_since: null, created_at: new Date().toISOString() });
   const revoked = await api("/api/admin/domain/revoke", "POST", { paymentCode });
   const after = await st.getDomain(paymentCode);
-  const { rebuild: rb } = await import("./build-public.mjs");
+  const { rebuild: rb } = await import("./build-public.ts");
   await rb();
   const node = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
     .nodes.find((n) => n.id === "mainnet-selftest-node");
@@ -868,6 +868,16 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(/await import\("\.\/index\.ts"\)/.test(launcher) && !/^import .*index\.ts/m.test(launcher),
      "the launcher imports the server dynamically, so the version check runs first");
   ok(/export const server/.test(launcher), "the launcher re-exports the server for callers");
+
+  // build-public.mjs is the same pattern, and its name is depended on from
+  // further away: the deploy workflow, npm run build-public, install.mjs and
+  // apply-update.mjs, which spawns it DURING a self-update while still running
+  // the old copy of itself. A rename would break an instance mid-update.
+  const bp = await fsp.readFile(new URL("./build-public.mjs", import.meta.url), "utf8");
+  ok(/< 24/.test(bp) && /await import\("\.\/build-public\.ts"\)/.test(bp),
+     "build-public.mjs guards the Node version, then imports build-public.ts dynamically");
+  ok(/export const rebuild/.test(bp) && /pathToFileURL/.test(bp),
+     "the rebuild launcher re-exports rebuild and still runs it when invoked directly");
 }
 
 // 26) whitespace repair: the signature covers the blank line before the BIP47

@@ -46,7 +46,7 @@
 // =============================================================================
 
 import net from "node:net";
-import { retireUnlisted } from "../server/build-public.mjs";
+import { retireUnlisted } from "../server/build-public.ts";
 import { readFile, writeFile, rename, stat as fsStat, mkdir as fsMkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -509,7 +509,7 @@ async function writeJSONAtomic(file, obj) {
 // Exported so the self-test can drive it against isolated data directories.
 export async function reconcilePublicList() {
   if (!process.env.PUBLIC_DATA_DIR) process.env.PUBLIC_DATA_DIR = CFG.dataDir;
-  const { rebuild } = await import("../server/build-public.mjs");
+  const { rebuild } = await import("../server/build-public.ts");
   return rebuild();
 }
 

@@ -26,7 +26,7 @@ import {
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
 } from "./domains.ts";
 import { resolvePayNym } from "./paynym.mjs";
-import { rebuild } from "./build-public.mjs";
+import { rebuild } from "./build-public.ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

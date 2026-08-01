@@ -18,7 +18,7 @@ import type { StoreRecord } from "../types.js";
 type Handler = (req: IncomingMessage, res: ServerResponse) => unknown | Promise<unknown>;
 import { randomBytes } from "node:crypto";
 import { store } from "./store.ts";
-import { makeAuth47, notificationAddresses, verifySignedPayload } from "./crypto.ts";
+import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import {
@@ -357,6 +357,15 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
 
   // signature gate (optional field, but if present it must verify)
   if (body.signed) {
+    // Operators paste this into a web form, which eats whitespace as readily as
+    // a chat window does — and the signature covers the blank line before the
+    // BIP47 line. Repair that before judging, so a correct signature is not
+    // reported as invalid. A reconstruction is only accepted when it verifies
+    // against an address the declared code derives, and the repaired block is
+    // what gets stored, so a later audit verifies too.
+    const repaired = repairSignedBlock(body.signed);
+    if (repaired) body.signed = repaired.block;
+
     const sig = verifySignedPayload({
       signedText: body.signed,
       expectedMessage: canonicalPairing(body.payload),
@@ -658,8 +667,12 @@ route("POST", /^\/api\/domain$/, async (req, res) => {
   let body; try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
   const norm = normaliseDomain(body?.domain);
   if (!norm.ok) return json(res, 400, { error: norm.error });
-  const signed = String(body?.signed || "").trim();
+  let signed = String(body?.signed || "").trim();
   if (!signed) return json(res, 400, { error: "paste the signed block" });
+  // Same paste hazard as the submission gate: restore the blank line the
+  // signature covers, when a reconstruction verifies cryptographically.
+  const repairedClaim = repairSignedBlock(signed);
+  if (repairedClaim) signed = repairedClaim.block;
 
   // A domain already verified by a different operator is not fatal (a host may
   // run several operators' nodes) but it is worth surfacing to an admin.

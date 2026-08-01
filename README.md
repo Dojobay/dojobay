@@ -265,6 +265,33 @@ never touched, and a backup under `data/backups/<timestamp>/` lets you roll
 back by hand if a build misbehaves. The manual `unzip` upgrade below remains
 available and does the same thing.
 
+## TypeScript, and what is deliberately not converted
+
+The whole codebase is type-checked (`npm run typecheck`), and the parts where a
+wrong shape is expensive are written in TypeScript: the store, the crypto, the
+DNS and domain layers, the request layer and the public-list rebuild. Node 24
+runs `.ts` directly, so there is **no build step** — the deploy is a plain rsync
+and nothing is compiled or bundled.
+
+Some things are deliberately left as checked JavaScript, and a contributor
+should not "finish the migration" without reading the reasoning first:
+
+- **`assets/js/app.js`** stays JavaScript because browsers do not run TypeScript
+  and Node's type stripping is a runtime feature that does nothing for a
+  `<script src>` tag. Converting it would require a build step, which breaks the
+  principle that what is in the repository is what runs.
+- **`self-update.mjs`** stays until it has been exercised on real hardware.
+  Changing it for syntax adds risk to the code least able to absorb it.
+- **The test suites** stay, because rewriting the safety net for syntax leaves
+  the net itself unverified while you work.
+
+`server/index.mjs` and `server/build-public.mjs` remain as small launchers that
+check the Node version before importing their `.ts` counterparts, so an operator
+on an older runtime gets an explanation rather than a syntax error. Those names
+are also depended on from outside the repository, so they must not be renamed.
+The full policy, including when converting *is* worthwhile, is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Contributing and licence
 
 Development setup, project structure, the test suites and coding conventions

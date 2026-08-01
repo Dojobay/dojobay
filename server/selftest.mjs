@@ -979,6 +979,38 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "no verified domain means no badge and no proof");
 }
 
+// 29) the submission gate repairs a paste that lost its blank line, end to end.
+//     Operators paste into a web form, which mangles whitespace exactly as a
+//     chat window does, and the signature covers that blank line.
+{
+  const mangled = signedBlock.replace(`${canonical}\n\nBIP47:`, `${canonical}\nBIP47:`);
+  ok(mangled !== signedBlock, "the fixture really did lose its blank line");
+
+  const r = await api("/api/dojo", "POST", {
+    network: "mainnet", name: "paste-repair", jurisdiction: "Testland",
+    payload, signed: mangled,
+  });
+  ok(r.status === 200, "a submission whose paste lost the blank line is accepted: " + JSON.stringify(r.body?.error || ""));
+
+  // and what is STORED is the repaired block, so a later audit verifies
+  const { store: st } = await import("./store.ts");
+  const { auditRecord } = await import("./audit-signed.mjs");
+  const rec = (await st.listSubmissions()).find((x) => x.name === "paste-repair");
+  ok(rec && rec.signed !== mangled, "the repaired block is stored, not the mangled paste");
+  ok(auditRecord(rec).bucket === "VERIFIED", "so the stored record passes a later audit");
+
+  // repair must not rescue a signature that is actually wrong
+  const corrupt = mangled.replace(sigLine, sigLine.replace(/^./, (c) => (c === "H" ? "I" : "H")));
+  const bad = await api("/api/dojo", "POST", {
+    network: "mainnet", name: "paste-repair-bad", jurisdiction: "Testland",
+    payload, signed: corrupt,
+  });
+  ok(bad.status === 400 && /signature gate/.test(bad.body.error),
+     "a genuinely bad signature is still refused: " + JSON.stringify(bad.body?.error || ""));
+
+  await st.deleteSubmission(rec.id);
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

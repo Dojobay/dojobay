@@ -94,6 +94,16 @@
   a.cname .ext{font-size:11px;color:var(--faint);vertical-align:middle}
   a.cname:hover .ext{color:var(--accent)}
   .cbadge{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:5px;font-weight:700;flex-shrink:0}
+  /* Stale data: the updater has not refreshed dojos.json for several intervals,
+     so we stop asserting status. Badges go neutral rather than green or red,
+     because "unknown" is the honest answer, not "down". */
+  .stale-banner{margin:0 0 18px;padding:12px 14px;border-radius:8px;font-size:13.5px;line-height:1.6;
+    color:var(--text);background:rgba(214,88,79,.10);border:1px solid rgba(214,88,79,.35)}
+  .stale-banner b{color:var(--down)}
+  .grid.stale .sd.active,.grid.stale .sd.inactive{background:var(--faint);box-shadow:0 0 0 3px rgba(139,148,158,.12)}
+  .grid.stale .cbadge.active,.grid.stale .cbadge.inactive{color:var(--faint);background:var(--panel2)}
+  .grid.stale .card{opacity:.92}
+  .fresh.stale .dot{background:var(--faint);box-shadow:0 0 0 3px rgba(139,148,158,.12)}
   .cbadge.active{color:var(--up);background:var(--up-bg)}
   .cbadge.inactive{color:var(--down);background:rgba(214,88,79,.12)}
   .csub{display:flex;align-items:center;gap:8px;margin:9px 0 2px;font-size:13px;flex-wrap:wrap}
@@ -148,6 +158,16 @@
     color:var(--up);border:1px solid rgba(63,185,80,.35);background:var(--up-bg);white-space:nowrap;
     max-width:190px;overflow:hidden;text-overflow:ellipsis}
   .vdomain:hover{border-color:rgba(63,185,80,.6)}
+  /* "For the machines among us": an unobtrusive way to interrogate the badge. */
+  .vproof{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.06em;
+    padding:4px 7px;border-radius:6px;color:var(--faint);border:1px solid var(--line);
+    background:var(--panel2);cursor:pointer}
+  .vproof:hover{color:var(--muted);border-color:var(--line-soft)}
+  .proofblk{margin:0 0 12px}
+  .proofblk .k{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .proofblk pre{margin:0 0 6px;padding:9px 10px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:6px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;color:var(--muted)}
   /* Verified-domain setup box in Manage. */
   .dbox{border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--panel2);margin-bottom:12px}
   .dbox p{margin:0 0 8px}

@@ -31,6 +31,17 @@ export interface PublicNode {
   indexer_url: string | null;
   /** The operator's verified domain, if they have proved one. */
   operator_domain: string | null;
+  /** Everything a reader needs to check that claim themselves, without
+   *  trusting this instance: the TXT record to look up, and the signed
+   *  statement to verify. All of it is already public. */
+  operator_domain_proof: {
+    domain: string;
+    paymentCode: string;
+    txt_name: string;
+    txt_value: string;
+    signed: string;
+    verified_at: string | null;
+  } | null;
   checked_at: string | null;
   block_height: number | null;
   payload: PairingPayload;

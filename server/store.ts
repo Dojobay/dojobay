@@ -118,6 +118,27 @@ export const store = {
     const rec = (await load()).submissions[id] || null;
     return rec ? normaliseSubmission(rec) : null;
   },
+  // Retention: a rejected submission is kept briefly so a maintainer can reverse
+  // a mistake, then deleted. Nothing else ever removed one, so the store
+  // accumulated the payment code, pairing payload and signature of every
+  // operator ever turned down — including the apikey, which is a live
+  // credential to their Dojo, not merely metadata. Returns the ids removed.
+  async pruneRejected(days: number, now: number = Date.now()): Promise<string[]> {
+    const s = await load();
+    const cutoff = now - days * 86400 * 1000;
+    const gone: string[] = [];
+    for (const [id, rec] of Object.entries(s.submissions)) {
+      if (rec?.status !== "rejected") continue;
+      const stamp = Date.parse(rec.updated_at || rec.created_at || "");
+      // A record with no usable timestamp is pruned rather than kept forever.
+      if (Number.isFinite(stamp) && stamp > cutoff) continue;
+      delete s.submissions[id];
+      gone.push(id);
+    }
+    if (gone.length) await persist();
+    return gone;
+  },
+
   async deleteSubmission(id: string) {
     const s = await load();
     if (s.submissions[id]) { delete s.submissions[id]; await persist(); }

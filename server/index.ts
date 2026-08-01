@@ -766,6 +766,26 @@ route("GET", /^\/api\/admin\/domains$/, async (req, res) => {
 // updater because the store is owned by the backend's user; the updater runs as
 // a different user and must not write it. DNS changes slowly, so the sweep is
 // daily per claim, and it never lets an unreachable resolver strip a badge.
+// Rejected submissions are not kept indefinitely. The window exists so a
+// maintainer can undo a mistaken rejection; after it, the operator's payment
+// code, pairing payload, apikey and signature are removed. Defaults to the same
+// grace period the retired history uses.
+const REJECTED_RETENTION_DAYS = +(process.env.REJECTED_RETENTION_DAYS || process.env.HISTORY_GRACE_DAYS || 14);
+
+async function sweepRejected() {
+  try {
+    const gone = await store.pruneRejected(REJECTED_RETENTION_DAYS);
+    if (gone.length) {
+      console.log(`[retention] removed ${gone.length} rejected submission(s) older than ` +
+        `${REJECTED_RETENTION_DAYS} days: ${gone.join(", ")}`);
+    }
+    return gone;
+  } catch (e) {
+    console.error("[retention] sweep failed:", (e as Error).message);
+    return [];
+  }
+}
+
 async function sweepDomains() {
   let changed = false;
   for (const claim of await store.listDomains()) {
@@ -785,8 +805,13 @@ async function sweepDomains() {
 
 if (process.env.DOMAIN_SWEEP !== "0") {
   const every = +(process.env.DOMAIN_SWEEP_MINUTES || 30) * 60 * 1000;
-  const t = setInterval(() => { sweepDomains().catch(() => {}); }, every);
+  const t = setInterval(() => {
+    sweepDomains().catch(() => {});
+    sweepRejected().catch(() => {});
+  }, every);
   t.unref?.();
+  // Also once at startup, so a long-dead instance does not wait for the first tick.
+  sweepRejected().catch(() => {});
 }
 
 // ---- server ----------------------------------------------------------------

@@ -81,6 +81,32 @@ async function loadJSON(url){
   // pattern as the Manage button and the build hash), never DOM-poked.
   let menuOpen=false;
 
+  // Is the published data still current?
+  //
+  // The updater rewrites data/dojos.json every interval_minutes. If that timer
+  // dies, nginx keeps serving the last file indefinitely and every badge stays
+  // confidently green, which is the one failure this directory must not have:
+  // the whole proposition is that the status is real. Past a few intervals we
+  // stop asserting status and say so.
+  //
+  // A clock that is behind makes generated_at look like the future, which is
+  // simply not stale. A clock far ahead can produce a false warning, so the
+  // banner mentions it rather than insisting the site is broken.
+  const STALE_INTERVALS = 3;
+  function freshness(doc){
+    const iv = Number(doc && doc.interval_minutes) > 0 ? Number(doc.interval_minutes) : 10;
+    const t = Date.parse((doc && doc.generated_at) || "");
+    if(!isFinite(t)) return { stale:true, unknown:true, intervalMin:iv, ageMin:null };
+    const ageMin = (Date.now() - t) / 60000;
+    return { stale: ageMin > iv*STALE_INTERVALS, unknown:false, intervalMin:iv, ageMin };
+  }
+  function humanAge(mins){
+    if(mins==null) return "an unknown time";
+    if(mins < 90) return Math.max(1,Math.round(mins)) + " minutes";
+    if(mins < 60*36) return Math.round(mins/60) + " hours";
+    return Math.round(mins/1440) + " days";
+  }
+
   // One renderer for every endpoint row, so all three look and behave the same.
   // A row is always present: with a usable URL it shows the value and a working
   // copy button; without one it reads N/A with the copy button greyed out and
@@ -185,6 +211,7 @@ async function loadJSON(url){
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
       ${n.paymentCode?`<button class="pcode mono" data-act="copycode" data-v="${esc(n.paymentCode)}" title="${esc(n.paymentCode)} — click to copy">${esc(n.paymentCode.slice(0,8))}…${esc(n.paymentCode.slice(-8))}</button>`:""}
       ${n.operator_domain?`<a class="vdomain" href="https://${esc(n.operator_domain)}" target="_blank" rel="noopener noreferrer" title="The operator proved control of ${esc(n.operator_domain)}: a TXT record on the domain names their payment code, and they signed a statement naming the domain. This proves control of the domain, not that the operator is trustworthy.">✓ ${esc(n.operator_domain)}</a>`:""}
+      ${n.operator_domain_proof?`<button class="vproof" data-act="domproof" title="Check this claim yourself: the DNS lookup and the signature to verify">verify</button>`:""}
       ${relStrip(checks)}
       <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">Reliability · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
       <div class="meta">
@@ -228,6 +255,51 @@ async function loadJSON(url){
     </div>`;
   }
 
+  // "For the machines among us": how to check a domain badge without trusting
+  // this site. Both halves are independently checkable — the TXT record comes
+  // from the operator's own DNS, and the signature verifies against the payment
+  // code already shown on the card. Neither step involves this instance, and
+  // neither puts paynym.rs on the request path.
+  function domainProofHTML(n){
+    const p = n.operator_domain_proof;
+    if(!p) return "<p>No published proof for this node.</p>";
+    const msg = (p.signed.match(/SIGNED MESSAGE-----\n([\s\S]*?)\n-----BEGIN BITCOIN SIGNATURE/)||["",""])[1];
+    const addr = (p.signed.match(/Address:\s*(\S+)/)||["",""])[1];
+    const sig = (p.signed.match(/\n([A-Za-z0-9+/=]{80,})\n*-----END BITCOIN SIGNATURE/)||["",""])[1];
+    const blk = (label, body) =>
+      `<div class="proofblk"><div class="k">${esc(label)}</div>`
+      + `<pre class="mono">${esc(body)}</pre>`
+      + `<button class="copybtn" data-act="copyurl" data-v="${esc(body)}">copy</button></div>`;
+    return `<p class="dnote">The operator of this node claims <b>${esc(p.domain)}</b>. Two independent
+        checks prove it, and you can run both yourself without trusting this directory.</p>
+      <h3>1. The domain names the payment code</h3>
+      <p class="dnote">Look up the TXT record from the operator's own DNS. It must contain the payment
+        code shown on the card.</p>
+      ${blk("with dig", "dig +short TXT " + p.txt_name)}
+      ${blk("or over HTTPS, no dig required",
+        "curl -sH 'accept: application/dns-json' \\\n  'https://cloudflare-dns.com/dns-query?name=" + p.txt_name + "&type=TXT'")}
+      ${blk("expected to contain", p.txt_value)}
+      <h3>2. The payment code names the domain</h3>
+      <p class="dnote">The operator signed this text with the notification address of that payment code.
+        Verify it with any Bitcoin message verifier, for example the
+        <a href="https://paymentcode.io/lab" target="_blank" rel="noopener noreferrer">BIP47 lab</a>,
+        or <span class="mono">bitcoin-cli verifymessage</span>.</p>
+      ${blk("message", msg)}
+      ${blk("signing address", addr)}
+      ${blk("signature", sig)}
+      ${blk("or verify the whole block at once", p.signed)}
+      <p class="dnote">Both must hold. The TXT record alone shows only that whoever controls the domain
+        published a code; the signature alone shows only that the code's owner mentioned the domain.
+        Together they show the same party holds both. This proves control of a domain, not that the
+        operator is trustworthy.${p.verified_at?" This instance last confirmed it on "+esc(p.verified_at.slice(0,10))+".":""}</p>`;
+  }
+
+  function openDomainProof(n){
+    document.getElementById("ov-title").textContent = (n.operator_domain||"domain") + " · verify";
+    document.getElementById("ov-body").innerHTML = domainProofHTML(n);
+    document.getElementById("ov").classList.add("show");
+  }
+
   // Pairing details open in the shared popup (the same surface as Verify)
   // rather than expanding beneath the card.
   function openPair(n){
@@ -264,6 +336,7 @@ async function loadJSON(url){
     const list=DOJOS.nodes.filter(n=>n.network===net).sort(byUptime);
     const active=list.filter(n=>n.status==="active").length;
     const gen=(DOJOS.generated_at||"").replace("T"," ").slice(0,16)+" UTC";
+    const FRESH=freshness(DOJOS);
     const dismissed=(()=>{try{return localStorage.getItem("db_banner")==="off"}catch(e){return false}})();
 
     document.getElementById("root").innerHTML = `
@@ -296,13 +369,19 @@ async function loadJSON(url){
         <button data-net="mainnet" class="${net==="mainnet"?"on":""}">mainnet</button>
         <button data-net="testnet" class="${net==="testnet"?"on":""}">testnet</button>
       </div>
-      <div class="fresh"><span class="dot"></span><b>${active}</b> of ${list.length} active
+      <div class="fresh${FRESH.stale?" stale":""}"><span class="dot"></span><b>${active}</b> of ${list.length} active
         <span class="sep">·</span> checked ${esc(gen)}
-        <span class="sep">·</span> re-checks every 10 min</div>
+        <span class="sep">·</span> re-checks every ${FRESH.intervalMin} min</div>
     </div>
 
     <main class="wrap">
-      <div class="grid">${list.map(card).join("")}</div>
+      ${FRESH.stale?`<div class="stale-banner" role="status">
+        <b>These statuses are out of date.</b>
+        This directory last refreshed ${esc(humanAge(FRESH.ageMin))} ago${FRESH.unknown?"":`, and should refresh every ${FRESH.intervalMin} minutes`}.
+        The checker has probably stopped, so the badges below are greyed out: treat every node as unknown rather than up or down.
+        (If your device's clock is wrong, this warning can appear on a healthy directory.)
+      </div>`:""}
+      <div class="grid${FRESH.stale?" stale":""}">${list.map(card).join("")}</div>
       <p class="note">The Dojo Bay is a federation of independent operators across different jurisdictions, and every node is reachable over Tor. Nodes go up and down without notice, and only the operator can restart one. Pairing exposes your XPUBs to that node, so do your own due diligence, or <a href="https://dojo-osp.org/install/requirements" target="_blank" rel="noopener">run your own Dojo</a>.</p>
     </main>
 
@@ -422,6 +501,7 @@ async function loadJSON(url){
     const cardEl=evEl(e)?.closest(".card");
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
     if(a==="pair"){ openPair(node()); return; }
+    if(a==="domproof"){ openDomainProof(node()); return; }
     if(a==="copyurl"){copy(act.getAttribute("data-v")).then(()=>flash(act,"✓"));return;}
   });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });

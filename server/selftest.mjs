@@ -912,6 +912,73 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "a block whose BIP47 code does not derive the signing address is refused");
 }
 
+// 27) retention: a rejected submission is kept briefly so a maintainer can undo
+//     a mistake, then removed. Nothing used to remove one, so the store kept the
+//     payment code, pairing payload, apikey and signature of every operator ever
+//     turned down, indefinitely.
+{
+  const { store: st } = await import("./store.ts");
+  /**
+   * @param {string} id
+   * @param {"pending"|"approved"|"rejected"} status
+   * @param {string|undefined} updated
+   * @returns {import("../types.js").StoreRecord}
+   */
+  const mk = (id, status, updated) => ({ id, network: "mainnet", name: id, status,
+    paymentCodes: [paymentCode], payload, updated_at: updated });
+  const day = 86400 * 1000, now = Date.now();
+  await st.putSubmission(mk("mainnet-rej-old", "rejected", new Date(now - 30 * day).toISOString()));
+  await st.putSubmission(mk("mainnet-rej-new", "rejected", new Date(now - 2 * day).toISOString()));
+  await st.putSubmission(mk("mainnet-rej-nodate", "rejected", undefined));
+  await st.putSubmission(mk("mainnet-keep-approved", "approved", new Date(now - 400 * day).toISOString()));
+  await st.putSubmission(mk("mainnet-keep-pending", "pending", new Date(now - 400 * day).toISOString()));
+
+  const gone = await st.pruneRejected(14, now);
+  const left = (await st.listSubmissions()).map((r) => r.id);
+  ok(gone.includes("mainnet-rej-old") && !left.includes("mainnet-rej-old"),
+     "a rejection older than the retention window is removed");
+  ok(!gone.includes("mainnet-rej-new") && left.includes("mainnet-rej-new"),
+     "a recent rejection is kept, so a mistaken rejection can be undone");
+  ok(gone.includes("mainnet-rej-nodate"),
+     "a rejection with no usable timestamp is removed rather than kept forever");
+  ok(left.includes("mainnet-keep-approved") && left.includes("mainnet-keep-pending"),
+     "approved and pending records are never touched, however old");
+
+  const stored = await fsp.readFile(process.env.SERVER_DATA_DIR + "/store.json", "utf8");
+  ok(!stored.includes("mainnet-rej-old"),
+     "the removed record is gone from the store file, apikey and signature included");
+  for (const id of ["mainnet-rej-new", "mainnet-rej-nodate", "mainnet-keep-approved", "mainnet-keep-pending"]) {
+    await st.deleteSubmission(id);
+  }
+}
+
+// 28) the domain badge publishes its own proof, so a reader can check the claim
+//     with their own tools rather than trusting this instance's tick.
+{
+  const { store: st } = await import("./store.ts");
+  const { rebuild: rb } = await import("./build-public.ts");
+  const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
+  await st.putDomain({ paymentCode, domain: "example.org", signed: signedBlock, verified: true,
+    verified_at: "2026-07-01T00:00:00Z", last_check: "2026-07-02T00:00:00Z", last_result: "ok",
+    fail_since: null, created_at: "2026-07-01T00:00:00Z" });
+  await rb();
+  const n = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === "mainnet-selftest-node");
+  const pf = n.operator_domain_proof;
+  ok(pf && pf.domain === "example.org" && pf.paymentCode === paymentCode,
+     "the proof names the domain and the payment code it is bound to");
+  ok(pf.txt_name === "_dojobay.example.org" && pf.txt_value === `dojobay-domain-v1 pm=${paymentCode}`,
+     "it publishes the exact TXT record a reader should look up");
+  ok(pf.signed === signedBlock && pf.verified_at === "2026-07-01T00:00:00Z",
+     "and the signed statement, so the signature half can be checked independently");
+
+  // a node whose operator has no verified domain publishes nothing
+  await st.deleteDomain(paymentCode);
+  await rb();
+  const n2 = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === "mainnet-selftest-node");
+  ok(n2.operator_domain === null && n2.operator_domain_proof === null,
+     "no verified domain means no badge and no proof");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

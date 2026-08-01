@@ -27,7 +27,9 @@ const REPO = process.env.REPO_DIR || process.cwd();
 const appJs = readFileSync(REPO + "/assets/js/app.js", "utf8");
 
 const DOJOS = {
-  generated_at: "2026-07-14T00:00:00Z",
+  // Fresh by construction: a fixed date would drift into "stale" over time and
+  // silently put every other check in this file into the stale state.
+  generated_at: new Date().toISOString(),
   interval_minutes: 10,
   nodes: [
     { id: "mainnet-91xtx93-yellow", network: "mainnet", name: "yellow", paynym: "+91xTx93x3",
@@ -35,6 +37,10 @@ const DOJOS = {
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
       indexer_url: "tcp://" + "i".repeat(56) + ".onion:50001",
       operator_domain: "example.org",
+      operator_domain_proof: { domain: "example.org", paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+        txt_name: "_dojobay.example.org", txt_value: "dojobay-domain-v1 pm=PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+        signed: "-----BEGIN BITCOIN SIGNED MESSAGE-----\nhttps://example.org/\n\nBIP47: PM8TJfHa\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\n" + "H".repeat(87) + "=\n-----END BITCOIN SIGNATURE-----",
+        verified_at: "2026-07-01T00:00:00Z" },
       payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "a".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-freshnode", network: "mainnet", name: "freshnode", paynym: "+fresh",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
@@ -282,6 +288,64 @@ assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vdomain'),
   "a node with no verified domain shows no badge at all");
 console.log("  ok - verified domain badge on the card, absent when unverified");
 
+// "For the machines among us": the badge must be interrogable, not just a tick.
+{
+  const btn = yCard.querySelector('[data-act="domproof"]');
+  assert.ok(btn, "a badge with a published proof offers a verify affordance");
+  assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="domproof"]'),
+    "a node with no proof offers none");
+  btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const body = doc.getElementById("ov-body").textContent;
+  assert.ok(/dig \+short TXT _dojobay\.example\.org/.test(body), "it shows the dig command");
+  assert.ok(/cloudflare-dns\.com\/dns-query/.test(body), "and an HTTPS equivalent for readers without dig");
+  assert.ok(/dojobay-domain-v1 pm=PM8TJfHa/.test(body), "and the exact TXT value to expect");
+  assert.ok(/1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB/.test(body), "and the signing address");
+  assert.ok(/BEGIN BITCOIN SIGNED MESSAGE/.test(body), "and the signed block itself");
+  assert.ok(/paymentcode\.io\/lab/.test(doc.getElementById("ov-body").innerHTML),
+    "and points at a verifier the reader can use");
+  assert.ok(/control of a domain, not that the operator is trustworthy/i.test(body.replace(/\s+/g, " ")),
+    "and says what the proof does not mean");
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+  console.log("  ok - the domain badge publishes a checkable proof, not just a tick");
+}
+
+// Staleness: if the updater timer dies, nginx keeps serving the last dojos.json
+// and every badge stays confidently green. Past a few intervals the site must
+// stop asserting status. Booted separately so everything above runs against a
+// healthy directory.
+{
+  const staleDom = new JSDOM(`<!DOCTYPE html><html><body><div id="root"></div></body></html>`,
+    { url: "http://dojobay.onion/", runScripts: "outside-only", pretendToBeVisual: true });
+  const w = staleDom.window;
+  Object.defineProperty(w.navigator, "clipboard", { value: { writeText: async () => {} } });
+  const old = { ...DOJOS, generated_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString() };
+  w.fetch = async (url) => {
+    const body = /dojos\.json/.test(url) ? old
+      : /history-daily\.json/.test(url) ? { nodes: {} }
+      : /history\.json/.test(url) ? { interval_minutes: 10, window_checks: 144, nodes: {} }
+      : /version\.json/.test(url) ? VERSION
+      : null;
+    if (body === null) return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}), text: async () => "" };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => body, text: async () => JSON.stringify(body) };
+  };
+  w.eval(appJs);
+  await new Promise((r) => setTimeout(r, 80));
+  const d = w.document;
+  const banner = d.querySelector(".stale-banner");
+  assert.ok(banner, "a directory that has not refreshed for hours shows a staleness banner");
+  assert.ok(/out of date/i.test(banner.textContent), "the banner says the statuses are out of date");
+  assert.ok(/5 hours/.test(banner.textContent), "it says how long ago: " + banner.textContent.trim().slice(0, 80));
+  assert.ok(/unknown rather than up or down/i.test(banner.textContent.replace(/\s+/g, " ")),
+    "it tells the reader to treat nodes as unknown, not down");
+  assert.ok(d.querySelector(".grid").classList.contains("stale"),
+    "the grid is marked stale, which greys the status dots and badges");
+  assert.ok(d.querySelectorAll(".card").length > 0, "cards are still listed, just not asserted up or down");
+  assert.ok(!doc.querySelector(".stale-banner") && !doc.querySelector(".grid").classList.contains("stale"),
+    "a freshly generated directory shows no banner and no greying");
+  console.log("  ok - stale data greys the badges and says so; fresh data does not");
+}
+
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 const ovBody = doc.getElementById("ov-body");
@@ -310,4 +374,4 @@ assert.ok(srcLink && srcLink.getAttribute("href") === "data/dojobay-src.zip", "s
 console.log("  ok - footer source-download icon links the instance's own code zip");
 
 
-console.log("\nall 17 front-end checks passed");
+console.log("\nall 19 front-end checks passed");

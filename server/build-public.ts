@@ -112,6 +112,7 @@ function toPublicNode(sub: StoreRecord, paymentCode: string | null): PublicNode 
     detected_version: null,
     detected_indexer: null,
     operator_domain: null,
+    operator_domain_proof: null,
     block_height: null,
     indexer_url: declaredIndexer(sub.payload),
     checked_at: null,
@@ -228,10 +229,29 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
   // is not on the operator's verified domain is withheld rather than deleted, so
   // an operator who verifies later gets their link back untouched.
   const domainByCode = await store.verifiedDomainMap();
+  // The proof is published alongside the badge so a reader can check it with
+  // their own tools instead of taking our tick on trust: the TXT record proves
+  // the domain names the payment code, and the signed statement proves the code
+  // names the domain. Everything here is already public (the payment code is on
+  // the card, the domain is the claim), so publishing it discloses nothing new.
+  const claimByCode = new Map<string, { signed: string; verified_at: string | null }>();
+  for (const c of await store.listDomains()) {
+    if (c?.verified && c.domain) claimByCode.set(c.paymentCode, { signed: c.signed, verified_at: c.verified_at ?? null });
+  }
   for (const n of nodes) {
     const codes = ownerCodesById.get(n.id) || [];
-    const domain = codes.map((c) => domainByCode.get(c)).find(Boolean) || null;
+    const code = codes.find((c) => domainByCode.get(c)) || null;
+    const domain = code ? domainByCode.get(code) || null : null;
     n.operator_domain = domain;
+    const claim = code ? claimByCode.get(code) : null;
+    n.operator_domain_proof = domain && claim ? {
+      domain,
+      paymentCode: code,
+      txt_name: `_dojobay.${domain}`,
+      txt_value: `dojobay-domain-v1 pm=${code}`,
+      signed: claim.signed,
+      verified_at: claim.verified_at,
+    } : null;
     if (n.name_url && !urlOnDomain(n.name_url, domain)) n.name_url = null;
   }
 

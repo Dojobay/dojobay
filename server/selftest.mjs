@@ -485,26 +485,58 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "history export merges 24h checks and daily rollups, filters by id, 404s unknown ids");
 }
 
-// 17) update check: counts commits behind main and releases published since
-//     this build (fake transport), and the admin route gates access while
-//     reporting an unreachable GitHub in-band rather than erroring the panel.
+// 17) update check: commits behind main, and which RELEASE we are running.
+//     "Releases behind" used to count releases published after the local build
+//     timestamp, so an instance running the exact commit of the newest release
+//     always reported itself one behind — a tag is always created after the
+//     commit it points at was built. It now resolves tags to commits.
 {
-  await fsp.writeFile(process.env.PUBLIC_DATA_DIR + "/version.json",
-    JSON.stringify({ commit: "abc1234", built: "2026-01-01T00:00:00Z" }));
   const { checkUpdates } = await import("./updates.mjs");
-  const transport = async (apiPath) => {
+  const releases = [
+    { tag_name: "v0.2", published_at: "2026-06-01T00:00:00Z" },
+    { tag_name: "v0.1", published_at: "2025-12-01T00:00:00Z" },
+  ];
+  const tags = [
+    { name: "v0.2", commit: { sha: "abc1234def5678900000000000000000000000a" } },
+    { name: "v0.1", commit: { sha: "0000000000000000000000000000000000000b" } },
+  ];
+  const transportFor = (withTags) => async (apiPath) => {
     if (apiPath.startsWith("/repos/Dojobay/dojobay/compare/"))
       return { status: 200, body: JSON.stringify({ status: "behind", ahead_by: 4, behind_by: 0 }) };
     if (apiPath.startsWith("/repos/Dojobay/dojobay/releases"))
-      return { status: 200, body: JSON.stringify([
-        { tag_name: "v0.2", published_at: "2026-06-01T00:00:00Z" },
-        { tag_name: "v0.1", published_at: "2025-12-01T00:00:00Z" },
-      ]) };
+      return { status: 200, body: JSON.stringify(releases) };
+    if (apiPath.startsWith("/repos/Dojobay/dojobay/tags"))
+      return withTags ? { status: 200, body: JSON.stringify(tags) } : { status: 500, body: "{}" };
     return { status: 404, body: "{}" };
   };
-  const u = await checkUpdates({ transport: /** @type {any} */ (transport) });
-  ok(u.commits_behind === 4 && u.releases_behind === 1 && u.latest_release === "v0.2" && u.commit === "abc1234",
-     "update check: 4 commits behind, 1 release since build, latest v0.2");
+  const setVersion = (commit, built) => fsp.writeFile(process.env.PUBLIC_DATA_DIR + "/version.json",
+    JSON.stringify({ commit, built }));
+
+  // running the exact commit of the newest release, tagged AFTER we built it
+  await setVersion("abc1234", "2026-01-01T00:00:00Z");
+  const onLatest = await checkUpdates({ transport: /** @type {any} */ (transportFor(true)) });
+  ok(onLatest.releases_behind === 0 && onLatest.current_release === "v0.2"
+     && onLatest.releases_behind_approx === false,
+     "running the newest release's commit reports zero behind, however late the tag was created");
+
+  // an untagged commit mid-cycle: no identity match, so the timestamp guess,
+  // flagged as approximate rather than presented as fact
+  await setVersion("deadbee", "2026-01-01T00:00:00Z");
+  const midCycle = await checkUpdates({ transport: /** @type {any} */ (transportFor(true)) });
+  ok(midCycle.releases_behind === 1 && midCycle.current_release === null
+     && midCycle.releases_behind_approx === true,
+     "an untagged commit falls back to the timestamp count and says it is approximate");
+
+  // the tags call failing must not break the check
+  await setVersion("abc1234", "2026-01-01T00:00:00Z");
+  const noTags = await checkUpdates({ transport: /** @type {any} */ (transportFor(false)) });
+  ok(noTags.releases_behind === 1 && noTags.releases_behind_approx === true,
+     "an unavailable tags endpoint degrades to the approximation instead of failing");
+
+  await setVersion("abc1234", "2026-01-01T00:00:00Z");
+  const u = await checkUpdates({ transport: /** @type {any} */ (transportFor(true)) });
+  ok(u.commits_behind === 4 && u.latest_release === "v0.2" && u.commit === "abc1234",
+     "update check still reports commits behind main and the latest release");
 
   const anon = await fetch(base + "/api/admin/updates");
   const admin = await api("/api/admin/updates");

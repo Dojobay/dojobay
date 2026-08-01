@@ -5,10 +5,12 @@
 // admin console's update line. Everything degrades gracefully: if GitHub is
 // unreachable over Tor, the endpoint says so rather than failing the panel.
 //
-// "Releases behind" counts releases published after this build's timestamp,
-// which is an approximation (it needs no tag-ancestry walking and no extra
-// API calls) but an honest one: a release published after your build is a
-// release you don't have.
+// "Releases behind" resolves release tags to commits and compares identity, so
+// an instance running the exact commit of the newest release reports zero. The
+// earlier version counted releases published after the local build timestamp,
+// which always reported one behind: a tag is created after the commit it points
+// at has been built and deployed. When the running commit is not itself a
+// released tag, it falls back to that timestamp guess and flags it as such.
 import tls from "node:tls";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -89,8 +91,41 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
   const rel = await transport(`/repos/${repo}/releases?per_page=30`, cfg);
   if (rel.status !== 200) throw new Error(`releases: HTTP ${rel.status}`);
   const releases = JSON.parse(rel.body);
+
+  // Which release are we actually running?
+  //
+  // This used to count releases published after the local build timestamp,
+  // which is wrong in the ordinary case: a tag is created AFTER the commit it
+  // points at has been built and deployed, so an instance running the exact
+  // commit of the newest release always reported itself one release behind.
+  //
+  // Resolve each release's tag to a commit instead and compare identity. If our
+  // commit IS a released tag, the number of releases published after it is the
+  // honest answer (zero, when we are on the latest). Only when no tag matches do
+  // we fall back to the timestamp approximation, and say so.
+  let tagSha = new Map();
+  try {
+    const tg = await transport(`/repos/${repo}/tags?per_page=100`, cfg);
+    if (tg.status === 200) {
+      for (const t of JSON.parse(tg.body)) {
+        if (t?.name && t?.commit?.sha) tagSha.set(t.name, String(t.commit.sha));
+      }
+    }
+  } catch { /* fall back to the approximation below */ }
+
+  // version.json carries a short commit, the API a full sha; match either way.
+  const sameCommit = (a, b) => {
+    if (!a || !b) return false;
+    const x = String(a).toLowerCase(), y = String(b).toLowerCase();
+    return x.startsWith(y) || y.startsWith(x);
+  };
+
+  const runningIndex = releases.findIndex((r) => sameCommit(tagSha.get(r.tag_name), version.commit));
+  const approximate = runningIndex < 0;
   const builtAt = Date.parse(version.built || 0) || 0;
-  const releasesBehind = releases.filter((r) => Date.parse(r.published_at || 0) > builtAt).length;
+  const releasesBehind = approximate
+    ? releases.filter((r) => Date.parse(r.published_at || 0) > builtAt).length
+    : runningIndex;                                // releases newer than ours
 
   return {
     commit: version.commit,
@@ -98,7 +133,13 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
     commits_behind: compare.ahead_by ?? 0,        // main is ahead of us by this many
     status: compare.status || "unknown",           // identical | behind | ahead | diverged
     latest_release: releases[0] ? releases[0].tag_name : null,
+    /** The release we are running, when our commit is exactly a released tag. */
+    current_release: approximate ? null : releases[runningIndex].tag_name,
     releases_behind: releasesBehind,
+    /** True when releases_behind is the timestamp guess rather than an identity
+     *  match, which happens when the running commit is not itself a released
+     *  tag (mid-cycle, or a local build). */
+    releases_behind_approx: approximate,
     repo,
     checked_at: new Date().toISOString(),
   };

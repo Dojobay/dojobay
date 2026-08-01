@@ -909,9 +909,16 @@ async function loadJSON(url){
     const behind = u.commits_behind>0
       ? '<b style="color:var(--warn,#e0a020)">'+u.commits_behind+' commit'+(u.commits_behind===1?"":"s")+' behind main</b>'
       : 'up to date with main';
+    // current_release is set when the running commit IS a released tag, so we can
+    // say which release this is rather than guessing from timestamps. When it is
+    // not set the count is a timestamp approximation, and says so.
     const rel = u.latest_release
-      ? (u.releases_behind>0 ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b> (latest '+esc(u.latest_release)+')'
-                             : ' · latest release '+esc(u.latest_release))
+      ? (u.releases_behind>0
+          ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b>'
+            +(u.releases_behind_approx?' (approximate; latest ':' (latest ')+esc(u.latest_release)+')'
+          : (u.current_release
+              ? ' · running release <b>'+esc(u.current_release)+'</b>'
+              : ' · latest release '+esc(u.latest_release)))
       : "";
     const behindAny = u.commits_behind>0 || u.releases_behind>0;
     const controls = '<div class="upd-controls">'

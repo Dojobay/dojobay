@@ -346,6 +346,27 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   console.log("  ok - stale data greys the badges and says so; fresh data does not");
 }
 
+// The dialog must not scroll behind its own header. This regressed twice: first
+// treated as a stacking problem (a z-index on the header), which was the wrong
+// cause. The real one was structural — the overlay was the scroll container with
+// 6vh of padding while the header was position:sticky inside it, so content
+// scrolled up into that padding band and sat above the pinned header. JSDom does
+// no layout, so this pins the intent in the stylesheet instead.
+{
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  const rule = (sel) => (css.match(new RegExp("\\n\\s*" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\{([^}]*)\\}")) || ["", ""])[1];
+  const ov = rule(".ov"), modal = rule(".modal"), head = rule(".modal-head"), body = rule(".modal-body");
+  assert.ok(/overflow:hidden/.test(ov) && !/overflow-y:auto/.test(ov),
+    "the overlay is not the scroll container: " + ov.slice(0, 80));
+  assert.ok(/display:flex/.test(modal) && /flex-direction:column/.test(modal) && /max-height/.test(modal),
+    "the modal is a bounded flex column: " + modal.slice(0, 80));
+  assert.ok(!/position:sticky/.test(head),
+    "the header is structurally at the top, not sticky over scrolling content");
+  assert.ok(/overflow-y:auto/.test(body) && /min-height:0/.test(body),
+    "only the modal body scrolls, and it can shrink inside the flex column");
+  console.log("  ok - dialog scrolls its body, so content never passes behind the header");
+}
+
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 const ovBody = doc.getElementById("ov-body");
@@ -374,4 +395,4 @@ assert.ok(srcLink && srcLink.getAttribute("href") === "data/dojobay-src.zip", "s
 console.log("  ok - footer source-download icon links the instance's own code zip");
 
 
-console.log("\nall 19 front-end checks passed");
+console.log("\nall 20 front-end checks passed");

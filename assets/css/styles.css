@@ -201,14 +201,14 @@
   footer .gh:hover{color:var(--text)}
   footer .gh svg{display:block}
 
-  .ov{position:fixed;inset:0;background:rgba(4,4,5,.72);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;padding:6vh 18px;z-index:50;overflow-y:auto}
+  .ov{position:fixed;inset:0;background:rgba(4,4,5,.72);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;padding:6vh 18px;z-index:50;overflow:hidden}
   .ov.show{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:700px;width:100%;padding:0;box-shadow:0 24px 60px rgba(0,0,0,.5)}
-  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:var(--panel);border-radius:14px 14px 0 0;z-index:3}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:700px;width:100%;padding:0;box-shadow:0 24px 60px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:88vh;min-height:0;overflow:hidden}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--line-soft);background:var(--panel);border-radius:14px 14px 0 0;flex:0 0 auto}
   .modal-head h2{font-family:'Archivo',sans-serif;font-size:19px;font-weight:700}
   .modal-head .x{font-size:22px;color:var(--muted);line-height:1;padding:2px 8px;border-radius:6px}
   .modal-head .x:hover{background:var(--panel2);color:var(--text)}
-  .modal-body{padding:22px 24px 26px}
+  .modal-body{padding:22px 24px 26px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
   .modal-body p{font-size:14px;color:#d7d7d4;line-height:1.7;margin-bottom:13px}
   .modal-body h2{font-family:'Archivo',sans-serif;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:26px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line-soft)}
   .modal-body h2:first-child{margin-top:0}
@@ -236,6 +236,12 @@
     nav.open{display:flex}
     nav .lnk{display:block;text-align:center;padding:12px;font-size:15px}
     nav .onion-pill{text-align:center;margin:6px 0 0}
+    /* Less chrome around the dialog on a small screen, so the body gets the
+       height. The scrolling still happens inside .modal-body. */
+    .ov{padding:3vh 10px}
+    .modal{max-height:94vh}
+    .modal-head{padding:16px 18px}
+    .modal-body{padding:18px 18px 22px}
   }
   @media (prefers-reduced-motion:reduce){.card:hover{transform:none}.pair{animation:none}}
 

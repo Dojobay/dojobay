@@ -581,18 +581,33 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && wrongSigner.error.includes(otherAcct.getNotificationAddress()) && wrongSigner.error.includes(notifAddr),
      "truncated paste and wrong-signer errors are diagnosable (names what is missing / both addresses)");
 
+  // A real, portable domain proof: signed over "https://example.org/" + blank
+  // line + the BIP47 line, exactly as the site produces it.
+  const urlClaimText = `https://example.org/\n\nBIP47: ${paymentCode}`;
+  const signedUrlBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${urlClaimText}\n` +
+    `-----BEGIN BITCOIN SIGNATURE-----\nVersion: Bitcoin-qt (1.0)\nAddress: ${notifAddr}\n\n` +
+    `${Buffer.from(msg.sign(urlClaimText, priv, true, net47.messagePrefix)).toString("base64")}\n` +
+    `-----END BITCOIN SIGNATURE-----`;
   const remoteNodes = {
     nodes: [
       { id: "mainnet-selftest-node", network: "mainnet", name: "selftest-node",
-        payload: { pairing: { type: "dojo.api", url: "http://" + "d".repeat(56) + ".onion/v2", apikey: "k" } } },
+        payload: { pairing: { type: "dojo.api", url: "http://" + "d".repeat(56) + ".onion/v2", apikey: "k" } },
+        operator_domain: "example.org",
+        operator_domain_proof: { domain: "example.org", paymentCode, txt_name: "_dojobay.example.org",
+          txt_value: `dojobay-domain-v1 pm=${paymentCode}`, signed: signedUrlBlock, verified_at: "2026-07-01T00:00:00Z" } },
       { id: "mainnet-imported", network: "mainnet", name: "imported", paynym: "+imp",
         paymentCode: "PMimpDisplay",
-        payload: { pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } } },
+        payload: { pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } },
+        // a forged proof: the signature does not check out against the code
+        operator_domain: "evil.example",
+        operator_domain_proof: { domain: "evil.example", paymentCode: "PM8T" + "9".repeat(112),
+          txt_name: "_dojobay.evil.example", txt_value: "dojobay-domain-v1 pm=PM8T" + "9".repeat(112),
+          signed: signedUrlBlock, verified_at: "2026-07-01T00:00:00Z" } },
     ],
   };
   const remoteDocs = {
     "/data/operator.json": opDoc,
-    "/data/dojos.json": remoteNodes,
+    "/data/dojos.json": remoteNodes,   // proofs are attached to its nodes below
     "/data/history.json": { interval_minutes: 10, window_checks: 144, nodes: {
       "mainnet-imported": { checks: [{ t: "2026-07-01 00:00", up: true }] },
       "mainnet-selftest-node": { checks: [{ t: "2026-07-01 00:00", up: false }] },
@@ -609,6 +624,8 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   }).then(() => false, (e) => /DIFFERENT payment code/.test(e.message)),
      "bootstrap refuses an instance operated by a different code than the one trusted");
 
+  // clear any claim an earlier check left behind, so the import starts clean
+  await store.deleteDomain(paymentCode);
   const r = await bootstrapImport({ onionHost, trustedCode: opCode, fetchDoc, fetchCodes, dataDir: process.env.PUBLIC_DATA_DIR, log: () => {} });
   const imp = await store.getSubmission("mainnet-imported");
   const untouched = await store.getSubmission("mainnet-selftest-node");
@@ -620,6 +637,25 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && histAfter["mainnet-imported"] && histAfter["mainnet-imported"].checks.length === 1
      && histAfter["mainnet-selftest-node"].checks[0].t !== "2026-07-01 00:00",
      "bootstrap imports new nodes with all code variants and history; existing ids untouched");
+
+  // A verified domain travels with the data, because the signed statement names
+  // the domain and the code but never the instance that verified it. It must NOT
+  // arrive verified: importing a badge on another instance's word would let one
+  // compromised directory mint verified domains across a federation.
+  const claimed = await store.getDomain(paymentCode);
+  ok(claimed && claimed.domain === "example.org" && claimed.signed === signedUrlBlock,
+     "a domain claim published by the source is carried across intact");
+  ok(claimed.verified === false && claimed.last_check === null
+     && /awaiting our own DNS/.test(claimed.last_result || ""),
+     "and arrives UNVERIFIED, so this instance must see the TXT record itself");
+
+  // a proof whose signature does not check out is refused outright
+  ok(r.domains_imported === 1 && r.domains_refused === 1,
+     "a proof with a bad signature is refused rather than imported: " + JSON.stringify({ i: r.domains_imported, x: r.domains_refused }));
+  ok((await store.getDomain("PM8T" + "9".repeat(112))) === null,
+     "and nothing is stored for it");
+
+  await store.deleteDomain(paymentCode);
 }
 
 // 19) self-update sourcing: GitHub and peer fetchers verify before trusting,

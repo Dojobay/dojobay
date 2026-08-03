@@ -212,6 +212,14 @@ record and the badge disappears after a grace period, while your claim is kept,
 so restoring the record restores the badge without signing anything again. A
 domain that changes hands therefore stops being claimable by its previous owner.
 
+The proof travels. `data/dojos.json` publishes the TXT record and the signed
+statement alongside the badge, and the signed statement names only the domain and
+the payment code, never the instance that checked it. So another Dojo Bay
+bootstrapping from this one carries the claim across — but re-verifies the
+signature itself and re-checks the DNS with its own resolvers before showing a
+badge. A directory never inherits another's tick, which is what stops one
+compromised instance minting verified domains across a federation.
+
 A badge attests that the operator **controls that domain**, and nothing more. It
 is not a statement that they are trustworthy, a lookalike domain can be verified
 just as easily as a well-known one, and a maintainer can revoke any badge.

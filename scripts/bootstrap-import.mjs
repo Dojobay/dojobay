@@ -111,6 +111,47 @@ export async function bootstrapImport({
     });
   }
 
+  // 3b) verified operator domains.
+  //
+  // dojos.json publishes each badge's proof, and the signed statement is
+  // deliberately portable: it names the domain and the payment code, never the
+  // instance that verified it. So a claim travels intact — but it is NOT taken
+  // on the source's word. We re-verify the signature here, locally and offline,
+  // and store the claim UNVERIFIED so this instance's own sweep must see the TXT
+  // record with its own eyes before any badge appears. Importing a badge because
+  // another instance said so would make one compromised directory able to mint
+  // verified domains across a federation.
+  const claims = new Map();
+  for (const n of dojos.nodes || []) {
+    const pf = n.operator_domain_proof;
+    if (!pf || !pf.domain || !pf.paymentCode || !pf.signed) continue;
+    if (claims.has(pf.paymentCode)) continue;
+    claims.set(pf.paymentCode, pf);
+  }
+  let domainsImported = 0, domainsRefused = 0;
+  if (claims.size) {
+    const { verifySignedUrlClaim } = await import("../server/crypto.ts");
+    for (const [code, pf] of claims) {
+      if (await store.getDomain(code)) continue;                 // never overwrite a local claim
+      const v = verifySignedUrlClaim({ signed: pf.signed, expectedUrl: `https://${pf.domain}`, paymentCode: code });
+      if (!v.ok) {
+        log(`  domain  ${pf.domain}: refused (${v.error})`);
+        domainsRefused++;
+        continue;
+      }
+      await store.putDomain({
+        paymentCode: code, domain: pf.domain, signed: pf.signed,
+        verified: false,                    // this instance has not seen the DNS yet
+        verified_at: null,
+        last_check: null,                   // so the sweep picks it up immediately
+        last_result: `imported from ${onionHost}; awaiting our own DNS check`,
+        fail_since: null, created_at: now,
+      });
+      log(`  domain  ${pf.domain}: signature verified, awaiting our own TXT lookup`);
+      domainsImported++;
+    }
+  }
+
   // 4) histories: only for ids we have no history for
   for (const [file, remote] of [["history.json", hist], ["history-daily.json", daily]]) {
     const p = path.join(dataDir, file);
@@ -128,7 +169,8 @@ export async function bootstrapImport({
     }
   }
   log(`imported ${imports.length} node(s) from ${onionHost}. Now run: node server/build-public.mjs`);
-  return { imported: imports.length, planned: imports.length };
+  return { imported: imports.length, planned: imports.length,
+    domains_imported: domainsImported, domains_refused: domainsRefused };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

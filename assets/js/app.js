@@ -107,6 +107,47 @@ async function loadJSON(url){
     return Math.round(mins/1440) + " days";
   }
 
+  // Payment codes are 116 characters and no card is that wide, so the chip shows
+  // as much as actually fits and elides the middle — the head and tail are what
+  // identify a code by eye. The amount is measured rather than fixed, so a wide
+  // window shows more than a narrow one and nothing is hardcoded to a layout.
+  // The markup ships a conservative default, so a browser where measurement is
+  // unavailable still renders something sensible.
+  function middleTruncate(str, max){
+    const s = String(str || "");
+    if(!(max > 0) || max >= s.length) return s;
+    if(max < 9) return s.slice(0, Math.max(1, max - 1)) + "…";
+    const keep = max - 1;                       // one character for the ellipsis
+    const head = Math.ceil(keep / 2);
+    return s.slice(0, head) + "…" + s.slice(s.length - (keep - head));
+  }
+
+  let FIT_CTX = null;
+  function fitPaymentCodes(){
+    const els = document.querySelectorAll(".pcode[data-v]");
+    if(!els.length) return;
+    try{ FIT_CTX = FIT_CTX || document.createElement("canvas").getContext("2d"); }
+    catch(e){ return; }                          // no canvas: keep the default
+    if(!FIT_CTX) return;
+    els.forEach((el)=>{
+      const code = el.getAttribute("data-v");
+      if(!code) return;
+      const cs = getComputedStyle(el);
+      FIT_CTX.font = cs.font || `${cs.fontSize} ${cs.fontFamily}`;
+      const ch = FIT_CTX.measureText("0").width;   // monospace: one width fits all
+      const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      const avail = (el.clientWidth || 0) - pad;
+      if(!(ch > 0) || !(avail > 0)) return;
+      el.textContent = middleTruncate(code, Math.floor(avail / ch));
+    });
+  }
+
+  let FIT_TIMER = null;
+  window.addEventListener("resize", ()=>{
+    clearTimeout(FIT_TIMER);
+    FIT_TIMER = setTimeout(fitPaymentCodes, 120);
+  });
+
   // One renderer for every endpoint row, so all three look and behave the same.
   // A row is always present: with a usable URL it shows the value and a working
   // copy button; without one it reads N/A with the copy button greyed out and
@@ -353,13 +394,13 @@ async function loadJSON(url){
   function openCheckSelf(n){
     document.getElementById("ov-title").textContent = (n.name||n.id) + " · check it yourself";
     document.getElementById("ov-body").innerHTML = checkSelfHTML(n);
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
   }
 
   function openDomainProof(n){
     document.getElementById("ov-title").textContent = (n.operator_domain||"domain") + " · verify";
     document.getElementById("ov-body").innerHTML = domainProofHTML(n);
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
   }
 
   // Pairing details open in the shared popup (the same surface as Verify)
@@ -367,7 +408,7 @@ async function loadJSON(url){
   function openPair(n){
     document.getElementById("ov-title").textContent = (n.name||n.id) + " · pairing";
     document.getElementById("ov-body").innerHTML = pairHTML(n);
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
   }
 
   // Card ordering: 7-day uptime desc, then 24h uptime desc, then name. A node
@@ -466,13 +507,16 @@ async function loadJSON(url){
     // 90-day strips: one lazily-cached fetch of history-daily.json fills every
     // card; re-renders re-hydrate from the same cached promise.
     document.querySelectorAll(".hist90[data-hist]").forEach(m=>renderHist90(m, m.getAttribute("data-hist")));
+
+    // Now the cards have a width, show as much of each payment code as fits.
+    fitPaymentCodes();
   }
 
   async function openModal(key){
     const m=MODAL_META[key]; if(!m) return;
     document.getElementById("ov-title").textContent=m.title;
     const body=document.getElementById("ov-body");
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
     if(modalCache[key]==null){
       body.innerHTML='<p class="loading">Loading\u2026</p>';
       try{ modalCache[key]=markdown.render(await loadText(m.file)); }
@@ -498,6 +542,16 @@ async function loadJSON(url){
       + '<p style="color:#a0a0a0;line-height:1.7">then open <a style="color:#b5302a" href="http://localhost:8080">http://localhost:8080</a>.</p>'
       + '<p style="color:#6b6b6b;font-family:\'JetBrains Mono\',monospace;font-size:12px;margin-top:14px">'+String(err && err.message || err)+'</p></div>';
   }
+  // Show the shared popup, always from the top. The body is the scroll container
+  // (the header is fixed above it), so without this a popup opened while the
+  // previous one was scrolled down would appear part-way through its own text.
+  function showOverlay(){
+    const body = document.getElementById("ov-body");
+    if(body) body.scrollTop = 0;
+    const ov = document.getElementById("ov");
+    if(ov) ov.classList.add("show");
+  }
+
   function closeModal(){
     const o=document.getElementById("ov"); if(o)o.classList.remove("show");
     // A refresh that arrived while this dialog was open deferred its redraw so
@@ -517,7 +571,7 @@ async function loadJSON(url){
     const titleEl=document.getElementById("ov-title"), body=document.getElementById("ov-body");
     if(!titleEl||!body) return;
     titleEl.textContent = "Verify this directory";
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
     body.innerHTML = '<p class="loading">Loading…</p>';
     try{ if(!OPERATOR) OPERATOR = await loadJSON("data/operator.json"); }
     catch(e){ body.innerHTML='<p class="loading">Operator signature unavailable.</p>'; return; }
@@ -611,7 +665,7 @@ async function loadJSON(url){
 
   async function openManage(){
     document.getElementById("ov-title").textContent = "Manage my Dojo";
-    document.getElementById("ov").classList.add("show");
+    showOverlay();
     // One Auth47 session covers both this panel and /admin (same cookie), so
     // re-read /api/me before rendering: a sign-in or sign-out that happened on
     // the admin page (or another tab) is picked up here instead of asking the

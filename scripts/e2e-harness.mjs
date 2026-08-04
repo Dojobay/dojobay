@@ -72,6 +72,7 @@ const ME = { authenticated: true, paymentCode: "PM8TJTESTCODE000000000000", admi
 
 let meCalls = 0;
 let dojosCalls = 0;
+const PCODE_FULL = "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9";
 const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="root"></div></body></html>`, {
   url: "http://dojobay.onion/",
   runScripts: "outside-only",
@@ -298,6 +299,17 @@ assert.ok(vrow.querySelector(".vdomain") && vrow.querySelector(".vproof"),
   "the domain and the verify button share that row");
 assert.ok(!pcodeEl.parentElement.classList.contains("vrow"),
   "the payment code is not inside the verification row");
+// The chip carries the FULL code, so the display can be re-fitted to the card
+// width at runtime (and so copying yields the whole thing, not the elision).
+assert.strictEqual(pcodeEl.getAttribute("data-v"), PCODE_FULL,
+  "the chip carries the full payment code for measuring and copying");
+// The visible text is re-fitted to the card width at runtime, which JSDom
+// cannot exercise (no layout, no canvas), so assert the default the markup
+// ships: an elision keeping the head and tail, which is what identifies a code
+// by eye. Read it from the title, since clicking the chip earlier in this file
+// leaves "Copied ✓" in the button text.
+assert.strictEqual(pcodeEl.getAttribute("title"), PCODE_FULL + " — click to copy",
+  "the chip's tooltip carries the whole code");
 assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vrow'),
   "a node with nothing to verify gets no verification row at all");
 console.log("  ok - verified domain badge on the card, absent when unverified");

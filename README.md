@@ -182,6 +182,37 @@ you provide one, must verify against your payment code's notification
 address. Approved listings appear with your PayNym; you can edit the display
 fields or remove the listing at any time with the same sign-in.
 
+## Changing your pairing details
+
+An operator can update the pairing payload of a listing they already own, from
+**Manage my Dojo → Pairing**. Use it when your Dojo's onion address changes, when
+you rotate an API key, or when you start exposing an Electrum indexer.
+
+The listing keeps its place, its approval and its uptime history. Approval here
+binds to the **payment code** that owns the record, not to a particular address:
+approving a listing means accepting that this operator is who they say they are,
+and the judgement about whether to trust their node belongs to the visitor, who
+has the signed pairing details and the tools to check them. The same gates as a
+first submission still apply, because those protect the reader rather than
+gatekeep the operator: the payload must be well formed, the new address must be
+answering over Tor at that moment, and a signed block, if you supply one, must
+verify against your payment code. If the new address does not answer, the update
+is refused and your existing listing is left exactly as it was.
+
+The Electrum endpoint is normally read from your Dojo automatically. If yours
+predates v1.27.0, or does not expose `/support/services`, you can declare it in
+the payload as an `indexer` entry and it will be published as a fallback.
+
+**A payment code cannot be changed.** Rotating the BIP47 code on an existing
+listing is not supported and is not planned. The payment code is not an
+attribute of a listing, it is the identity the whole directory rests on: it
+authenticates you, it decides who may edit a record, it keys your verified
+domain, and it is what a visitor recognises you by. Allowing it to be swapped
+would mean a listing, and the reputation and history attached to it, could
+change hands on the strength of a single signature. If you need to move to a new
+PayNym, submit a new listing under it; the history starts afresh, which is the
+honest outcome when the identity behind a node has genuinely changed.
+
 ## Verifying a domain you own
 
 Optional, and the only way to put a link on your card. An operator may prove

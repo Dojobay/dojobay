@@ -134,9 +134,14 @@ async function loadJSON(url){
       if(!code) return;
       const cs = getComputedStyle(el);
       FIT_CTX.font = cs.font || `${cs.fontSize} ${cs.fontFamily}`;
-      const ch = FIT_CTX.measureText("0").width;   // monospace: one width fits all
+      // measureText knows nothing about letter-spacing, and the chip has some.
+      // Leaving it out made the text a shade too wide, so the browser applied
+      // its OWN ellipsis on top of ours: "PM8T…text…". Add it, and keep a pixel
+      // of slack for sub-pixel rounding.
+      const ls = parseFloat(cs.letterSpacing) || 0;
+      const ch = FIT_CTX.measureText("0").width + ls;   // monospace: one width fits all
       const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-      const avail = (el.clientWidth || 0) - pad;
+      const avail = (el.clientWidth || 0) - pad - 2;
       if(!(ch > 0) || !(avail > 0)) return;
       el.textContent = middleTruncate(code, Math.floor(avail / ch));
     });
@@ -359,10 +364,11 @@ async function loadJSON(url){
       + `<pre class="mono">${esc(body)}</pre>`
       + `<button class="copybtn" data-act="copyurl" data-v="${esc(body)}">copy</button></div>`;
     const iu = indexerUrl(n);
+    const ours = ["the <b>Dojo version</b>", "the <b>block height</b>"].concat(iu ? ["the <b>Electrum endpoint</b>"] : []);
     return `<p class="dnote">Nearly everything on this card is signed by the operator and checkable without us.
-        Two things are not: the <b>Electrum endpoint</b> and the <b>Dojo version</b> are values our checker
-        read from the node and republished. These commands ask the node the same two questions over Tor, so
-        you can compare its answers with ours.</p>
+        These are not: ${ours.slice(0,-1).join(", ")} and ${ours[ours.length-1]} are values our checker read from
+        the node and republished. The commands below ask the node the same questions over Tor, so you can compare
+        its answers with ours.</p>
       <p class="dnote">You need a Tor SOCKS proxy. A standalone <span class="mono">tor</span> daemon listens on
         <span class="mono">9050</span>; Tor Browser uses <span class="mono">9150</span>, so change the port below
         if that is what you are running. The API key and onion address here are already published on this card.</p>
@@ -373,18 +379,25 @@ async function loadJSON(url){
       ${blk("login", `curl -si ${S} \\\n  -d "apikey=${pr.apikey}" \\\n  ${base}/auth/login`)}
       ${blk("we show this version", n.version ? "v" + n.version : "(none published)")}
 
-      <h3>2. Ask for the Electrum endpoint</h3>
-      <p class="dnote">Substitute the <span class="mono">access_token</span> from step 1. The indexer entry is the
-        Electrum server; a Dojo older than v1.27.0 has no such route, and a node that exposes no indexer returns none.</p>
-      ${blk("services", `curl -s ${S} \\\n  -H "Authorization: Bearer <ACCESS_TOKEN>" \\\n  ${base}/support/services`)}
-      ${blk("we show this endpoint", iu || "N/A (no Electrum endpoint published)")}
+      <h3>2. Ask for the chain tip</h3>
+      <p class="dnote">Substitute the <span class="mono">access_token</span> from step 1. This is where the block
+        height on the card comes from; it moves on, so expect it to be at or above what we show.</p>
+      ${blk("latest block", `curl -s ${S} \\\n  -H "Authorization: Bearer <ACCESS_TOKEN>" \\\n  ${base}/latest-block`)}
+      ${blk("we show this height", n.block_height != null ? String(n.block_height) : "(none yet)")}
 
-      <h3>Both at once</h3>
+      ${iu ? `<h3>3. Ask for the Electrum endpoint</h3>
+      <p class="dnote">The indexer entry is the Electrum server.</p>
+      ${blk("services", `curl -s ${S} \\\n  -H "Authorization: Bearer <ACCESS_TOKEN>" \\\n  ${base}/support/services`)}
+      ${blk("we show this endpoint", iu)}` : `<p class="dnote">This node publishes no Electrum endpoint, so the card
+        shows N/A and there is nothing to check on that count. Either its operator does not expose an indexer, or it
+        runs a Dojo older than v1.27.0, which has no such route.</p>`}
+
+      <h3>All of it at once</h3>
       <p class="dnote">With <span class="mono">jq</span> installed:</p>
       ${blk("one-liner", `TOKEN=$(curl -s ${S} -d "apikey=${pr.apikey}" ${base}/auth/login | jq -r .authorizations.access_token)\n`
-        + `curl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/support/services | jq -r '.services[]|select(.type=="indexer")|.url'`)}
-      <p class="dnote">Without <span class="mono">jq</span>, replace the second command with:</p>
-      ${blk("no jq", `curl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/support/services | tr ',' '\\n' | grep -A2 indexer`)}
+        + `curl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/latest-block | jq -r .height`
+        + (iu ? `\ncurl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/support/services | jq -r '.services[]|select(.type=="indexer")|.url'` : ""))}
+      <p class="dnote">Without <span class="mono">jq</span>, the replies are small enough to read as they are.</p>
 
       <p class="dnote">One caveat, stated rather than glossed over: running these opens your own Tor circuit to the
         node, so the operator sees a request. That is inherent to checking anything directly, not an extra exposure,
@@ -781,6 +794,7 @@ async function loadJSON(url){
   // it is set. Renaming keeps the record id (and history); uniqueness is
   // enforced per network by the API (409).
   let EDIT_ID = null;
+  let PAIR_ID = null;
   function editForm(r, actPrefix){
     const ver = r.version || (r.payload && r.payload.pairing && r.payload.pairing.version) || "";
     return `<div class="medit">
@@ -795,17 +809,41 @@ async function loadJSON(url){
       </div>
     </div>`;
   }
+  // Updating the pairing payload is a different act from editing display
+  // fields: it changes where visitors connect. It keeps the listing's place and
+  // history, because approval binds to the payment code that owns the record,
+  // not to a particular onion.
+  function pairingForm(r){
+    const current = JSON.stringify({ pairing: r.payload?.pairing, explorer: r.payload?.explorer }, null, 2);
+    return `<div class="medit">
+      <p class="dnote">Paste the pairing payload exactly as your Dojo produced it. The new address must be
+        answering over Tor right now, or the update is refused and your current listing is left alone.
+        Your listing keeps its place, its approval and its uptime history.</p>
+      <label>Pairing payload (JSON) <textarea class="p-payload" rows="8">${esc(current)}</textarea></label>
+      <label>Signed block (optional, but it is what proves the details are yours)
+        <textarea class="p-signed" rows="6" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----"></textarea></label>
+      <div class="medit-actions">
+        <button class="copybtn" data-mact="pairsave" data-id="${esc(r.id)}">Update pairing</button>
+        <button class="copybtn" data-mact="paircancel">Cancel</button>
+        <span class="edit-msg" style="font-size:12px;color:var(--down)"></span>
+      </div>
+    </div>`;
+  }
+
   function manageRow(r){
     const editing = EDIT_ID === r.id;
+    const pairing = PAIR_ID === r.id;
     return `<div class="box" style="padding:12px 14px;background:var(--panel2)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <span class="mono" style="font-size:12.5px"><b>${esc(r.name||r.id)}</b> · ${esc(r.network)} · ${esc(r.jurisdiction||"—")} · ${esc(r.hardware||"—")}</span>
         <span style="display:flex;gap:8px;align-items:center">
           <button class="copybtn" data-mact="edit" data-id="${esc(r.id)}"${EDIT_ID&&!editing?" disabled":""}>${editing?"Editing…":"Edit"}</button>
+          <button class="copybtn" data-mact="pairing" data-id="${esc(r.id)}"${PAIR_ID&&!pairing?" disabled":""}>${pairing?"Updating…":"Pairing"}</button>
           ${statusPill(r.status)}
         </span>
       </div>
       ${editing?editForm(r,"mact"):""}
+      ${pairing?pairingForm(r):""}
       <div class="mono" style="font-size:11px;color:var(--muted);margin-top:6px;word-break:break-all">${esc(r.payload?.pairing?.url||"")}</div>
       <button class="copybtn" data-mact="delete" data-id="${esc(r.id)}" style="margin-top:8px">Delete</button>
     </div>`;
@@ -858,7 +896,7 @@ async function loadJSON(url){
     if(!m) return;
     const act = m.getAttribute("data-mact");
     const msg = document.getElementById("manage-msg");
-    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; EDIT_ID=null; DOMAIN=null; DOMAIN_PREP=null; renderManage(); return; }
+    if(act==="logout"){ await api.call("/logout","POST",{}); clearInterval(pollTimer); await refreshMe(); ME={authenticated:false}; EDIT_ID=null; PAIR_ID=null; DOMAIN=null; DOMAIN_PREP=null; renderManage(); return; }
 
     // ---- verified domain ----
     if(act==="domprep"){
@@ -899,6 +937,27 @@ async function loadJSON(url){
     if(act==="delete"){ await api.call("/dojo/delete","POST",{id:m.getAttribute("data-id")}); await refreshMe(); EDIT_ID=null; renderManage(); return; }
     if(act==="edit"){ EDIT_ID=m.getAttribute("data-id"); renderManage(); return; }
     if(act==="editcancel"){ EDIT_ID=null; renderManage(); return; }
+    if(act==="pairing"){ PAIR_ID=m.getAttribute("data-id"); EDIT_ID=null; renderManage(); return; }
+    if(act==="paircancel"){ PAIR_ID=null; renderManage(); return; }
+    if(act==="pairsave"){
+      const box=m.closest(".medit");
+      const msgEl=box.querySelector(".edit-msg");
+      let payload;
+      try{ payload=JSON.parse(/** @type {HTMLTextAreaElement} */ (box.querySelector(".p-payload")).value); }
+      catch(err){ if(msgEl) msgEl.textContent="That is not valid JSON."; return; }
+      /** @type {HTMLButtonElement} */ (m).disabled=true; m.textContent="Checking the node…";
+      const r=await api.call("/dojo/pairing","POST",{
+        id:m.getAttribute("data-id"),
+        payload,
+        signed:/** @type {HTMLTextAreaElement} */ (box.querySelector(".p-signed")).value,
+      });
+      if(r.status!==200){
+        if(msgEl) msgEl.textContent=(r.body&&r.body.error)||("HTTP "+r.status);
+        /** @type {HTMLButtonElement} */ (m).disabled=false; m.textContent="Update pairing";
+        return;
+      }
+      PAIR_ID=null; await refreshMe(); renderManage(); return;
+    }
     if(act==="editsave"){
       const box=m.closest(".medit");
       const r=await api.call("/dojo/edit","POST",{

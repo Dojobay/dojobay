@@ -48,7 +48,9 @@ const DOJOS = {
       payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "d".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-deadnode", network: "mainnet", name: "deadnode", paynym: "+dead",
       status: "inactive", block_height: null, checked_at: "2026-07-14 00:00",
-      payload: { pairing: { type: "dojo.api", version: "1.20.0", url: "http://" + "e".repeat(56) + ".onion/v2" } } },
+      // has an apikey but no Electrum endpoint: the popup must skip that section
+      payload: { pairing: { type: "dojo.api", version: "1.20.0", apikey: "deadkey",
+        url: "http://" + "e".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-kilombino", network: "mainnet", name: "Kilombino", paynym: null,
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
       payload: { pairing: { type: "dojo.api", version: "1.27.0", url: "http://" + "b".repeat(56) + ".onion/v2" },
@@ -349,7 +351,9 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   assert.ok(/auth\/login/.test(body) && /support\/services/.test(body),
     "it shows both requests: the login and the services lookup");
   assert.ok(/X-Dojo-Version/.test(body), "it explains where the version comes from");
-  assert.ok(/tcp:\/\/|N\/A/.test(body), "and states the endpoint we display, to compare against");
+  assert.ok(/tcp:\/\//.test(body), "and states the Electrum endpoint we display, to compare against");
+  assert.ok(/latest-block/.test(body) && /906000/.test(body),
+    "it also covers the block height, which is likewise our checker's reading");
   assert.ok(/jq/.test(body), "it offers a one-liner and a jq-free variant");
   assert.ok(/own Tor circuit/.test(body.replace(/\s+/g, " ")),
     "and states the caveat rather than glossing over it");
@@ -357,6 +361,19 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
 
   assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="checkself"]'),
     "a node with no API key cannot be queried, so it offers no such action");
+
+  // A node with no Electrum endpoint must not be given instructions for asking
+  // about one: there is nothing to compare, and the popup says so instead.
+  const noIdx = doc.querySelector('.card[data-id="mainnet-deadnode"] [data-act="checkself"]');
+  if (noIdx) {
+    noIdx.dispatchEvent(new window.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 20));
+    const t = doc.getElementById("ov-body").textContent.replace(/\s+/g, " ");
+    assert.ok(!/support\/services/.test(t), "no Electrum instructions when the card shows N/A");
+    assert.ok(/publishes no Electrum endpoint/.test(t), "and it says why instead");
+    assert.ok(/latest-block/.test(t), "the block-height check still applies");
+    doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+  }
   console.log("  ok - a card shows how to ask the node directly for what we assert");
 }
 

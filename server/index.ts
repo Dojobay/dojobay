@@ -477,6 +477,70 @@ route("POST", /^\/api\/dojo\/edit$/, async (req, res) => {
   await applyEdit(rec, body, res);
 });
 
+// 9b) update the pairing details of a record you already own.
+//
+// The onion of a Dojo can change, an apikey can be rotated, an operator can
+// start exposing an Electrum indexer. None of that changes WHO runs the node,
+// and approval here binds to the payment code rather than to a particular
+// address: a maintainer approving a listing is approving the operator, and
+// leaves visitors to judge the node. So a pairing update keeps the record's
+// moderation status, its id and therefore its reliability history, and only
+// ever writes the payload and its signature.
+//
+// The same gates as a submission still apply, because they protect the reader
+// rather than gatekeep the operator: the payload must be well-formed, the new
+// onion must answer over Tor right now (which catches a mistyped address before
+// it replaces a working one), and a signature, if supplied, must verify against
+// the payment code signed in.
+route("POST", /^\/api\/dojo\/pairing$/, async (req, res) => {
+  const s = await sessionFrom(req);
+  if (!s) return json(res, 401, { error: "not authenticated" });
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
+
+  const rec = await store.getSubmission(body.id);
+  if (!rec || !owns(rec, s.paymentCode)) return json(res, 404, { error: "not found" });
+
+  const payloadErr = validatePayload(body.payload);
+  if (payloadErr) return json(res, 400, { error: payloadErr });
+
+  body.signed = cleanSigned(body.signed);
+  if (body.signed) {
+    const repaired = repairSignedBlock(body.signed);
+    if (repaired) body.signed = repaired.block;
+    const sig = verifySignedPayload({
+      signedText: body.signed,
+      expectedMessage: canonicalPairing(body.payload),
+      expectedAddress: notificationAddresses(s.paymentCode),
+    });
+    if (!sig.ok) return json(res, 400, { error: "signature gate: " + sig.error });
+  }
+
+  const network = rec.network === "testnet" ? "testnet" : "mainnet";
+  const check = await probe(body.payload.pairing.url, {
+    ...PROBE_CFG, apikey: body.payload.pairing.apikey, network,
+  });
+  if (!check.up) {
+    return json(res, 422, {
+      error: "connection gate: that node is unreachable or not serving block data over Tor ("
+        + (check.reason || "no response") + "). Your listing is unchanged.",
+      probe: check,
+    });
+  }
+
+  rec.payload = body.payload;
+  rec.signed = body.signed || null;
+  rec.last_probe = check;
+  rec.updated_at = new Date().toISOString();
+  await store.putSubmission(rec);
+
+  // Republish straight away when the record is live, so a moved onion is
+  // corrected on the cards without waiting for the next probe cycle.
+  const rebuilt = rec.status === "approved" ? await tryRebuild() : null;
+  json(res, 200, { ok: true, submission: rec, rebuild: rebuilt,
+    note: "Pairing details updated. Your listing keeps its place and its history." });
+});
+
 // 10) admin: edit display fields on any record
 route("POST", /^\/api\/admin\/edit$/, async (req, res) => {
   const s = await adminFrom(req, res);

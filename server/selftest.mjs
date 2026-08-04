@@ -1079,6 +1079,59 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await st.deleteSubmission(rec.id);
 }
 
+// 30) updating pairing details: an operator whose onion changes keeps their
+//     listing. Approval binds to the payment code that owns the record, not to
+//     a particular address, so the moderation status, the id and therefore the
+//     reliability history all survive.
+{
+  const { store: st } = await import("./store.ts");
+  const id = "mainnet-selftest-node";
+  const before = await st.getSubmission(id);
+  ok(before.status === "approved", "the record under test starts approved");
+
+  const movedUrl = "http://" + "m".repeat(56) + ".onion/v2";
+  const moved = { pairing: { ...payload.pairing, url: movedUrl }, explorer: payload.explorer };
+
+  const r = await api("/api/dojo/pairing", "POST", { id, payload: moved });
+  const after = await st.getSubmission(id);
+  ok(r.status === 200 && after.payload.pairing.url === movedUrl,
+     "the pairing payload is replaced: " + JSON.stringify(r.body?.error || ""));
+  ok(after.status === "approved" && after.id === id,
+     "and the listing keeps its approval and its id, so its history survives");
+
+  // published immediately, rather than waiting for the next probe cycle
+  const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
+    .nodes.find((n) => n.id === id);
+  ok(pub && pub.payload.pairing.url === movedUrl, "and the card shows the new address at once");
+
+  // a signature, when supplied, must cover the payload being submitted
+  const bad = await api("/api/dojo/pairing", "POST", { id, payload: moved, signed: signedBlock });
+  ok(bad.status === 400 && /signature gate/.test(bad.body.error),
+     "a signature that does not cover the new payload is refused");
+
+  // an unreachable address never replaces a working one: point the prober at the
+  // proxy that reports "host unreachable", as the submission gate test does
+  const dead = { pairing: { ...payload.pairing, url: "http://" + "z".repeat(56) + ".onion/v2" }, explorer: payload.explorer };
+  const { PROBE_CFG: PC } = await import("./probe.mjs");
+  PC.proxyPort = 19078;
+  const down = await api("/api/dojo/pairing", "POST", { id, payload: dead });
+  PC.proxyPort = 19077;
+  const stillThere = await st.getSubmission(id);
+  ok(down.status === 422 && /connection gate/.test(down.body.error)
+     && stillThere.payload.pairing.url === movedUrl,
+     "an unreachable node is refused and the current listing is left alone");
+
+  // and only the owner may do it
+  const otherRec = { ...before, id: "mainnet-not-mine", name: "not-mine", paymentCodes: ["PM8T" + "7".repeat(112)] };
+  await st.putSubmission(otherRec);
+  const notMine = await api("/api/dojo/pairing", "POST", { id: "mainnet-not-mine", payload: moved });
+  ok(notMine.status === 404, "a record owned by another payment code is not editable");
+  await st.deleteSubmission("mainnet-not-mine");
+
+  // restore for later checks
+  before.payload = payload; await st.putSubmission(before);
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

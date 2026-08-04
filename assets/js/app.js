@@ -210,8 +210,10 @@ async function loadJSON(url){
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
       ${n.paymentCode?`<button class="pcode mono" data-act="copycode" data-v="${esc(n.paymentCode)}" title="${esc(n.paymentCode)} — click to copy">${esc(n.paymentCode.slice(0,8))}…${esc(n.paymentCode.slice(-8))}</button>`:""}
-      ${n.operator_domain?`<a class="vdomain" href="https://${esc(n.operator_domain)}" target="_blank" rel="noopener noreferrer" title="The operator proved control of ${esc(n.operator_domain)}: a TXT record on the domain names their payment code, and they signed a statement naming the domain. This proves control of the domain, not that the operator is trustworthy.">✓ ${esc(n.operator_domain)}</a>`:""}
-      ${n.operator_domain_proof?`<button class="vproof" data-act="domproof" title="Check this claim yourself: the DNS lookup and the signature to verify">verify</button>`:""}
+      ${(n.operator_domain||n.operator_domain_proof)?`<div class="vrow">
+        ${n.operator_domain?`<a class="vdomain" href="https://${esc(n.operator_domain)}" target="_blank" rel="noopener noreferrer" title="The operator proved control of ${esc(n.operator_domain)}: a TXT record on the domain names their payment code, and they signed a statement naming the domain. This proves control of the domain, not that the operator is trustworthy.">✓ ${esc(n.operator_domain)}</a>`:""}
+        ${n.operator_domain_proof?`<button class="vproof" data-act="domproof" title="Check this claim yourself: the DNS lookup and the signature to verify">verify</button>`:""}
+      </div>`:""}
       ${relStrip(checks)}
       <div class="hist90" data-hist="${esc(n.id)}"><div class="eyebrow">Reliability · 90 days</div><div class="h90-body"><span class="loading">Loading…</span></div></div>
       <div class="meta">
@@ -226,6 +228,8 @@ async function loadJSON(url){
         ${epRow("Electrum Server", indexerUrl(n), "This node does not publish an Electrum endpoint, or runs a Dojo older than v1.27.0")}
       </div>
       <button class="reveal" data-act="pair">Pairing details</button>
+      ${n.payload && n.payload.pairing && n.payload.pairing.apikey
+        ? `<button class="reveal secondary" data-act="checkself" title="Ask the node yourself, over Tor, for the values shown here">Check it yourself</button>` : ""}
     </div>`;
   }
 
@@ -292,6 +296,64 @@ async function loadJSON(url){
         published a code; the signature alone shows only that the code's owner mentioned the domain.
         Together they show the same party holds both. This proves control of a domain, not that the
         operator is trustworthy.${p.verified_at?" This instance last confirmed it on "+esc(p.verified_at.slice(0,10))+".":""}</p>`;
+  }
+
+  // "Check it yourself": the commands to ask the node directly for the things
+  // this card asserts about it.
+  //
+  // Most of a listing is operator-signed and independently checkable, but the
+  // Electrum endpoint and the running version are OUR prober's word — we read
+  // them and publish them. These commands run the same two requests against the
+  // node, so a reader can compare and never has to take our display on trust.
+  // The apikey and onion are already on the card, so nothing new is disclosed.
+  function checkSelfHTML(n){
+    const pr = (n.payload && n.payload.pairing) || {};
+    if(!pr.url || !pr.apikey) return "<p>This node publishes no API key, so it cannot be queried directly.</p>";
+    let base;
+    try{ const u = new URL(pr.url); base = u.origin + (u.pathname||"/v2").replace(/\/+$/,""); }
+    catch(e){ return "<p>This node's pairing URL could not be parsed.</p>"; }
+    const S = "--socks5-hostname 127.0.0.1:9050";
+    const blk = (label, body) =>
+      `<div class="proofblk"><div class="k">${esc(label)}</div>`
+      + `<pre class="mono">${esc(body)}</pre>`
+      + `<button class="copybtn" data-act="copyurl" data-v="${esc(body)}">copy</button></div>`;
+    const iu = indexerUrl(n);
+    return `<p class="dnote">Nearly everything on this card is signed by the operator and checkable without us.
+        Two things are not: the <b>Electrum endpoint</b> and the <b>Dojo version</b> are values our checker
+        read from the node and republished. These commands ask the node the same two questions over Tor, so
+        you can compare its answers with ours.</p>
+      <p class="dnote">You need a Tor SOCKS proxy. A standalone <span class="mono">tor</span> daemon listens on
+        <span class="mono">9050</span>; Tor Browser uses <span class="mono">9150</span>, so change the port below
+        if that is what you are running. The API key and onion address here are already published on this card.</p>
+
+      <h3>1. Log in, and read the version header</h3>
+      <p class="dnote">Every Dojo response carries <span class="mono">X-Dojo-Version</span>, so <span class="mono">-i</span>
+        shows the running version and the reply carries the token for step 2.</p>
+      ${blk("login", `curl -si ${S} \\\n  -d "apikey=${pr.apikey}" \\\n  ${base}/auth/login`)}
+      ${blk("we show this version", n.version ? "v" + n.version : "(none published)")}
+
+      <h3>2. Ask for the Electrum endpoint</h3>
+      <p class="dnote">Substitute the <span class="mono">access_token</span> from step 1. The indexer entry is the
+        Electrum server; a Dojo older than v1.27.0 has no such route, and a node that exposes no indexer returns none.</p>
+      ${blk("services", `curl -s ${S} \\\n  -H "Authorization: Bearer <ACCESS_TOKEN>" \\\n  ${base}/support/services`)}
+      ${blk("we show this endpoint", iu || "N/A (no Electrum endpoint published)")}
+
+      <h3>Both at once</h3>
+      <p class="dnote">With <span class="mono">jq</span> installed:</p>
+      ${blk("one-liner", `TOKEN=$(curl -s ${S} -d "apikey=${pr.apikey}" ${base}/auth/login | jq -r .authorizations.access_token)\n`
+        + `curl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/support/services | jq -r '.services[]|select(.type=="indexer")|.url'`)}
+      <p class="dnote">Without <span class="mono">jq</span>, replace the second command with:</p>
+      ${blk("no jq", `curl -s ${S} -H "Authorization: Bearer $TOKEN" ${base}/support/services | tr ',' '\\n' | grep -A2 indexer`)}
+
+      <p class="dnote">One caveat, stated rather than glossed over: running these opens your own Tor circuit to the
+        node, so the operator sees a request. That is inherent to checking anything directly, not an extra exposure,
+        and no wallet key or XPUB is involved.</p>`;
+  }
+
+  function openCheckSelf(n){
+    document.getElementById("ov-title").textContent = (n.name||n.id) + " · check it yourself";
+    document.getElementById("ov-body").innerHTML = checkSelfHTML(n);
+    document.getElementById("ov").classList.add("show");
   }
 
   function openDomainProof(n){
@@ -509,6 +571,7 @@ async function loadJSON(url){
     const node=()=>DOJOS.nodes.find(x=>x.id===cardEl.getAttribute("data-id"));
     if(a==="pair"){ openPair(node()); return; }
     if(a==="domproof"){ openDomainProof(node()); return; }
+    if(a==="checkself"){ openCheckSelf(node()); return; }
     if(a==="copyurl"){copy(act.getAttribute("data-v")).then(()=>flash(act,"✓"));return;}
   });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });

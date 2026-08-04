@@ -41,7 +41,8 @@ const DOJOS = {
         txt_name: "_dojobay.example.org", txt_value: "dojobay-domain-v1 pm=PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
         signed: "-----BEGIN BITCOIN SIGNED MESSAGE-----\nhttps://example.org/\n\nBIP47: PM8TJfHa\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: 1HmVAPcz3hyETMnu4UzgJTw1mmrNcJKVB\n\n" + "H".repeat(87) + "=\n-----END BITCOIN SIGNATURE-----",
         verified_at: "2026-07-01T00:00:00Z" },
-      payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "a".repeat(56) + ".onion/v2" } } },
+      payload: { pairing: { type: "dojo.api", version: "1.28.0", apikey: "fixturekey",
+        url: "http://" + "a".repeat(56) + ".onion/v2" } } },
     { id: "mainnet-freshnode", network: "mainnet", name: "freshnode", paynym: "+fresh",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
       payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "d".repeat(56) + ".onion/v2" } } },
@@ -287,6 +288,18 @@ assert.ok(vd.getAttribute("rel") === "noopener noreferrer" && vd.getAttribute("t
   "badge link does not leak a referrer");
 assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vdomain'),
   "a node with no verified domain shows no badge at all");
+// Layout: the payment code owns its own row, with the domain and its verify
+// button on the line beneath rather than trailing the code inline.
+const pcodeEl = yCard.querySelector(".pcode");
+const vrow = yCard.querySelector(".vrow");
+assert.ok(pcodeEl && vrow, "the card has a payment code and a separate verification row");
+assert.ok(pcodeEl.compareDocumentPosition(vrow) & 4, "the verification row comes after the payment code");
+assert.ok(vrow.querySelector(".vdomain") && vrow.querySelector(".vproof"),
+  "the domain and the verify button share that row");
+assert.ok(!pcodeEl.parentElement.classList.contains("vrow"),
+  "the payment code is not inside the verification row");
+assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vrow'),
+  "a node with nothing to verify gets no verification row at all");
 console.log("  ok - verified domain badge on the card, absent when unverified");
 
 // "For the machines among us": the badge must be interrogable, not just a tick.
@@ -309,6 +322,30 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
     "and says what the proof does not mean");
   doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
   console.log("  ok - the domain badge publishes a checkable proof, not just a tick");
+}
+
+// "Check it yourself": the Electrum endpoint and the version are the only things
+// on a card that rest on our word, so the card must show how to ask the node.
+{
+  const btn = yCard.querySelector('[data-act="checkself"]');
+  assert.ok(btn, "a node with an API key offers a check-it-yourself action");
+  btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const body = doc.getElementById("ov-body").textContent;
+  assert.ok(/socks5-hostname 127\.0\.0\.1:9050/.test(body), "the commands route over Tor");
+  assert.ok(/9150/.test(body), "and mention Tor Browser's port too");
+  assert.ok(/auth\/login/.test(body) && /support\/services/.test(body),
+    "it shows both requests: the login and the services lookup");
+  assert.ok(/X-Dojo-Version/.test(body), "it explains where the version comes from");
+  assert.ok(/tcp:\/\/|N\/A/.test(body), "and states the endpoint we display, to compare against");
+  assert.ok(/jq/.test(body), "it offers a one-liner and a jq-free variant");
+  assert.ok(/own Tor circuit/.test(body.replace(/\s+/g, " ")),
+    "and states the caveat rather than glossing over it");
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+
+  assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="checkself"]'),
+    "a node with no API key cannot be queried, so it offers no such action");
+  console.log("  ok - a card shows how to ask the node directly for what we assert");
 }
 
 // Staleness: if the updater timer dies, nginx keeps serving the last dojos.json
@@ -429,7 +466,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an open tab refetches, and never redraws under an open dialog");
 }
 
-console.log("\nall 21 front-end checks passed");
+console.log("\nall 22 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

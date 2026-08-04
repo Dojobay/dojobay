@@ -378,7 +378,9 @@ async function loadJSON(url){
       ${FRESH.stale?`<div class="stale-banner" role="status">
         <b>These statuses are out of date.</b>
         This directory last refreshed ${esc(humanAge(FRESH.ageMin))} ago${FRESH.unknown?"":`, and should refresh every ${FRESH.intervalMin} minutes`}.
-        The checker has probably stopped, so the badges below are greyed out: treat every node as unknown rather than up or down.
+        This page refetches on the same cadence the directory publishes, so either the checker has stopped
+        or we have been unable to reach it. Either way the badges below are greyed out: treat every node
+        as unknown rather than up or down.
         (If your device's clock is wrong, this warning can appear on a healthy directory.)
       </div>`:""}
       <div class="grid${FRESH.stale?" stale":""}">${list.map(card).join("")}</div>
@@ -434,7 +436,12 @@ async function loadJSON(url){
       + '<p style="color:#a0a0a0;line-height:1.7">then open <a style="color:#b5302a" href="http://localhost:8080">http://localhost:8080</a>.</p>'
       + '<p style="color:#6b6b6b;font-family:\'JetBrains Mono\',monospace;font-size:12px;margin-top:14px">'+String(err && err.message || err)+'</p></div>';
   }
-  function closeModal(){const o=document.getElementById("ov");if(o)o.classList.remove("show");}
+  function closeModal(){
+    const o=document.getElementById("ov"); if(o)o.classList.remove("show");
+    // A refresh that arrived while this dialog was open deferred its redraw so
+    // as not to pull the content out from under the reader. Apply it now.
+    if(PENDING_RENDER){ PENDING_RENDER=false; render(); }
+  }
 
   // Verify popup: shows the operator's BIP47-signed proof of this onion address,
   // as a scannable QR plus the copyable signed message. Source: data/operator.json.
@@ -1025,11 +1032,54 @@ async function loadJSON(url){
 
   const IS_ADMIN_PAGE = location.pathname.replace(/\/+$/,"") === "/admin";
 
+  // Keep the open page current.
+  //
+  // The staleness banner reads DOJOS.generated_at, which is when the INSTANCE
+  // last rebuilt the file. A tab left open all day would therefore raise it even
+  // on a perfectly healthy directory, because the page's copy had aged while the
+  // server's had not. So the page refetches on the same cadence the instance
+  // publishes, and the banner then means what it says: the directory itself has
+  // stopped refreshing.
+  //
+  // Three restraints, because every request here is a Tor round trip:
+  //   - only while the tab is actually visible; a backgrounded tab polls nothing
+  //   - an immediate refetch when a hidden tab is brought back, rather than
+  //     waiting out the remainder of an interval with stale data on screen
+  //   - never re-render underneath an open dialog; the data is taken, and the
+  //     redraw waits until the dialog is closed.
+  let REFRESH_TIMER = null, PENDING_RENDER = false;
+
+  function modalOpen(){
+    const ov = document.getElementById("ov");
+    return !!(ov && ov.classList.contains("show"));
+  }
+
+  async function refreshData(){
+    if(document.visibilityState !== "visible") return;
+    try{
+      const [d,h] = await Promise.all([loadJSON("data/dojos.json"), loadJSON("data/history.json")]);
+      if(!d || !Array.isArray(d.nodes)) return;               // ignore a malformed reply
+      DOJOS = d; HIST = h || HIST;
+      HIST90 = null; DAILY = {nodes:{}};                      // let the 90-day strips reload lazily
+      if(modalOpen()){ PENDING_RENDER = true; return; }
+      render();
+    }catch(e){ /* a failed poll keeps the last good data; staleness will show if it persists */ }
+  }
+
+  function scheduleRefresh(){
+    if(REFRESH_TIMER) clearInterval(REFRESH_TIMER);
+    const mins = Number(DOJOS && DOJOS.interval_minutes) > 0 ? Number(DOJOS.interval_minutes) : 10;
+    REFRESH_TIMER = setInterval(refreshData, Math.max(60, mins*60) * 1000);
+  }
+
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState === "visible") refreshData(); });
+
   (async function(){
     if(IS_ADMIN_PAGE){ document.title="Admin \u2014 The Dojo Bay"; await refreshMe(); renderAdminPanel(); return; }
     try{
       [DOJOS,HIST]=await Promise.all([loadJSON("data/dojos.json"),loadJSON("data/history.json"),loadHist90()]);
       render();
+      scheduleRefresh();
       loadVersion();
       loadOperator();
     }catch(e){ showLoadError(e); }

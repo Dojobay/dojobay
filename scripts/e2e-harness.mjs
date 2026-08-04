@@ -70,6 +70,7 @@ const ME = { authenticated: true, paymentCode: "PM8TJTESTCODE000000000000", admi
 ] };
 
 let meCalls = 0;
+let dojosCalls = 0;
 const dom = new JSDOM(`<!DOCTYPE html><html><body><div id="root"></div></body></html>`, {
   url: "http://dojobay.onion/",
   runScripts: "outside-only",
@@ -99,7 +100,7 @@ window.fetch = async (url, opts) => {
     return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ ok: true }), text: async () => '{"ok":true}' };
   }
   const body =
-    /dojos\.json/.test(url) ? DOJOS :
+    /dojos\.json/.test(url) ? (dojosCalls++, DOJOS) :
     /history\.json/.test(url) ? HIST :
     /history-daily\.json/.test(url) ? { nodes: {
       "mainnet-91xtx93-yellow": { days: [{d:"2026-07-12",pct:100,close:905900},{d:"2026-07-13",pct:99.3,close:906000}] },
@@ -344,6 +345,8 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   assert.ok(!doc.querySelector(".stale-banner") && !doc.querySelector(".grid").classList.contains("stale"),
     "a freshly generated directory shows no banner and no greying");
   console.log("  ok - stale data greys the badges and says so; fresh data does not");
+  staleDom.window.close();          // the app schedules a refresh timer; closing
+                                    // the window clears it so the run can exit
 }
 
 // The dialog must not scroll behind its own header. This regressed twice: first
@@ -366,6 +369,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
     "only the modal body scrolls, and it can shrink inside the flex column");
   console.log("  ok - dialog scrolls its body, so content never passes behind the header");
 }
+
 
 // pairing details open in the shared popup: EC-H QR + avatar + copy buttons
 yCard.querySelector('[data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));
@@ -395,4 +399,38 @@ assert.ok(srcLink && srcLink.getAttribute("href") === "data/dojobay-src.zip", "s
 console.log("  ok - footer source-download icon links the instance's own code zip");
 
 
-console.log("\nall 20 front-end checks passed");
+
+// A tab left open must not drift into the staleness banner on a healthy
+// directory: the banner reads generated_at, which is when the INSTANCE last
+// published, so the page has to refetch on the same cadence or it accuses a
+// working checker of having stopped. Returning to a hidden tab refetches at
+// once rather than waiting out the interval.
+{
+  const before = dojosCalls;
+  Object.defineProperty(window.document, "visibilityState", { value: "visible", configurable: true });
+  window.document.dispatchEvent(new window.Event("visibilitychange"));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(dojosCalls > before, "returning to the tab refetches dojos.json");
+
+  // a refresh must never redraw underneath an open dialog
+  doc.querySelector('.card[data-id="mainnet-91xtx93-yellow"] [data-act="pair"]')
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(doc.getElementById("ov").classList.contains("show"), "a dialog is open");
+  const title = doc.getElementById("ov-title").textContent;
+  window.document.dispatchEvent(new window.Event("visibilitychange"));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(doc.getElementById("ov").classList.contains("show")
+    && doc.getElementById("ov-title").textContent === title,
+    "a refresh arriving while it is open leaves it alone");
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(doc.querySelectorAll(".card").length > 0, "and the deferred redraw lands once it is closed");
+  console.log("  ok - an open tab refetches, and never redraws under an open dialog");
+}
+
+console.log("\nall 21 front-end checks passed");
+
+// The page schedules a periodic refresh, so its timers would otherwise hold the
+// event loop open and the run would never finish.
+dom.window.close();

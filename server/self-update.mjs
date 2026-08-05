@@ -114,7 +114,10 @@ export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = (/** @t
  * @param {{ repo?: string, ref?: string, cfg?: any,
  *   log?: (msg: string) => void, transport?: any }} [args]
  */
-export async function fetchFromGitHub({ repo = "Dojobay/dojobay", ref = "main", cfg, log = (/** @type {string} */ _msg) => {}, transport } = {}) {
+// The repo path is read from the same GITHUB_REPO used by the update check, so
+// moving the project to another organisation needs one environment variable
+// rather than an edit in two files that could drift apart.
+export async function fetchFromGitHub({ repo = process.env.GITHUB_REPO || "Dojobay/dojobay", ref = "main", cfg, log = (/** @type {string} */ _msg) => {}, transport } = {}) {
   const c = cfgFrom(cfg || {});
   transport = transport || githubGet;
   log("resolving latest commit…");

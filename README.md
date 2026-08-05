@@ -305,6 +305,83 @@ never touched, and a backup under `data/backups/<timestamp>/` lets you roll
 back by hand if a build misbehaves. The manual `unzip` upgrade below remains
 available and does the same thing.
 
+## Maintaining an instance
+
+Six scripts live in `server/` and are run on the instance itself, not in CI.
+Each of the three that writes anything defaults to a **dry run**, backs up what
+it touches, and refuses to run while `dojobay-server.service` is up, because
+`store.ts` holds the store in memory as a single writer and would overwrite the
+edit. Run them as the service user, not as root: files left owned by root are
+files the deploy cannot manage.
+
+```
+cd /var/www/dojobay/server
+```
+
+**`audit-signed.mjs`** — read-only. Re-checks every stored signed block with the
+same gate the submission endpoint uses, and sorts each record into VERIFIED,
+FAILED, UNSIGNED or ERROR. Exits non-zero if anything failed, so it can back a
+cron check. UNSIGNED is not a failure: it is a record that never carried a
+signature, for a per-record decision.
+
+```
+sudo -u deploy node audit-signed.mjs
+```
+
+**`diagnose-signed.mjs`** — read-only. Explains *why* a block fails: whether the
+signature is genuine and its payment code binds to the signing address, and if
+so exactly where the stored payload diverges from the signed text. Use it when
+`audit-signed.mjs` reports FAILED and the reason is not obvious.
+
+```
+sudo -u deploy node diagnose-signed.mjs
+```
+
+**`apply-signed-payload.ts`** — applies pairing payloads an operator has signed
+and sent out of band. It performs the same checks as the submission gate, finds
+the listing by the payment code inside the signed text, and writes only the
+payload and the signature, so ids and reliability history survive. A block whose
+whitespace was mangled in transit is repaired, but only when the repaired form
+verifies cryptographically. One block per file.
+
+```
+sudo -u deploy node apply-signed-payload.ts /tmp/blocks/*.txt        # dry run
+sudo -u deploy node apply-signed-payload.ts --apply /tmp/blocks/*.txt
+```
+
+Add `--id <record-id>` when one payment code owns more than one listing.
+
+**`fix-payload-version.mjs`** — restores a `pairing.version` that drifted after
+signing, and only where the signed block and the stored payload are otherwise
+identical. Rarely needed now that operators can update their own pairing
+details.
+
+```
+sudo -u deploy node fix-payload-version.mjs      # dry run
+```
+
+**`remove-listing.ts`** — deletes one or more listings **and purges their
+reliability history**. Deleting through the API leaves history stamped `retired`
+for the grace period so a node that returns resurrects its uptime; that is right
+for a node coming back and wrong for one being removed deliberately. Takes
+several ids at once.
+
+```
+sudo -u deploy node remove-listing.ts mainnet-example testnet-example   # dry run
+sudo -u deploy node remove-listing.ts --apply mainnet-example testnet-example
+```
+
+**`build-public.mjs`** — republishes `data/dojos.json` immediately rather than
+waiting for the next ten-minute cycle. Run it after any of the writing scripts.
+
+```
+sudo -u deploy node build-public.mjs
+```
+
+A normal sequence for a change to stored data is therefore: dry run, stop the
+service, apply, start the service, `build-public.mjs`, then `audit-signed.mjs`
+to confirm the result.
+
 ## TypeScript, and what is deliberately not converted
 
 The whole codebase is type-checked (`npm run typecheck`), and the parts where a
@@ -337,4 +414,5 @@ The full policy, including when converting *is* worthwhile, is in
 Development setup, project structure, the test suites and coding conventions
 are in [CONTRIBUTING.md](CONTRIBUTING.md). The code is MIT-licensed
 ([LICENSE](LICENSE)). Listings are not added through pull requests — they go
-through the Auth47 flow above.
+through the Auth47 flow above. Security problems go through
+[SECURITY.md](SECURITY.md) rather than a public issue.

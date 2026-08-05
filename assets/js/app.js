@@ -867,7 +867,7 @@ async function loadJSON(url){
 
   function renderLogin(body){
     body.innerHTML = `
-      <p>Sign in with your Dojo's <strong>PayNym</strong> using Auth47 to manage its listing. Scan this with <a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> (Settings → Pair wallet → Auth47), or tap to open.</p>
+      <p>Sign in with your Dojo's <strong>PayNym</strong> using Auth47 to manage its listing. Scan this with <a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> (Tools → Authenticate using PayNym), or tap to open.</p>
       <div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge…</p></div>
       <p style="font-size:12.5px;color:var(--faint)">Auth47 proves you control the payment code without revealing any key. Nothing is stored beyond your payment code and the Dojo details you submit.</p>`;
     startAuth47();
@@ -1031,6 +1031,10 @@ async function loadJSON(url){
     const pr=s.probe;
     const strip = (pr && pr.checks && pr.checks.length) ? relStrip(pr.checks)
       : '<p style="font-size:12px;color:var(--faint);margin:6px 0">No probe data yet (the updater runs every 10 minutes).</p>';
+    // "not yet probed" was shown for every approved listing, because the panel
+    // read only the pending-probe file, which stops being written once a record
+    // is approved. It now prefers the published view, the same data the cards
+    // use; a record with neither is genuinely awaiting its first probe.
     const height = (pr && pr.block_height!=null) ? Number(pr.block_height).toLocaleString("en-GB") : "\u2014";
     const st = pr ? pr.status : "not yet probed";
     return `<div class="admin-row" data-id="${esc(s.id)}">
@@ -1049,7 +1053,7 @@ async function loadJSON(url){
   }
   async function renderAdminPanel(){
     if(!ME || !ME.authenticated){
-      adminShell('<p style="font-size:13px;color:var(--muted)">Sign in with your operator PayNym via Auth47 (<a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> \u2192 Settings \u2192 Pair wallet \u2192 Auth47).</p><div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge\u2026</p></div>');
+      adminShell('<p style="font-size:13px;color:var(--muted)">Sign in with your operator PayNym via Auth47 (<a href="https://web.archive.org/web/20240424023506/https://samouraiwallet.com/" target="_blank" rel="noopener">Samourai</a> or <a href="http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/" target="_blank" rel="noopener">Ashigaru</a> \u2192 Tools \u2192 Authenticate using PayNym).</p><div id="auth47-box" style="text-align:center;margin:18px 0"><p class="loading">Requesting challenge\u2026</p></div>');
       onAuthSuccess = renderAdminPanel; startAuth47(); return;
     }
     if(!ME.admin){
@@ -1095,15 +1099,20 @@ async function loadJSON(url){
     // current_release is set when the running commit IS a released tag, so we can
     // say which release this is rather than guessing from timestamps. When it is
     // not set the count is a timestamp approximation, and says so.
-    const rel = u.latest_release
-      ? (u.releases_behind>0
-          ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b>'
-            +(u.releases_behind_approx?' (approximate; latest ':' (latest ')+esc(u.latest_release)+')'
-          : (u.current_release
-              ? ' · running release <b>'+esc(u.current_release)+'</b>'
-              : ' · latest release '+esc(u.latest_release)))
-      : "";
-    const behindAny = u.commits_behind>0 || u.releases_behind>0;
+    // releases_behind is null when the tag lookup itself failed. Saying nothing
+    // is better than a number that is systematically wrong for the commonest
+    // case, an instance running the newest release.
+    const rel = !u.latest_release ? ""
+      : u.releases_behind === null
+        ? ' · latest release '+esc(u.latest_release)+' (could not confirm which release this build is'
+          +(u.releases_note?': '+esc(u.releases_note):"")+')'
+      : u.releases_behind>0
+        ? ' · <b>'+u.releases_behind+' release'+(u.releases_behind===1?"":"s")+' behind</b>'
+          +(u.releases_behind_approx?' (approximate; latest ':' (latest ')+esc(u.latest_release)+')'
+      : u.current_release
+        ? ' · running release <b>'+esc(u.current_release)+'</b>'
+        : ' · latest release '+esc(u.latest_release);
+    const behindAny = u.commits_behind>0 || (u.releases_behind||0)>0;
     const controls = '<div class="upd-controls">'
       + '<button class="abtn ok" data-adm="update-github">Update from GitHub</button>'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button>'
@@ -1231,6 +1240,10 @@ async function loadJSON(url){
   }
 
   async function refreshData(){
+    // Never on /admin. render() paints the directory into #root, so refreshing
+    // there replaced the admin panel with the main page — which looked like the
+    // console spontaneously redirecting.
+    if(IS_ADMIN_PAGE) return;
     if(document.visibilityState !== "visible") return;
     try{
       const [d,h] = await Promise.all([loadJSON("data/dojos.json"), loadJSON("data/history.json")]);
@@ -1248,7 +1261,9 @@ async function loadJSON(url){
     REFRESH_TIMER = setInterval(refreshData, Math.max(60, mins*60) * 1000);
   }
 
-  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState === "visible") refreshData(); });
+  document.addEventListener("visibilitychange", ()=>{
+    if(!IS_ADMIN_PAGE && document.visibilityState === "visible") refreshData();
+  });
 
   (async function(){
     if(IS_ADMIN_PAGE){ document.title="Admin \u2014 The Dojo Bay"; await refreshMe(); renderAdminPanel(); return; }

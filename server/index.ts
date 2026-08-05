@@ -46,6 +46,35 @@ const isAdmin = (pc) => !!pc && ADMIN_CODES.includes(pc);
 
 const SERVER_DATA = process.env.SERVER_DATA_DIR
   || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
+// The published view of a node, for the admin panel. A pending submission is
+// probed separately into pending-probe.json, but once it is APPROVED the
+// updater stops writing there and its live status, chain tip and 24-hour checks
+// live in the published files instead. Reading only the pending file therefore
+// left every approved listing saying "not yet probed" with a reliability strip
+// frozen at whatever it had when it was approved.
+async function publishedView() {
+  const dir = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
+  const read = async (name, fallback) => {
+    try { return JSON.parse(await readFile(path.join(dir, name), "utf8")); }
+    catch { return fallback; }
+  };
+  const [dojos, hist] = await Promise.all([
+    read("dojos.json", { nodes: [] }),
+    read("history.json", { nodes: {} }),
+  ]);
+  const byId = new Map();
+  for (const n of dojos.nodes || []) {
+    byId.set(n.id, {
+      status: n.status || null,
+      checked_at: n.checked_at || null,
+      block_height: n.block_height ?? null,
+      detected_version: n.detected_version || null,
+      checks: (hist.nodes?.[n.id]?.checks) || [],
+    });
+  }
+  return byId;
+}
+
 async function pendingProbe() {
   try { return JSON.parse(await readFile(path.join(SERVER_DATA, "pending-probe.json"), "utf8")); }
   catch { return { nodes: {} }; }
@@ -241,15 +270,20 @@ async function adminFrom(req, res) {
 route("GET", /^\/api\/admin\/submissions$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   const probes = (await pendingProbe()).nodes || {};
+  const live = await publishedView();
   const subs = (await store.listSubmissions()).map((s) => ({
     id: s.id, network: s.network, status: s.status, name: s.name || null,
     paynym: s.paynym || null, paymentCodes: s.paymentCodes,
     jurisdiction: s.jurisdiction || null, country: s.country || null,
     hardware: s.hardware || null, signed: !!s.signed,
-    version: (probes[s.id] && probes[s.id].detected_version) || s.payload?.pairing?.version || null,
+    version: (live.get(s.id)?.detected_version) || (probes[s.id] && probes[s.id].detected_version)
+      || s.payload?.pairing?.version || null,
     pairingUrl: s.payload?.pairing?.url || null,
     created_at: s.created_at || null, updated_at: s.updated_at || null,
-    probe: probes[s.id] || null,      // { status, checked_at, block_height, checks:[] }
+    // Prefer the published view: it is what the card shows and it keeps being
+    // updated. Fall back to the pending probe for a record not yet approved.
+    probe: live.get(s.id) || probes[s.id] || null,   // { status, checked_at, block_height, checks[] }
+    probe_source: live.has(s.id) ? "published" : (probes[s.id] ? "pending" : null),
   }));
   json(res, 200, { admin: true, submissions: subs });
 });

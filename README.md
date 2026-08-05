@@ -175,7 +175,7 @@ curl -s --socks5-hostname 127.0.0.1:9050 http://<onion>/data/dojos.json \
 ## Getting listed on the reference instance
 
 Open **Manage my Dojo** in the header, scan the Auth47 challenge with
-Samourai or Ashigaru (Settings → Pair wallet → Auth47), and submit your
+Samourai or Ashigaru (Tools → Authenticate using PayNym), and submit your
 node's name, details and pairing payload. The server checks the Dojo answers
 over Tor before the submission is accepted, and a signed pairing message, if
 you provide one, must verify against your payment code's notification

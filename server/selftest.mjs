@@ -527,11 +527,14 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && midCycle.releases_behind_approx === true,
      "an untagged commit falls back to the timestamp count and says it is approximate");
 
-  // the tags call failing must not break the check
+  // The tags call failing must not break the check, and must not invent a
+  // number either: the timestamp guess is systematically wrong for the
+  // commonest case, an instance running the very newest release.
   await setVersion("abc1234", "2026-01-01T00:00:00Z");
   const noTags = await checkUpdates({ transport: /** @type {any} */ (transportFor(false)) });
-  ok(noTags.releases_behind === 1 && noTags.releases_behind_approx === true,
-     "an unavailable tags endpoint degrades to the approximation instead of failing");
+  ok(noTags.releases_behind === null && noTags.releases_behind_approx === true
+     && /tag lookup/.test(noTags.releases_note || ""),
+     "an unavailable tags endpoint reports unknown, with the reason, rather than a guess");
 
   await setVersion("abc1234", "2026-01-01T00:00:00Z");
   const u = await checkUpdates({ transport: /** @type {any} */ (transportFor(true)) });
@@ -1130,6 +1133,35 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   // restore for later checks
   before.payload = payload; await st.putSubmission(before);
+}
+
+// 31) the admin panel shows the same reliability data as the cards. It used to
+//     read only pending-probe.json, which the updater stops writing once a
+//     record is approved, so every approved listing said "not yet probed" and
+//     showed a strip frozen at whatever it had when it was approved.
+{
+  const dir = process.env.PUBLIC_DATA_DIR;
+  const id = "mainnet-selftest-node";
+  const dojos = JSON.parse(await fsp.readFile(dir + "/dojos.json", "utf8"));
+  const n = dojos.nodes.find((x) => x.id === id);
+  n.status = "active"; n.block_height = 906123; n.checked_at = "2026-08-05 00:00";
+  n.detected_version = "1.31.0";
+  await fsp.writeFile(dir + "/dojos.json", JSON.stringify(dojos, null, 2) + "\n");
+  await fsp.writeFile(dir + "/history.json", JSON.stringify({
+    interval_minutes: 10, window_checks: 144,
+    nodes: { [id]: { checks: Array.from({ length: 12 }, (_, i) => ({ t: "2026-08-05T0" + i, up: true })) } },
+  }, null, 2) + "\n");
+
+  const r = await api("/api/admin/submissions");
+  const row = r.body.submissions.find((x) => x.id === id);
+  ok(row && row.probe && row.probe_source === "published",
+     "an approved record's probe data comes from the published view");
+  ok(row.probe.status === "active" && row.probe.block_height === 906123,
+     "so its live status and chain tip are what the card shows");
+  ok(Array.isArray(row.probe.checks) && row.probe.checks.length === 12,
+     "and its reliability strip has the full window, not a single block");
+  ok(row.version === "1.31.0",
+     "the version shown is the live-detected one, not the pairing payload's");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

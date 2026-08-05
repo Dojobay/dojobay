@@ -104,14 +104,20 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
   // honest answer (zero, when we are on the latest). Only when no tag matches do
   // we fall back to the timestamp approximation, and say so.
   let tagSha = new Map();
+  let tagsError = null;
   try {
     const tg = await transport(`/repos/${repo}/tags?per_page=100`, cfg);
     if (tg.status === 200) {
       for (const t of JSON.parse(tg.body)) {
         if (t?.name && t?.commit?.sha) tagSha.set(t.name, String(t.commit.sha));
       }
+    } else {
+      tagsError = `tag lookup: HTTP ${tg.status}` +
+        (tg.status === 403 || tg.status === 429 ? " (GitHub rate limit; Tor exits are shared and hit it often)" : "");
     }
-  } catch { /* fall back to the approximation below */ }
+  } catch (e) {
+    tagsError = "tag lookup: " + (e?.message || "failed");
+  }
 
   // version.json carries a short commit, the API a full sha; match either way.
   const sameCommit = (a, b) => {
@@ -123,9 +129,21 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
   const runningIndex = releases.findIndex((r) => sameCommit(tagSha.get(r.tag_name), version.commit));
   const approximate = runningIndex < 0;
   const builtAt = Date.parse(version.built || 0) || 0;
-  const releasesBehind = approximate
-    ? releases.filter((r) => Date.parse(r.published_at || 0) > builtAt).length
-    : runningIndex;                                // releases newer than ours
+
+  // Three states, and the third used to be reported as the second.
+  //
+  //   matched      our commit IS a released tag: the count is exact.
+  //   no match     we are on an untagged commit mid-cycle: the timestamp count
+  //                is a fair approximation, because we are genuinely not on a
+  //                release.
+  //   no tag data  we could not look tags up at all, usually because a shared
+  //                Tor exit hit GitHub's rate limit. The timestamp count is
+  //                then WORSE than saying nothing: a tag is always created
+  //                after its commit was built, so an instance running the very
+  //                newest release scores one behind. Report null instead.
+  const releasesBehind = !approximate ? runningIndex
+    : tagsError ? null
+    : releases.filter((r) => Date.parse(r.published_at || 0) > builtAt).length;
 
   return {
     commit: version.commit,
@@ -140,6 +158,8 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
      *  match, which happens when the running commit is not itself a released
      *  tag (mid-cycle, or a local build). */
     releases_behind_approx: approximate,
+    /** Why the release could not be identified, when it could not. */
+    releases_note: tagsError,
     repo,
     checked_at: new Date().toISOString(),
   };

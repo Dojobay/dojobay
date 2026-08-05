@@ -310,10 +310,10 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const dry = await run(process.execPath, [script, "--dry-run"], { env });
   const storeAbsent = await fsp.access(MIG_STORE + "/store.json").then(() => false, () => true);
   ok(/create\s+mainnet-fam-one\s+name=one/.test(dry.stdout)
-     && /adopt\s+testnet-keeper\s+name=wanderinKeeper/.test(dry.stdout)
-     && /WARNING: testnet-keeper has no BIP47/.test(dry.stdout)
+     && /refuse\s+testnet-keeper\s+name=wanderinKeeper/.test(dry.stdout)
+     && /REFUSED: testnet-keeper has no BIP47/.test(dry.stdout)
      && storeAbsent,
-     "migration --dry-run: family prefix stripped, code-less adoption warned, nothing written");
+     "migration --dry-run: family prefix stripped, a code-less node refused, nothing written");
 
   await run(process.execPath, [script], { env });
   const store1 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
@@ -321,12 +321,10 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const seedAfter = await fsp.readFile(MIG_DATA + "/seed.json", "utf8");
   ok(migrated["mainnet-fam-one"].status === "approved"
      && migrated["mainnet-fam-one"].paymentCodes.length === 2
-     && migrated["testnet-keeper"].status === "approved"
-     && migrated["testnet-keeper"].paymentCodes.length === 0
-     && migrated["testnet-keeper"].source === "seed-adoption"
-     && migrated["testnet-keeper"].name === "wanderinKeeper"
+     && migrated["mainnet-fam-one"].source === "seed-migration"
+     && !migrated["testnet-keeper"]
      && seedAfter === seedBefore,
-     "migration creates owned records, adopts code-less exceptions, never rewrites seed.json");
+     "migration creates owned records, never writes a code-less one, never rewrites seed.json");
 
   const second = await run(process.execPath, [script], { env });
   const store2 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
@@ -1162,6 +1160,41 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "and its reliability strip has the full window, not a single block");
   ok(row.version === "1.31.0",
      "the version shown is the live-detected one, not the pairing payload's");
+}
+
+// 32) a listing without a BIP47 payment code is structurally impossible. The
+//     store is the single chokepoint every write passes through, so refusing
+//     there is what makes it impossible rather than merely discouraged, and the
+//     rebuild withholds any that predate the rule instead of publishing them.
+{
+  const { store: st } = await import("./store.ts");
+  const { rebuild: rb } = await import("./build-public.ts");
+  const base = { network: "mainnet", name: "orphan", status: "approved", payload };
+
+  let threw = null;
+  try { await st.putSubmission(/** @type {any} */ ({ ...base, id: "mainnet-orphan", paymentCodes: [] })); }
+  catch (e) { threw = e; }
+  ok(threw && /must carry a BIP47 payment code/.test(threw.message),
+     "the store refuses a record with no payment code");
+
+  let threw2 = null;
+  try { await st.putSubmission(/** @type {any} */ ({ ...base, id: "mainnet-orphan2" })); }
+  catch (e) { threw2 = e; }
+  ok(threw2, "and one with no paymentCodes field at all");
+  ok((await st.getSubmission("mainnet-orphan")) === null, "nothing is written when it refuses");
+
+  // a record that predates the rule, injected past the store, is withheld from
+  // the published list rather than shown
+  const raw = JSON.parse(await fsp.readFile(process.env.SERVER_DATA_DIR + "/store.json", "utf8"));
+  raw.submissions["mainnet-legacy-orphan"] = { ...base, id: "mainnet-legacy-orphan", paymentCodes: [] };
+  await fsp.writeFile(process.env.SERVER_DATA_DIR + "/store.json", JSON.stringify(raw, null, 2) + "\n");
+  await rb();
+  const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
+  ok(!pub.nodes.some((n) => n.id === "mainnet-legacy-orphan"),
+     "a code-less record already in the store is withheld from the published list");
+
+  delete raw.submissions["mainnet-legacy-orphan"];
+  await fsp.writeFile(process.env.SERVER_DATA_DIR + "/store.json", JSON.stringify(raw, null, 2) + "\n");
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

@@ -12,10 +12,10 @@
 //
 //   - a seed node with a PayNym present in data/paynym-codes.json becomes an
 //     APPROVED store record owned by every BIP47 code variant of that PayNym
-//   - a seed node WITHOUT a PayNym is adopted as an approved, code-less,
-//     admin-managed store record and flagged loudly: it is an exception to
-//     the rule that every listed node carries a BIP47 code, editable and
-//     removable only from /admin
+//   - a seed node WITHOUT a PayNym is REFUSED. Every listing must carry a BIP47
+//     payment code: it is the identity a listing is owned, edited, verified and
+//     recognised by. Code-less records were once adopted as admin-managed
+//     exceptions; that door is closed, and the store refuses to write one.
 //   - a seed node whose id already exists in the store is SKIPPED untouched,
 //     which is what makes re-runs no-ops and lets the anchor node coexist as
 //     both seed entry (bootstrap guarantee) and store record (Auth47-managed:
@@ -76,7 +76,7 @@ function toRecord(n, name, codes, now) {
     signed: n.signed || null,
     name_url: n.name_url || null,
     status: "approved",
-    source: codes.length ? "seed-migration" : "seed-adoption",
+    source: "seed-migration",
     created_at: now, updated_at: now,
   };
 }
@@ -126,20 +126,21 @@ async function main() {
   const plan = nodes.map((n) => {
     if (byId.has(n.id)) return { action: "skip", why: "already in store (left untouched)", node: byId.get(n.id) };
     const codes = n.paynym ? mapping[n.paynym].codes.map((c) => c.code) : [];
-    return { action: codes.length ? "create" : "adopt", node: toRecord(n, nameOf.get(n.id), codes, now) };
+    return { action: codes.length ? "create" : "refuse", node: toRecord(n, nameOf.get(n.id), codes, now) };
   });
 
   console.log(`${DRY ? "DRY RUN — " : ""}migration plan (${nodes.length} seed nodes):`);
   for (const { action, why, node } of plan) {
     const owner = node.paynym || "(no PayNym)";
     console.log(`  ${action.padEnd(6)} ${node.id.padEnd(26)} name=${String(node.name).padEnd(18)} ${owner} (${(node.paymentCodes || []).length} codes)${why ? " — " + why : ""}`);
-    if (action === "adopt") {
-      console.log(`         WARNING: ${node.id} has no BIP47 payment code. It becomes an admin-managed`);
-      console.log(`         exception (editable/removable only from /admin); every other node must carry one.`);
+    if (action === "refuse") {
+      console.log(`         REFUSED: ${node.id} has no BIP47 payment code, so it cannot be migrated.`);
+      console.log(`         Give it a PayNym in data/paynym-codes.json, or drop it from the seed.`);
     }
   }
 
-  const changes = plan.filter((p) => p.action !== "skip");
+  const changes = plan.filter((p) => p.action === "create");
+  const refused = plan.filter((p) => p.action === "refuse");
   if (DRY) { console.log(`\ndry run: ${changes.length} change(s) would be made, nothing written.`); return; }
   if (!changes.length) { console.log("\nnothing to do: every seed node already has a store record."); return; }
   for (const { node } of changes) await store.putSubmission(node);

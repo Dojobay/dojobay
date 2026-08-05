@@ -42,9 +42,10 @@ created and managed by its operator over Auth47, and `server/build-public.mjs`
 merges the anchor with every approved submission into the public
 `data/dojos.json`, preserving live statuses. Every listed node carries a
 BIP47 payment code — the code is what ownership, sign-in and the card's
-payment-code chip all key on. (The reference instance grandfathers one
-code-less listing from its pre-Auth47 era as an admin-managed exception; the
-build warns about such records, and new ones cannot be created.) A systemd timer runs `scripts/update.mjs` every ten minutes, which
+payment-code chip all key on, and a listing without one cannot be owned,
+edited, verified or recognised. That is enforced structurally rather than by
+convention: the store refuses to write a record without a payment code, and the
+build withholds any that predates the rule instead of publishing it. A systemd timer runs `scripts/update.mjs` every ten minutes, which
 logs into each listed Dojo's API over Tor, reads the chain tip, and maintains
 `data/dojos.json` (statuses and block heights), `data/history.json` (the
 24-hour check series) and `data/history-daily.json` (90-day daily rollups).

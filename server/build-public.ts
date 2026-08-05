@@ -185,36 +185,48 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
   if ((seed.nodes || []).length !== 1) {
     console.error(`[rebuild] note: seed carries ${(seed.nodes || []).length} node(s); the anchor model expects exactly one (the instance operator's own node).`);
   } else if (!seed.nodes[0].paymentCode) {
-    console.error(`[rebuild] warning: the anchor seed node ${seed.nodes[0].id} has no BIP47 payment code.`);
+    console.error(`[rebuild] REFUSING to publish the anchor seed node ${seed.nodes[0].id}: it has no BIP47 payment code.`);
   }
-  const approvedSubs = (await store.listSubmissions()).filter((s) => s.status === "approved");
-  const codeless = approvedSubs.filter((s) => !(s.paymentCodes || []).length);
+  // A record with no payment code is not published. The store refuses to write
+  // one, so this only fires for something that predates that rule or was edited
+  // by hand — and in that case it is withheld rather than shown, because a
+  // listing nobody can be held to is exactly what this directory must not
+  // carry. Withheld, not deleted: the record stays for a maintainer to look at.
+  const allApproved = (await store.listSubmissions()).filter((s) => s.status === "approved");
+  const codeless = allApproved.filter((s) => !(s.paymentCodes || []).length);
   if (codeless.length) {
-    console.error(`[rebuild] warning: ${codeless.length} listed node(s) without a BIP47 payment code (legacy exceptions, /admin-managed): ${codeless.map((s) => s.id).join(", ")}`);
+    console.error(`[rebuild] REFUSING to publish ${codeless.length} listing(s) with no BIP47 payment code: ${codeless.map((s) => s.id).join(", ")}. A listing must carry a payment code; remove it with server/remove-listing.ts, or give it one.`);
   }
+  const approvedSubs = allApproved.filter((s) => (s.paymentCodes || []).length);
   const approved = approvedSubs.map((s) => toPublicNode(s, displayPaymentCode(s, codesDoc.mapping)));
   const approvedIds = new Set(approved.map((n) => n.id));
 
   const byId = new Map();
-  for (const n of (seed.nodes || [])) byId.set(n.id, n);
+  // The seed anchor is held to the same rule as any other listing.
+  const seedNodes = (seed.nodes || []).filter((n) => {
+    if (n && n.paymentCode) return true;
+    console.error(`[rebuild] withholding seed node ${n?.id}: no BIP47 payment code.`);
+    return false;
+  });
+  for (const n of seedNodes) byId.set(n.id, n);
   for (const n of approved) byId.set(n.id, n);
   const nodes = [...byId.values()];
 
   // Per-id pairing version, the bootstrap fallback used until a live version is
   // detected. The card version is never operator-set (see effectiveVersion).
   const pairingById = new Map();
-  for (const n of (seed.nodes || [])) pairingById.set(n.id, n.payload?.pairing?.version || null);
+  for (const n of seedNodes) pairingById.set(n.id, n.payload?.pairing?.version || null);
   for (const s of approvedSubs) pairingById.set(s.id, s.payload?.pairing?.version || null);
 
   // Owner payment codes per node, for the verified-domain lookup below. The seed
   // anchor carries a single paymentCode; store records carry paymentCodes[].
   const ownerCodesById = new Map();
-  for (const n of (seed.nodes || [])) ownerCodesById.set(n.id, n.paymentCode ? [n.paymentCode] : []);
+  for (const n of seedNodes) ownerCodesById.set(n.id, [n.paymentCode]);
   for (const sub of approvedSubs) ownerCodesById.set(sub.id, sub.paymentCodes || []);
 
   // Indexer URL declared in the payload, the fallback until a probe reads one.
   const declaredIdxById = new Map();
-  for (const n of (seed.nodes || [])) declaredIdxById.set(n.id, declaredIndexer(n.payload));
+  for (const n of seedNodes) declaredIdxById.set(n.id, declaredIndexer(n.payload));
   for (const s of approvedSubs) declaredIdxById.set(s.id, declaredIndexer(s.payload));
 
   // Carry over the live status the updater last wrote, so a rebuild does not

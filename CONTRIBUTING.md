@@ -143,9 +143,12 @@ editing copy needs no JavaScript. Records are keyed by
 `network-slug(name)` with names unique per network; ids are stable once
 created because the reliability history is keyed by them. Every node carries
 a BIP47 payment code — ownership, Auth47 sign-in and the card chip key on it
-— and the single seed entry is the instance operator's own node; code-less
-records exist only as grandfathered, `/admin`-managed exceptions and cannot
-be newly created.
+— and the single seed entry is the instance operator's own node. A listing
+without a payment code is impossible by construction, not by convention:
+`store.putSubmission()` is the one chokepoint every write passes through and it
+refuses such a record, the rebuild withholds any that predates the rule rather
+than publishing it, and the seed migration refuses to create one. Use
+`server/remove-listing.ts` to delete a listing and purge its history.
 
 ## TypeScript
 
@@ -256,6 +259,8 @@ cd /var/www/dojobay/server
 node audit-signed.mjs          # re-check every stored signed block (read-only)
 node diagnose-signed.mjs       # explain why a block fails (read-only)
 node fix-payload-version.mjs   # dry run; --apply restores a drifted pairing version
+node apply-signed-payload.ts   # dry run; --apply applies operator-signed payloads
+node remove-listing.ts <id>    # dry run; --apply removes a listing and its history
 ```
 
 `audit-signed.mjs` exits non-zero if any record fails, so it can back a cron

@@ -108,9 +108,26 @@ export const store = {
     return Object.values((await load()).submissions)
       .filter((r) => Array.isArray(r.paymentCodes) && r.paymentCodes.includes(paymentCode));
   },
+  // Every record must carry at least one BIP47 payment code. This is the single
+  // chokepoint through which every write to the store passes, so enforcing it
+  // here is what makes a code-less listing structurally impossible rather than
+  // merely discouraged: the payment code is the identity the directory rests
+  // on, and a listing without one cannot be owned, edited, verified or
+  // recognised by a visitor. Historically a few pre-Auth47 records existed
+  // without one, managed by hand from /admin; that door is now closed.
   async putSubmission(rec: StoreRecord): Promise<StoreRecord> {
+    const normalised = normaliseSubmission(rec);
+    const codes = (normalised as StoreRecord).paymentCodes;
+    // An emptiness guard, deliberately, not a validator: whether a code is a
+    // real BIP47 payment code is settled at the gates that admit it — an Auth47
+    // session proves possession, and the signature checks derive its
+    // notification address. What must be impossible HERE is a listing with no
+    // owner at all.
+    if (!Array.isArray(codes) || !codes.some((c) => typeof c === "string" && /^PM\w{6,}/.test(c.trim()))) {
+      throw new Error(`refusing to store ${rec?.id}: a listing must carry a BIP47 payment code`);
+    }
     const s = await load();
-    s.submissions[rec.id] = normaliseSubmission(rec);
+    s.submissions[rec.id] = normalised;
     await persist();
     return rec;
   },

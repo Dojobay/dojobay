@@ -21,6 +21,7 @@ import { store } from "./store.ts";
 import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
+import { judgeVersion, MIN_DOJO_VERSION } from "./dojo-version.ts";
 import {
   normaliseDomain, txtName, txtHost, txtValue, signingText, verifyClaim,
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
@@ -423,6 +424,29 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   // operator naming) is updated in place, keeping its id and therefore its
   // reliability history; otherwise a new record is created at network-slug.
   const existing = await ownedRecordFor(network, slug, s.paymentCode);
+
+  // Minimum Dojo version, on REGISTRATION only.
+  //
+  // Judged on what the node just told us in its X-Dojo-Version header rather
+  // than on the version inside the payload: that field is frozen when the
+  // payload is generated and can be years stale, so a current node can declare
+  // an ancient version quite honestly.
+  //
+  // Existing operators are not re-judged. An operator updating a listing they
+  // already hold — a moved onion, a rotated key — is not registering, and
+  // trapping them behind a rule introduced after they joined would punish them
+  // for maintaining their node. New listings only.
+  if (!existing) {
+    const v = judgeVersion(check.detectedVersion, body.payload?.pairing?.version, MIN_DOJO_VERSION);
+    if (!v.ok) {
+      return json(res, 422, {
+        error: "version gate: " + v.reason,
+        minimum: MIN_DOJO_VERSION,
+        detected: check.detectedVersion || null,
+      });
+    }
+  }
+
   const id = existing ? existing.id : `${network}-${slug}`;
   const now = new Date().toISOString();
   // Resolve the registered PayNym from paynym.rs (best-effort, over Tor). Keep a

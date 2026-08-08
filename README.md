@@ -183,6 +183,32 @@ you provide one, must verify against your payment code's notification
 address. Approved listings appear with your PayNym; you can edit the display
 fields or remove the listing at any time with the same sign-in.
 
+## Minimum Dojo version
+
+A new listing must be running **Dojo 1.27.0 or newer**. Earlier versions do not
+serve the endpoints a listing is checked against, so a directory that accepted
+them would be publishing claims it could not verify.
+
+The check reads the version from the node's own `X-Dojo-Version` response header
+during the connection probe, not from the `version` field inside the pairing
+payload. That field is frozen when the payload is generated and can be years out
+of date while the node itself is current, so judging on it would refuse working
+nodes and admit old ones.
+
+It applies to **registration only**. An operator updating a listing they already
+hold — a moved onion, a rotated API key — is not re-judged, because a rule
+introduced after they joined should not punish them for maintaining their node.
+An instance operator can change the threshold with `MIN_DOJO_VERSION`, or
+disable the check by setting it empty.
+
+To see where every current listing stands before changing it:
+
+```
+cd /var/www/dojobay/server
+sudo -u deploy node check-versions.ts          # against the configured minimum
+sudo -u deploy node check-versions.ts 1.29.0   # against one you are weighing
+```
+
 ## Changing your pairing details
 
 An operator can update the pairing payload of a listing they already own, from
@@ -369,6 +395,14 @@ several ids at once.
 ```
 sudo -u deploy node remove-listing.ts mainnet-example testnet-example   # dry run
 sudo -u deploy node remove-listing.ts --apply mainnet-example testnet-example
+```
+
+**`check-versions.ts`** — read-only. Reports the Dojo version of every listing,
+both detected and declared, against a minimum, and prints the spread of versions
+actually in use so a threshold can be chosen against real numbers.
+
+```
+sudo -u deploy node check-versions.ts 1.27.0
 ```
 
 **`build-public.mjs`** — republishes `data/dojos.json` immediately rather than

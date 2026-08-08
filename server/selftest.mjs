@@ -1197,6 +1197,47 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await fsp.writeFile(process.env.SERVER_DATA_DIR + "/store.json", JSON.stringify(raw, null, 2) + "\n");
 }
 
+// 33) minimum Dojo version, judged on what the node reports live and applied to
+//     registration only. The version inside a pairing payload is frozen when
+//     that payload was generated, so a current node can honestly declare an
+//     ancient one; judging on the declared value would refuse working nodes and
+//     admit old ones.
+{
+  const dv = await import("./dojo-version.ts");
+
+  ok(dv.compareVersions("1.27", "1.27.0") === 0
+     && dv.compareVersions("1.29.2", "1.27.0") === 1
+     && dv.compareVersions("1.4.5", "1.27.0") === -1
+     && dv.compareVersions("v1.28.0-rc1", "1.28.0") === 0,
+     "versions compare numerically, so 1.4.5 is below 1.27.0 and 1.27 equals 1.27.0");
+
+  ok(dv.meetsMinimum("1.27.0", "1.27.0") && dv.meetsMinimum("1.31.0", "1.27.0")
+     && !dv.meetsMinimum("1.26.1", "1.27.0") && dv.meetsMinimum("1.0.0", ""),
+     "an empty minimum disables the check entirely");
+
+  // the detected version wins over a stale declared one, in both directions
+  const stale = dv.judgeVersion("1.26.1", "1.29.9", "1.27.0");
+  const current = dv.judgeVersion("1.29.2", "1.4.5", "1.27.0");
+  ok(!stale.ok && stale.source === "detected"
+     && current.ok && current.source === "detected" && current.version === "1.29.2",
+     "the live-detected version decides, not the payload's frozen claim");
+
+  const silent = dv.judgeVersion(null, null, "1.27.0");
+  ok(!silent.ok && silent.version === null && /did not report a version/.test(silent.reason || ""),
+     "a node reporting no version at all is refused, and told why");
+
+  // registration is gated; an existing operator updating a listing is not
+  const { store: st } = await import("./store.ts");
+  const before = await st.getSubmission("mainnet-selftest-node");
+  const resubmit = await api("/api/dojo", "POST", {
+    network: "mainnet", name: "selftest-node", jurisdiction: "Testland", payload,
+  });
+  ok(resubmit.status === 200,
+     "an operator updating a listing they already hold is not re-judged: " + JSON.stringify(resubmit.body?.error || ""));
+  ok((await st.getSubmission("mainnet-selftest-node")).id === before.id,
+     "and keeps the same record");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

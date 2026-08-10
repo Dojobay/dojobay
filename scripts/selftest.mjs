@@ -29,9 +29,14 @@ function dohTlsAvailable() {
   if (DOH_TLS) return true;
   try {
     const dir = mkdtempSync(path.join(tmpdir(), "dojobay-doh-"));
+    // All three resolver hostnames, because validation is ON: a certificate
+    // naming only one would leave the other two failing the hostname check and
+    // the agreement threshold unreachable.
     execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes",
       "-keyout", path.join(dir, "k.pem"), "-out", path.join(dir, "c.pem"),
-      "-days", "1", "-subj", "/CN=cloudflare-dns.com"], { stdio: "ignore" });
+      "-days", "1", "-subj", "/CN=cloudflare-dns.com",
+      "-addext", "subjectAltName=DNS:cloudflare-dns.com,DNS:dns.quad9.net,DNS:dns.google"],
+      { stdio: "ignore" });
     DOH_TLS = { key: readFileSync(path.join(dir, "k.pem")), cert: readFileSync(path.join(dir, "c.pem")) };
     rmSync(dir, { recursive: true, force: true });
     return true;
@@ -319,10 +324,13 @@ await check("TXT lookup over Tor: agreement required, unreachable resolvers are 
   }
   // Full path against a mock resolver behind the mock SOCKS proxy: SOCKS
   // connect, TLS, HTTP/1.1, DoH JSON, agreement counting.
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";              // self-signed test cert
-  try {
-    await withProxy("doh", async (port) => {
-      const cfg = { proxyHost: "127.0.0.1", proxyPort: port, timeoutMs: 5000 };
+  // Certificate validation stays ON. The mock resolver's self-signed
+  // certificate is passed as a trust anchor for these lookups alone, rather
+  // than disabling validation for the whole process with
+  // NODE_TLS_REJECT_UNAUTHORIZED, which would also cover every other
+  // connection made while it was set.
+  await withProxy("doh", async (port) => {
+      const cfg = { proxyHost: "127.0.0.1", proxyPort: port, timeoutMs: 5000, tlsCa: DOH_TLS.cert };
       const found = await dns.lookupTxt("_dojobay.example.com", cfg);
       assert.ok(found.records.includes(DOH_RECORD),
         "the TXT record is read back: " + JSON.stringify(found.records) + " errors=" + JSON.stringify(found.errors));
@@ -335,10 +343,7 @@ await check("TXT lookup over Tor: agreement required, unreachable resolvers are 
       const missing = await dns.txtRecordAgreed("_dojobay.example.com", () => false, cfg);
       assert.ok(!missing.ok && !missing.inconclusive, "a non-matching record fails rather than being inconclusive");
       assert.ok(/not matching/.test(missing.error), "and says the record is present but not matching: " + missing.error);
-    });
-  } finally {
-    delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-  }
+  });
 });
 
 await check("installer paste collector keeps every line of a one-chunk paste", async () => {

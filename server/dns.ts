@@ -24,7 +24,19 @@ import { socks5Connect } from "../scripts/update.mjs";
 import type { ProbeCfg } from "../types.js";
 
 /** Transport settings a lookup needs; the caller may supply a subset. */
-type LookupCfg = Partial<ProbeCfg>;
+type LookupCfg = Partial<ProbeCfg> & {
+  /**
+   * An extra certificate authority to trust for this lookup, and nothing else.
+   *
+   * Exists so the self-test can run the whole path — SOCKS, TLS, HTTP, DoH JSON
+   * — against a mock resolver holding a self-signed certificate, WITHOUT
+   * reaching for NODE_TLS_REJECT_UNAUTHORIZED, which switches validation off
+   * for the entire process and every other connection made while it is set.
+   * Certificate validation stays on here; the test simply supplies the anchor
+   * that makes its own certificate valid.
+   */
+  tlsCa?: string | Buffer | Array<string | Buffer>;
+};
 
 interface ResolverAnswer { host: string; records: string[] }
 export interface TxtLookup {
@@ -64,13 +76,13 @@ function resolverList(): { host: string; path: string }[] {
 // text. Deliberately minimal: no redirects (a resolver that redirects is not
 // one we want), and a hard body cap.
 async function httpsGetOverTor(host: string, path: string,
-    { proxyHost, proxyPort, timeoutMs = 20000 }: LookupCfg): Promise<string> {
+    { proxyHost, proxyPort, timeoutMs = 20000, tlsCa }: LookupCfg): Promise<string> {
   const raw = await socks5Connect(proxyHost, proxyPort, host, 443, timeoutMs);
   return new Promise<string>((resolve, reject) => {
     let done = false;
     const finish = (fn: (a?: any) => void, arg?: any) => { if (!done) { done = true; clearTimeout(timer); try { socket.destroy(); } catch {} fn(arg); } };
     const timer = setTimeout(() => finish(reject, new Error("timeout")), timeoutMs);
-    const socket = tls.connect({ socket: raw, servername: host }, () => {
+    const socket = tls.connect({ socket: raw, servername: host, ...(tlsCa ? { ca: tlsCa } : {}) }, () => {
       socket.write(
         `GET ${path} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: dojobay-domain-check\r\n` +
         `Accept: application/dns-json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);

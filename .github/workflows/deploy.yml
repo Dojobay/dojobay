@@ -23,6 +23,16 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# The GITHUB_TOKEN needs nothing beyond reading this repository: the job checks
+# out the tree and copies it to a VPS over SSH, and writes nothing back to
+# GitHub. Stating that explicitly rather than inheriting the repository or
+# organisation default matters more than it looks — a repository created before
+# February 2023, or one that inherits an organisation's settings, can default to
+# read-write, so a compromised action step would hold a token able to push.
+# It also survives the move to another organisation, whose defaults are not ours.
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-vps
   cancel-in-progress: true

@@ -182,6 +182,42 @@ and the store, then a rebuild and backend restart); adapt or ignore it — a
 `git pull` followed by `node server/build-public.mjs` and a service restart
 does the same by hand.
 
+## Uninstalling
+
+`./uninstall.sh` reverses the guided install. Run it with no arguments first: it
+only reports what it finds and what it would remove.
+
+```
+sudo ./uninstall.sh                                   # dry run
+sudo ./uninstall.sh --apply                           # stop serving
+sudo ./uninstall.sh --apply --purge-data              # …and delete the store
+sudo ./uninstall.sh --apply --purge-data --purge-onion  # …and the onion key
+```
+
+By default it stops and disables the backend and the updater timer, removes the
+three systemd units and the nginx site, and takes its own block out of
+`/etc/tor/torrc` — surgically, so any other hidden service in that file survives,
+with the original kept alongside as `torrc.dojobay-bak`. It leaves the tor and
+nginx **packages** installed, since they were probably there first and are
+probably serving something else.
+
+Two things it will not touch unless you ask, because neither can be undone:
+
+- **`--purge-data`** deletes the web root, and with it the store: every
+  operator's submission, their signed pairing blocks and the reliability
+  history. Those are other people's records, not only yours.
+- **`--purge-onion`** deletes the hidden service directory, which holds the
+  private key that *is* your onion address. That address is then permanently
+  unreachable for anyone holding the bookmark, and no copy exists anywhere else.
+  It asks you to type the address back before doing it.
+
+Either purge takes a `tar.gz` of what it is about to delete into `/root/` first,
+and aborts rather than proceeding if that archive cannot be written. Pass
+`--no-backup` if you genuinely want it gone with no copy.
+
+Leaving both out is the usual case: the instance stops serving, and reinstalling
+later reuses the same onion address and the same listings.
+
 ## Data access
 
 All directory data is plain JSON, fetchable from any instance:

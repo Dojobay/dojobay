@@ -346,6 +346,49 @@ await check("TXT lookup over Tor: agreement required, unreachable resolvers are 
   });
 });
 
+await check("uninstall: torrc surgery is reversible and spares other services", async () => {
+  const { mergeTorrc, stripTorrc } = await import("./installer-lib.mjs");
+  // A torrc usually carries an operator's OTHER hidden services. Removing ours
+  // must be surgical: an uninstaller that rewrote the file would take theirs.
+  const before = "SocksPort 9050\n\n# my other hidden service\n"
+    + "HiddenServiceDir /var/lib/tor/other\nHiddenServicePort 80 127.0.0.1:9000\n";
+  const merged = mergeTorrc(before, "/var/lib/tor/dojobay");
+  assert.ok(merged.includes("/var/lib/tor/dojobay"), "the block went in");
+
+  const back = stripTorrc(merged);
+  assert.ok(back.removed, "and is reported as removed");
+  assert.strictEqual(back.text, before, "the file returns to exactly what it was");
+  assert.ok(back.text.includes("/var/lib/tor/other"), "the operator's other service survives");
+
+  const untouched = stripTorrc(before);
+  assert.ok(!untouched.removed && untouched.text === before,
+    "a torrc we never touched is left alone and reported as such");
+});
+
+await check("uninstall: destructive steps are opt-in and confirmed", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./uninstall.mjs", import.meta.url), "utf8");
+  // The two irreversible acts: deleting the store (other operators' signed
+  // submissions) and deleting the hidden service key (the onion address itself,
+  // permanently, for everyone holding the bookmark).
+  assert.ok(/--purge-data/.test(src) && /--purge-onion/.test(src),
+    "both are behind explicit flags rather than default behaviour");
+  assert.ok(/const APPLY = argv\.includes\("--apply"\)/.test(src),
+    "and nothing at all happens without --apply");
+  assert.ok(/typed !== found\.onionAddress/.test(src),
+    "deleting the onion key requires typing the address back");
+  assert.ok(/Refusing to delete anything without a backup/.test(src),
+    "a failed backup aborts rather than proceeding");
+  assert.ok(/tar/.test(src) && /--no-backup/.test(src),
+    "an archive is taken first unless explicitly waived");
+  assert.ok(!/apt-get (remove|purge)/.test(src),
+    "packages are never removed: tor and nginx probably serve something else");
+
+  const sh = readFileSync(new URL("../uninstall.sh", import.meta.url), "utf8");
+  assert.ok(/NODE_BIN="\$\(command -v node/.test(sh) && /scripts\/uninstall\.mjs/.test(sh),
+    "the launcher resolves node the same way the installer's does");
+});
+
 await check("the launcher finds node itself and refuses an old one clearly", async () => {
   // Two real failures an operator hit on Ubuntu:
   //   1. `sudo node` resolves on sudo's secure_path, which excludes ~/.nvm and

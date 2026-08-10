@@ -46,6 +46,17 @@ export function mergeTorrc(existing, hsDir) {
   return existing.replace(/\n*$/, "\n\n") + block;
 }
 
+// The reverse of mergeTorrc: take out the block we put in, and nothing else.
+// Surgical on purpose — a torrc usually carries an operator's other hidden
+// services and settings, and an uninstaller that rewrites the file wholesale
+// would take those with it.
+export function stripTorrc(existing) {
+  const re = new RegExp("\\n*" + TORRC_MARK.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    + "\\n(?:HiddenService\\S* [^\\n]*\\n?)*", "m");
+  if (!re.test(existing)) return { text: existing, removed: false };
+  return { text: existing.replace(re, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+/, ""), removed: true };
+}
+
 // ---- systemd + nginx rendering ----------------------------------------------
 // Templates ship in scripts/ and deploy/ with the reference values baked in;
 // rendering is a substitution over those known markers.

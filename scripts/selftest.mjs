@@ -346,6 +346,32 @@ await check("TXT lookup over Tor: agreement required, unreachable resolvers are 
   });
 });
 
+await check("the launcher finds node itself and refuses an old one clearly", async () => {
+  // Two real failures an operator hit on Ubuntu:
+  //   1. `sudo node` resolves on sudo's secure_path, which excludes ~/.nvm and
+  //      friends, so a working node produced "sudo: node: command not found".
+  //   2. `apt install nodejs` gives Node 18 on Debian and Ubuntu, and the
+  //      installer said only that 24 was required, not how to get it.
+  const { readFileSync } = await import("node:fs");
+  const sh = readFileSync(new URL("../install.sh", import.meta.url), "utf8");
+
+  assert.ok(/NODE_BIN="\$\(command -v node/.test(sh),
+    "the launcher resolves node as the invoking user");
+  assert.ok(/exec sudo -- "\$NODE_BIN"/.test(sh),
+    "and hands sudo that absolute path, so a non-secure_path node still works");
+  assert.ok(/-lt "\$MIN_MAJOR"/.test(sh), "it compares the major version numerically");
+  assert.ok(/deb\.nodesource\.com/.test(sh) && /apt install nodejs/.test(sh),
+    "and tells the operator where to get a current Node, and what not to install");
+
+  // the desktop entry must pass %k as its own argument, not inside the quotes:
+  // interpolated there, the launcher silently does nothing
+  const desktop = readFileSync(new URL("../dojobay-install.desktop", import.meta.url), "utf8");
+  const exec = (desktop.match(/^Exec=(.*)$/m) || ["", ""])[1];
+  assert.ok(exec.trim().endsWith("sh %k"), "%k is passed as an argument: " + exec.slice(-40));
+  assert.ok(/\$\{1#file:\/\/\}/.test(exec), "and a file:// URI is reduced to a path");
+  assert.ok(/^Terminal=true$/m.test(desktop), "the entry asks for a terminal");
+});
+
 await check("installer paste collector keeps every line of a one-chunk paste", async () => {
   const { collectPasteFrom } = await import("./installer-lib.mjs");
   const { createInterface } = await import("node:readline");

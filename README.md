@@ -63,9 +63,30 @@ separate credentials.
 ## Run your own Dojo Bay
 
 Requirements: Debian 12 or Ubuntu 24.04 (or similar), **Node.js 24 or
-newer**, plus your own Dojo and PayNym. The easiest path is the guided
-installer — download the source (any instance's footer serves it, or GitHub),
-extract, and run:
+newer**, plus your own Dojo and PayNym.
+
+A word on Node, because this is where installs go wrong: `apt install nodejs`
+gives you **Node 18** on both Debian 12 and Ubuntu 24.04, which is too old. The
+backend runs TypeScript directly, which needs Node 24's type stripping, and the
+BIP47 libraries require it too. Install from NodeSource instead, which replaces
+the apt package in place:
+
+```
+sudo apt-get install -y ca-certificates curl gnupg
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
+  | sudo tee /etc/apt/sources.list.d/nodesource.list > /dev/null
+sudo apt-get update && sudo apt-get install -y nodejs
+node --version    # expect v24 or newer
+```
+
+The installer checks this before doing anything and prints these commands if
+your Node is missing or too old, so there is no need to memorise them.
+
+The easiest path is the guided installer — download the source (any instance's
+footer serves it, or GitHub), extract, and run:
 
 ```
 ./install.sh
@@ -75,8 +96,13 @@ On a capable terminal this is a full-screen TUI — arrow-key forms, a
 persistent header, live progress panels for the slow Tor operations — and it
 falls back to a plain sequential flow on dumb or tiny terminals (or with
 `./install.sh --plain`). On a desktop, `dojobay-install.desktop` makes the
-same wizard double-clickable
-(right-click → Allow Launching once, as GNOME requires); over SSH it runs
+same wizard double-clickable, but it needs two things first, and gives no
+feedback when they are missing: the file must be marked executable
+(`chmod +x dojobay-install.desktop`, or right-click → Allow Launching, as GNOME
+requires), and a terminal emulator must be registered for `Terminal=true` to
+work. If double-clicking appears to do nothing, run `./install.sh` from a
+terminal instead — it is the same wizard and it will say what is wrong. Over
+SSH it runs
 headless in the terminal. The wizard checks prerequisites (offering to
 install `tor` and `nginx`), takes your BIP47 payment code, creates the hidden
 service — or **imports your existing .onion key** if you have a vanity

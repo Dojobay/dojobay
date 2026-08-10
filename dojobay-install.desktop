@@ -2,6 +2,12 @@
 Type=Application
 Name=Install The Dojo Bay
 Comment=Guided installer for an onion-only Dojo directory
-Exec=sh -c 'cd "$(dirname "%k")" && ./install.sh; echo; echo "Press Enter to close"; read _'
+# %k is the location of this .desktop file, and it is passed as its OWN
+# argument rather than interpolated inside the quoted sh -c string: field codes
+# are expanded before the command line is parsed, so a %k inside quotes can
+# produce something the shell then mis-splits, and the launcher silently does
+# nothing. It may also arrive as a file:// URI, so the prefix is stripped.
+Exec=sh -c 'd="${1#file://}"; cd "$(dirname "$d")" || exit 1; ./install.sh; echo; printf "Press Enter to close: "; read _' sh %k
 Terminal=true
 Categories=System;Network;
+Keywords=dojo;bitcoin;tor;onion;

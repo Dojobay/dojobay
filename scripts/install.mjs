@@ -128,12 +128,15 @@ async function main() {
   let opDoc;
   for (;;) {
     const block = await ui.paste("Signed block", {
+      endMarker: "-----END BITCOIN SIGNATURE-----",
       note: "Sign this EXACT text in your wallet under PayNym → Sign message:\n\n"
         + message.split("\n").map((l) => "    " + l).join("\n")
         + "\n\nIt must be signed under PayNym → Sign message, which uses your"
         + "\nPayNym's notification address. Tools → Sign message signs with a"
         + "\nwallet address instead and will not verify."
-        + "\n\nThen paste the full signed block below.",
+        + "\n\nThen paste the full signed block below, including its own"
+        + "\n-----END BITCOIN SIGNATURE----- line. It finishes as soon as it"
+        + "\nsees that line, so there is nothing to type afterwards.",
     });
     opDoc = operatorDoc(onionHost, paymentCode, block.trim());
     const v = crypto.verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });

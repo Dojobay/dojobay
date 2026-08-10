@@ -105,13 +105,30 @@ export const operatorDoc = (onionHost, paymentCode, verifySigned) =>
 // and reported "not a recognisable signed block" even though the operator had
 // pasted a perfectly good signature. Attach the listener BEFORE prompting, so
 // nothing can arrive unlistened.
-export function collectPasteFrom(rl, endWord = "END") {
+/**
+ * Collect a multi-line paste.
+ *
+ * Ends on a line containing just `endWord`, or as soon as `endMarker` is seen.
+ *
+ * The marker matters more than it looks. A wallet's signed block ends with
+ * "-----END BITCOIN SIGNATURE-----", so an operator who pastes one and presses
+ * Enter has, to their eye, finished — the block plainly says END. The collector
+ * was still waiting for a bare END on its own line, so the installer looked
+ * hung, and the only way out was Ctrl-C. Recognising the wallet's own
+ * terminator means the commonest paste needs nothing typed after it.
+ *
+ * @param {import("node:readline").Interface} rl
+ * @param {string} [endWord]
+ * @param {{ endMarker?: string|null }} [opts]
+ */
+export function collectPasteFrom(rl, endWord = "END", { endMarker = null } = {}) {
   return new Promise((resolve) => {
     const lines = [];
     const cleanup = () => { rl.off("line", onLine); rl.off("close", onClose); };
     const onLine = (l) => {
       if (l.trim() === endWord) { cleanup(); resolve(lines.join("\n")); return; }
       lines.push(l);
+      if (endMarker && l.trim() === endMarker) { cleanup(); resolve(lines.join("\n")); }
     };
     const onClose = () => { cleanup(); resolve(lines.join("\n")); };
     rl.on("line", onLine);

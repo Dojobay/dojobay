@@ -346,6 +346,40 @@ await check("TXT lookup over Tor: agreement required, unreachable resolvers are 
   });
 });
 
+await check("a signed block ends its own paste, and END still works", async () => {
+  const { collectPasteFrom } = await import("./installer-lib.mjs");
+  const { createInterface } = await import("node:readline");
+  const { Readable, Writable } = await import("node:stream");
+  const sink = () => new Writable({ write(_c, _e, cb) { cb(); } });
+  const feed = (lines) => createInterface({ input: Readable.from(lines.map((l) => l + "\n")), output: sink() });
+
+  const block = [
+    "-----BEGIN BITCOIN SIGNED MESSAGE-----", "http://x.onion/", "",
+    "BIP47: PM8Tabc", "-----BEGIN BITCOIN SIGNATURE-----",
+    "Address: 1abc", "", "sigsigsig", "-----END BITCOIN SIGNATURE-----",
+  ];
+  const MARK = "-----END BITCOIN SIGNATURE-----";
+
+  // An operator who pastes a block and presses Enter has, to their eye,
+  // finished: the block says END. Waiting for a bare END made the installer
+  // look hung, with Ctrl-C the only way out.
+  const auto = await collectPasteFrom(feed(block), "END", { endMarker: MARK });
+  assert.strictEqual(auto.split("\n").length, block.length, "the paste ends on the wallet's own terminator");
+  assert.ok(auto.trim().endsWith(MARK), "and keeps that line, which is part of the block");
+
+  // anything after it is not swallowed into the block
+  const withNoise = await collectPasteFrom(feed([...block, "stray typing"]), "END", { endMarker: MARK });
+  assert.ok(!withNoise.includes("stray typing"), "input after the terminator is not absorbed");
+
+  // END still ends a paste that has no such marker, e.g. a pairing payload
+  const json = await collectPasteFrom(feed(['{"pairing":{}}', "END", "after"]), "END");
+  assert.strictEqual(json, '{"pairing":{}}', "a bare END still terminates a paste with no marker");
+
+  // and a block pasted as one chunk still arrives whole (the earlier bug)
+  const oneChunk = await collectPasteFrom(feed(block), "END", { endMarker: MARK });
+  assert.strictEqual(oneChunk.split("\n").length, block.length, "a one-chunk paste keeps every line");
+});
+
 await check("uninstall: torrc surgery is reversible and spares other services", async () => {
   const { mergeTorrc, stripTorrc } = await import("./installer-lib.mjs");
   // A torrc usually carries an operator's OTHER hidden services. Removing ours

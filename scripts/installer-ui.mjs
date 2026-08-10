@@ -55,12 +55,14 @@ export function sequentialUI() {
       return out;
     },
     /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
-    /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
-    async paste(label, { note, endWord = "END" } = {}) {
+    /** @param {string} label @param {{ note?: string, endWord?: string, endMarker?: string }} [opts] */
+    async paste(label, { note, endWord = "END", endMarker = null } = {}) {
       if (note) say(dim("   " + note.replace(/\n/g, "\n   ")));
       // Listener attached before the prompt: a bulk paste must not lose lines.
-      const collected = collectPasteFrom(rl, endWord);
-      say(red(" ▸ ") + label + dim(`  (paste, then a line with just ${endWord})`));
+      const collected = collectPasteFrom(rl, endWord, { endMarker });
+      say(red(" ▸ ") + label + dim(endMarker
+        ? `  (paste it all; it finishes on its own, or type ${endWord} on a line)`
+        : `  (paste, then press Enter and type ${endWord} on a line of its own)`));
       return collected;
     },
     async confirm(q, dflt = true) {
@@ -93,8 +95,8 @@ export function tuiUI() {
       const merged = [noteBlock(), note].filter(Boolean).join("\n");
       return screen.runForm(fields, { stepLabel, title: stepTitle, note: merged });
     },
-    /** @param {string} label @param {{ note?: string, endWord?: string }} [opts] */
-    async paste(label, { note, endWord = "END" } = {}) {
+    /** @param {string} label @param {{ note?: string, endWord?: string, endMarker?: string }} [opts] */
+    async paste(label, { note, endWord = "END", endMarker = null } = {}) {
       // cooked-mode paste: raw-mode paste handling is unreliable across SSH clients
       return screen.suspend(async () => {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -102,8 +104,10 @@ export function tuiUI() {
         const merged = [noteBlock(), note].filter(Boolean).join("\n");
         if (merged) process.stdout.write(dim(merged.replace(/^/gm, "  ")) + "\n");
         // Listener attached before the prompt: a bulk paste must not lose lines.
-        const collected = collectPasteFrom(rl, endWord);
-        process.stdout.write(red(" ▸ ") + label + dim(`  (paste, then a line with just ${endWord})`) + "\n");
+        const collected = collectPasteFrom(rl, endWord, { endMarker });
+        process.stdout.write(red(" ▸ ") + label + dim(endMarker
+          ? `  (paste it all; it finishes on its own, or type ${endWord} on a line)`
+          : `  (paste, then press Enter and type ${endWord} on a line of its own)`) + "\n");
         const text = await collected;
         rl.close();
         return text;

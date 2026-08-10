@@ -377,6 +377,35 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   console.log("  ok - a card shows how to ask the node directly for what we assert");
 }
 
+// "Rescan XPUB": commands only. The page must never offer somewhere to type an
+// XPUB, and must say so, because a directory that asked for one would be
+// teaching the habit that makes phishing clones profitable.
+{
+  const btn = yCard.querySelector('[data-act="rescan"]');
+  assert.ok(btn, "a node with an API key offers the rescan instructions");
+  btn.dispatchEvent(new window.Event("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const body = doc.getElementById("ov-body");
+  const text = body.textContent.replace(/\s+/g, " ");
+
+  assert.ok(body.querySelectorAll("input, textarea").length === 0,
+    "the popup offers no field to type an XPUB into");
+  assert.ok(/Never paste an XPUB into a web page, including this one/i.test(text),
+    "and says so in terms a reader cannot miss");
+  assert.ok(/type=restore/.test(text) && /\/xpub\//.test(text), "it shows the restore call");
+  assert.ok(/bip84/.test(text) && /bip44/.test(text), "and explains which scheme to pick");
+  assert.ok(/import\/status/.test(text), "and how to watch it finish");
+  assert.ok(/<YOUR_XPUB>/.test(text), "the XPUB stays a placeholder the reader fills in themselves");
+  assert.ok(/wallet normally does this for you/i.test(text),
+    "it steers an ordinary user back to their wallet first");
+  assert.ok(/real work for their machine/i.test(text), "and notes the cost to the operator");
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
+
+  assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="rescan"]'),
+    "a node with no API key offers no such action");
+  console.log("  ok - rescan instructions are commands only, with no field for an XPUB");
+}
+
 // Staleness: if the updater timer dies, nginx keeps serving the last dojos.json
 // and every badge stays confidently green. Past a few intervals the site must
 // stop asserting status. Booted separately so everything above runs against a
@@ -495,7 +524,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an open tab refetches, and never redraws under an open dialog");
 }
 
-console.log("\nall 22 front-end checks passed");
+console.log("\nall 23 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

@@ -275,7 +275,8 @@ async function loadJSON(url){
       </div>
       <button class="reveal" data-act="pair">Pairing details</button>
       ${n.payload && n.payload.pairing && n.payload.pairing.apikey
-        ? `<button class="reveal secondary" data-act="checkself" title="Ask the node yourself, over Tor, for the values shown here">Check it yourself</button>` : ""}
+        ? `<button class="reveal secondary" data-act="checkself" title="Ask the node yourself, over Tor, for the values shown here">Check it yourself</button>
+           <button class="reveal secondary" data-act="rescan" title="Commands to ask this Dojo to rescan an XPUB, run from your own terminal">Rescan XPUB</button>` : ""}
     </div>`;
   }
 
@@ -402,6 +403,72 @@ async function loadJSON(url){
       <p class="dnote">One caveat, stated rather than glossed over: running these opens your own Tor circuit to the
         node, so the operator sees a request. That is inherent to checking anything directly, not an extra exposure,
         and no wallet key or XPUB is involved.</p>`;
+  }
+
+  // "Rescan XPUB": the commands, never a field.
+  //
+  // This page does not ask for an XPUB and never will. An XPUB reveals every
+  // address an account has ever used or will use, and a directory that invited
+  // people to paste one into a web form would be teaching the exact habit that
+  // makes phishing clones profitable — even if this particular page were honest,
+  // the next one that looks like it would not be.
+  //
+  // So the popup hands over commands the reader runs in their own terminal,
+  // against the operator's node, with this instance nowhere on the path.
+  function rescanHTML(n){
+    const pr = (n.payload && n.payload.pairing) || {};
+    if(!pr.url || !pr.apikey) return "<p>This node publishes no API key, so it cannot be asked to do anything.</p>";
+    let base;
+    try{ const u = new URL(pr.url); base = u.origin + (u.pathname||"/v2").replace(/\/+$/,""); }
+    catch(e){ return "<p>This node's pairing URL could not be parsed.</p>"; }
+    const S = "--socks5-hostname 127.0.0.1:9050";
+    const blk = (label, body) =>
+      `<div class="proofblk"><div class="k">${esc(label)}</div>`
+      + `<pre class="mono">${esc(body)}</pre>`
+      + `<button class="copybtn" data-act="copyurl" data-v="${esc(body)}">copy</button></div>`;
+    return `<p class="dnote"><b>Your wallet normally does this for you.</b> Pairing with a Dojo registers your
+        account and imports its history, and if a balance looks wrong the usual fix is to re-pair in
+        Samourai or Ashigaru. What follows is for people who would rather drive the API directly.</p>
+
+      <div class="warnbox">
+        <b>Never paste an XPUB into a web page, including this one.</b>
+        An XPUB reveals every address an account has used and every one it will use in future. This page
+        does not ask for yours and has no field to type it into: the commands below run in your own
+        terminal, and this directory never sees the value. Be equally suspicious of any site that does ask.
+      </div>
+
+      <p class="dnote">Two things follow from that. Your XPUB does go to <b>this operator's node</b>, which
+        is inherent to using someone else's Dojo rather than a new exposure — it is the same thing pairing
+        does. And a rescan is real work for their machine, so it is not something to run repeatedly.</p>
+
+      <h3>1. Log in</h3>
+      ${blk("token", `TOKEN=$(curl -s ${S} -d "apikey=${pr.apikey}" ${base}/auth/login | jq -r .authorizations.access_token)`)}
+
+      <h3>2. Ask for the rescan</h3>
+      <p class="dnote">Pick the scheme matching the account: <span class="mono">bip84</span> for native
+        segwit (addresses starting <span class="mono">bc1</span>), <span class="mono">bip49</span> for
+        wrapped segwit (<span class="mono">3…</span>), <span class="mono">bip44</span> for legacy
+        (<span class="mono">1…</span>). A wallet usually has all three, and each is a separate XPUB.
+        <br><span class="mono">type=restore</span> is the rescan; <span class="mono">type=new</span> registers
+        an account with no history to look for.</p>
+      ${blk("restore", `curl -s ${S} \\\n  -H "Authorization: Bearer $TOKEN" \\\n`
+        + `  -d "xpub=<YOUR_XPUB>" \\\n  -d "type=restore" \\\n  -d "segwit=bip84" \\\n  ${base}/xpub/`)}
+      <p class="dnote">Add <span class="mono">-d "force=true"</span> only if the account is already known to
+        this Dojo and you want its records rebuilt from scratch.</p>
+
+      <h3>3. Watch it finish</h3>
+      <p class="dnote">A restore walks the derivation looking for used addresses, so it takes a while.</p>
+      ${blk("status", `curl -s ${S} -H "Authorization: Bearer $TOKEN" \\\n  ${base}/xpub/<YOUR_XPUB>/import/status`)}
+
+      <p class="dnote">If any of this fails, the node may be down, may be running a Dojo too old for the
+        route, or may have been given an XPUB it cannot parse. Nothing here is retried for you, and nothing
+        here is recorded by this directory.</p>`;
+  }
+
+  function openRescan(n){
+    document.getElementById("ov-title").textContent = (n.name||n.id) + " · rescan an XPUB";
+    document.getElementById("ov-body").innerHTML = rescanHTML(n);
+    showOverlay();
   }
 
   function openCheckSelf(n){
@@ -639,6 +706,7 @@ async function loadJSON(url){
     if(a==="pair"){ openPair(node()); return; }
     if(a==="domproof"){ openDomainProof(node()); return; }
     if(a==="checkself"){ openCheckSelf(node()); return; }
+    if(a==="rescan"){ openRescan(node()); return; }
     if(a==="copyurl"){copy(act.getAttribute("data-v")).then(()=>flash(act,"✓"));return;}
   });
   document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });

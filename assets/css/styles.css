@@ -178,6 +178,11 @@
     padding:4px 7px;border-radius:6px;color:var(--faint);border:1px solid var(--line);
     background:var(--panel2);cursor:pointer}
   .vproof:hover{color:var(--muted);border-color:var(--line-soft)}
+  /* A warning that must not be skimmed past: the XPUB advice is the one place
+     where following the page carelessly could cost a reader their privacy. */
+  .warnbox{border:1px solid rgba(214,88,79,.45);background:rgba(214,88,79,.10);
+    border-radius:8px;padding:11px 13px;margin:0 0 12px;font-size:13px;line-height:1.6}
+  .warnbox b{color:var(--down)}
   .proofblk{margin:0 0 12px}
   .proofblk .k{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--faint);margin-bottom:4px}

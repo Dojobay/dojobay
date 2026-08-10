@@ -558,12 +558,34 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const opBlock = `-----BEGIN BITCOIN SIGNED MESSAGE-----\n${opMessage}\n-----BEGIN BITCOIN SIGNATURE-----\nAddress: ${notifAddr}\n\n${opSig}\n-----END BITCOIN SIGNATURE-----`;
   const opDoc = { onion: `http://${onionHost}/`, paymentCode: opCode, verifySigned: opBlock };
 
-  const { verifyOperatorDoc } = await import("./crypto.ts");
+  const { verifyOperatorDoc, notificationAddresses } = await import("./crypto.ts");
   const vOk = verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });
   const vWrongOnion = verifyOperatorDoc(opDoc, { expectedOnion: "http://" + "c".repeat(56) + ".onion" });
   const vTampered = verifyOperatorDoc({ ...opDoc, verifySigned: opBlock.replace(onionHost, "c".repeat(56) + ".onion") });
   ok(vOk.ok && !vWrongOnion.ok && !vTampered.ok,
      "operator binding: valid signature accepted; wrong onion and tampered message refused");
+
+  // The same payment code signed from a TESTNET wallet.
+  //
+  // A PayNym is a mainnet identity, but a wallet in testnet mode derives the
+  // notification address for that network, so the same code signs from a
+  // different address. Requiring the mainnet form refused perfectly good
+  // bindings from anyone running a testnet wallet.
+  const tnetAddr = notificationAddresses(opCode).find((a) => a !== notifAddr);
+  ok(tnetAddr && tnetAddr !== notifAddr, "the code derives a second, testnet address: " + tnetAddr);
+  const tnetBlock = opBlock.replace(`Address: ${notifAddr}`, `Address: ${tnetAddr}`);
+  const vTestnet = verifyOperatorDoc({ ...opDoc, verifySigned: tnetBlock }, { expectedOnion: `http://${onionHost}` });
+  ok(vTestnet.ok && vTestnet.address === tnetAddr,
+     "operator binding accepts a testnet-derived signing address: " + JSON.stringify(vTestnet.error || ""));
+
+  // but an address that is neither derivation is still refused, and the error
+  // names both so an operator can see which their wallet actually used
+  const strayAddr = notificationAddresses(bip47.fromSeed(mnemonicToSeedSync(
+    "legal winner thank year wave sausage worth useful legal winner thank yellow")).toBase58())[0];
+  const vStray = verifyOperatorDoc({ ...opDoc, verifySigned: opBlock.replace(`Address: ${notifAddr}`, `Address: ${strayAddr}`) },
+    { expectedOnion: `http://${onionHost}` });
+  ok(!vStray.ok && /on mainnet, or/.test(vStray.error) && vStray.error.includes(notifAddr),
+     "an unrelated signing address is refused, naming both addresses the code could have used");
 
   // A terminal that swallows the newline after the BEGIN marker must not break
   // an otherwise valid binding: that newline is not part of the signed text.

@@ -340,18 +340,30 @@ export function verifyOperatorDoc(doc: any, { expectedOnion }: { expectedOnion?:
   if (!bipM || bipM[1] !== doc.paymentCode) {
     return { ok: false, error: "the BIP47 line inside the signed message does not match the declared payment code" };
   }
-  const expectedAddr = notificationAddress(doc.paymentCode);
-  if (addrM[1].trim() !== expectedAddr) {
-    // Naming both addresses matters: the usual cause is signing from a
-    // different account than the payment code entered, and the operator can
-    // only spot that if they can see which address their wallet actually used.
-    return { ok: false, error: `signed by ${addrM[1].trim()}, but the payment code's notification address is ${expectedAddr} — sign under PayNym → Sign message, which uses your PayNym's notification address` };
+  // Accept either derivation of the notification address.
+  //
+  // A PayNym is a mainnet identity, but a wallet running on testnet derives the
+  // notification address for THAT network, so the same payment code signs from
+  // a different address depending on which mode the operator's wallet is in.
+  // Insisting on the mainnet form refused perfectly good bindings from anyone
+  // running a testnet wallet — the same defect fixed for listing signatures,
+  // which this path missed.
+  const accept = notificationAddresses(doc.paymentCode);
+  const signer = addrM[1].trim();
+  if (!accept.includes(signer)) {
+    // Naming the addresses matters: the usual cause is signing from a different
+    // account than the payment code entered, and the operator can only spot
+    // that if they can see which address their wallet actually used.
+    const expected = accept.length > 1
+      ? `${accept[0]} on mainnet, or ${accept[1]} from a testnet wallet`
+      : accept[0] || "(the code could not be decoded)";
+    return { ok: false, error: `signed by ${signer}, but the payment code's notification address is ${expected} — sign under PayNym → Sign message, which uses your PayNym's notification address` };
   }
-  const net = bip47utils.networks.bitcoin;
+  const net = bip47utils.networks.bitcoin;   // the message prefix is the same on both
   try {
-    if (!message.verify(signedMessage, expectedAddr, sigM[1].trim(), net.messagePrefix)) {
+    if (!message.verify(signedMessage, signer, sigM[1].trim(), net.messagePrefix)) {
       return { ok: false, error: "invalid signature" };
     }
   } catch (e) { return { ok: false, error: "signature could not be verified (" + e.message + ")" }; }
-  return { ok: true, address: expectedAddr };
+  return { ok: true, address: signer };
 }

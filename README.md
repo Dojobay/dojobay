@@ -65,6 +65,29 @@ separate credentials.
 Requirements: Debian 12 or Ubuntu 24.04 (or similar), **Node.js 24 or
 newer**, plus your own Dojo and PayNym.
 
+**Hardware.** A small VPS is enough: **1 vCPU, 2 GB RAM and 20 GB of disk**,
+with swap configured. The work is almost entirely waiting on Tor circuits, so
+extra cores buy very little; what matters is enough memory for the transient
+peaks and enough disk that nothing fills up quietly. The backend itself sits at
+well under 100 MB, and the two spikes are `npm ci` during a deploy and the
+unpack during a self-update, neither of which lasts. 1 GB can work, but leaves
+nothing spare for those spikes.
+
+Do not guess from that: `server/check-resources.ts` measures what an instance
+actually uses — service memory current and peak, the disk each part occupies,
+the probe workload, and whether there is any evidence of strain such as swap in
+use or an out-of-memory kill. Run it on your own box, ideally just after a
+deploy, and size from that rather than from this paragraph.
+
+```
+cd /var/www/dojobay/server && sudo -u deploy node check-resources.ts
+```
+
+One thing it will warn about as an instance ages: every self-update keeps a full
+copy of the previous code under `data/backups/`, and nothing removes them. On a
+20 GB disk that is years away from mattering, but it grows without limit and is
+worth pruning by hand occasionally.
+
 A word on Node, because this is where installs go wrong: `apt install nodejs`
 gives you **Node 18** on both Debian 12 and Ubuntu 24.04, which is too old. The
 backend runs TypeScript directly, which needs Node 24's type stripping, and the
@@ -457,6 +480,14 @@ several ids at once.
 ```
 sudo -u deploy node remove-listing.ts mainnet-example testnet-example   # dry run
 sudo -u deploy node remove-listing.ts --apply mainnet-example testnet-example
+```
+
+**`check-resources.ts`** — read-only. Measures memory, disk and workload on this
+instance, and reports any sign that the machine is short of something. Use it to
+size a VPS from evidence rather than from a recommendation.
+
+```
+sudo -u deploy node check-resources.ts
 ```
 
 **`check-versions.ts`** — read-only. Reports the Dojo version of every listing,

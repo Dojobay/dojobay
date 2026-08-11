@@ -1260,6 +1260,78 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "and keeps the same record");
 }
 
+// 34) the resource diagnostic must not hand an operator-set path to a
+//     subprocess. It used to run `df ... $WEB_ROOT` and `du -sb $PUBLIC_DIR`,
+//     which CodeQL flagged as js/shell-command-injection-from-environment and
+//     which really does misbehave: df and du read a leading hyphen as an option,
+//     so WEB_ROOT=-x measured something other than what was asked for and said
+//     nothing about it. statfs() and a walk answer both questions inside Node,
+//     which is why the assertion below is about the source and not only the
+//     behaviour: the point is that the dataflow is gone, not that it is escaped.
+{
+  const cr = await import("./check-resources.ts");
+  const src = await fsp.readFile(new URL("./check-resources.ts", import.meta.url), "utf8");
+
+  // every sh() call site takes a literal command and a literal argument list.
+  // A variable in either is the regression this exists to catch.
+  //     One identifier is allowed through: `unit`, which the loop takes from a
+  //     literal list of systemd unit names written in the file. Anything else
+  //     must be a string literal, so reinstating `sh("du", ["-sb", p])` fails
+  //     here rather than shipping. Widening the allowlist should require an
+  //     argument about where that value comes from.
+  const ALLOWED = new Set(["unit"]);
+  const calls = [...src.matchAll(/\bsh\(\s*([^)]*?)\)/gs)].map((m) => m[1]);
+  ok(calls.length >= 2, "the diagnostic still shells out for what only a binary can answer");
+  const identifiers = calls.flatMap((c) =>
+    [...c.replace(/"(?:[^"\\]|\\.)*"/g, "").matchAll(/[A-Za-z_$][\w$.]*/g)].map((m) => m[0]));
+  ok(identifiers.every((i) => ALLOWED.has(i)) && !calls.some((c) => c.includes("`")),
+     "no sh() call site passes anything but a string literal and a known unit name: "
+     + JSON.stringify(identifiers));
+  ok(/const units = \[\s*(?:"[^"]+"\s*,?\s*)+\]/.test(src),
+     "and those unit names are a literal list in the file, not read from anywhere");
+  ok(!/sh\(\s*"(?:du|df|sh|bash)"/.test(src),
+     "df, du and a shell are gone: nothing spawns a process that parses a path");
+
+  // dirSize replaces `du -sb`, so it must agree with it, and it must not follow
+  // a symlink out of the tree it was asked about.
+  const root = pathMod.join(os.tmpdir(), "dojobay-dirsize-" + Date.now());
+  await fsp.mkdir(pathMod.join(root, "nested"), { recursive: true });
+  await fsp.writeFile(pathMod.join(root, "a.bin"), Buffer.alloc(1000));
+  await fsp.writeFile(pathMod.join(root, "nested", "b.bin"), Buffer.alloc(2000));
+  const outside = pathMod.join(os.tmpdir(), "dojobay-dirsize-outside-" + Date.now());
+  await fsp.writeFile(outside, Buffer.alloc(9_000_000));
+  await fsp.symlink(outside, pathMod.join(root, "link.bin"));
+  const size = await cr.dirSize(root);
+  const linkSize = (await fsp.lstat(pathMod.join(root, "link.bin"))).size;
+  ok(size === 3000 + linkSize,
+     `dirSize sums a tree and counts a symlink without following it: ${size}`);
+  ok(await cr.dirSize(pathMod.join(root, "missing")) === null,
+     "a path that is not there reports nothing rather than zero");
+
+  // the bug itself: a root whose name begins with a hyphen. du read that as an
+  // option and reported the wrong tree; nothing in Node cares.
+  const cwd = process.cwd();
+  process.chdir(os.tmpdir());
+  const hyphen = "-dojobay-" + Date.now();
+  await fsp.mkdir(hyphen, { recursive: true });
+  await fsp.writeFile(pathMod.join(hyphen, "c.bin"), Buffer.alloc(4096));
+  ok(await cr.dirSize(hyphen) === 4096,
+     "a path beginning with a hyphen is measured, not parsed as an option");
+  await fsp.rm(hyphen, { recursive: true, force: true });
+  process.chdir(cwd);
+
+  // diskUsage replaces `df`, and the identity it must keep is df's: available
+  // excludes the root reserve, so it is never more than what is unused.
+  const du = await cr.diskUsage(os.tmpdir());
+  ok(du && du.size > 0 && du.used >= 0 && du.avail >= 0 && du.used + du.avail <= du.size,
+     "diskUsage reports a filesystem's size, used and available consistently");
+  ok(await cr.diskUsage(pathMod.join(root, "nowhere", "at", "all")) === null,
+     "and reports nothing for a path on no filesystem it can see");
+
+  await fsp.rm(root, { recursive: true, force: true });
+  await fsp.rm(outside, { force: true });
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

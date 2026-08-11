@@ -137,6 +137,50 @@ sha256sum -c /tmp/before.sha
 
 — and treat any difference as a bug in the test's isolation, not as noise.
 
+### CodeQL, before pushing rather than after
+
+This repository uses GitHub's default code scanning setup, which runs the
+`code-scanning` query suite against every push to `main`. The deploy workflow
+fires on the same push, so by the time an alert appears the code is already on
+the instance. Run the analysis locally first and the alert never happens.
+
+The bundle is a large download and deliberately lives outside the repository,
+like jsdom, so that `scripts/` and the front end stay dependency-free:
+
+```
+cd /tmp && curl -sL -o cq.tar.zst \
+  "https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.26.2/codeql-bundle-linux64.tar.zst"
+tar --zstd -xf cq.tar.zst          # gives /tmp/codeql
+
+cd <repo> && /tmp/codeql/codeql database create /tmp/cqdb \
+  --language=javascript-typescript --source-root=. --overwrite
+/tmp/codeql/codeql database analyze /tmp/cqdb javascript-code-scanning.qls \
+  --format=sarif-latest --output=/tmp/cq.sarif
+```
+
+`javascript-code-scanning.qls` is the suite that produces the alerts you will
+actually see, and it is the one that must come back empty.
+`javascript-security-and-quality.qls` is a superset worth running occasionally
+for information: it currently reports around two dozen findings, mostly unused
+bindings and test-only temporary-file patterns, none of which raise an alert.
+Do not mistake one for the other, and do not change code to satisfy the superset
+without deciding that the finding is worth acting on.
+
+**The launchers are invisible to it.** CodeQL treats a `.js` or `.mjs` file
+sitting beside a `.ts` file of the same name as compiled output and skips it, so
+`server/index.mjs` and `server/build-public.mjs` are extracted by neither the
+local run nor GitHub's. That is 39 of 41 files, and the two it drops are the two
+this project hand-writes on purpose (see The launcher pattern). Scan them by
+copying them somewhere their `.ts` siblings are not:
+
+```
+mkdir -p /tmp/launchers && cp server/index.mjs server/build-public.mjs /tmp/launchers/
+/tmp/codeql/codeql database create /tmp/cqdb-launchers \
+  --language=javascript-typescript --source-root=/tmp/launchers --overwrite
+/tmp/codeql/codeql database analyze /tmp/cqdb-launchers javascript-code-scanning.qls \
+  --format=sarif-latest --output=/tmp/cq-launchers.sarif
+```
+
 ## Conventions
 
 The front end is dependency-free and stays that way: no framework, no build
@@ -304,5 +348,7 @@ whatever means you prefer.
 Keep commits scoped to one concern with a message describing behaviour, not
 files. Extend the relevant self-test with any behavioural change — the suites
 above are the spec — and run all three plus the checksum gate before pushing.
+For anything touching `server/` or `scripts/`, run the CodeQL scan too: the
+alert would otherwise arrive after the deploy that carried it.
 For anything security-adjacent (the Auth47 flow, the signature gate, nginx
 examples, the store), describe the threat you considered in the PR text.

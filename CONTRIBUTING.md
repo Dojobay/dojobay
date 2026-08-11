@@ -81,7 +81,25 @@ is gitignored because the store holds Dojo API keys and live sessions.
 
 ## Tests
 
-Three suites, and all of them must pass before a change ships.
+Three suites and a type check, and all four must pass before a change ships.
+
+From a fresh clone, install twice before running anything: the root install
+brings in TypeScript and `@types/node` for the checker, and the `server` install
+brings in the runtime dependencies the checker also needs to resolve. Skipping
+the second leaves `tsc` reporting missing modules for `@dojo-tools/*` and
+`@bitcoinerlab/secp256k1`, which looks like a broken tree and is not.
+
+```
+npm install                    # root: typescript + @types/node
+cd server && npm ci && cd ..   # runtime dependencies
+npm run typecheck              # must exit 0
+node scripts/selftest.mjs
+cd server && node selftest.mjs && cd ..
+node scripts/e2e-harness.mjs
+```
+
+Take a `sha256sum` of `data/dojos.json` and `data/history*.json` before and
+after. A suite that changes instance data is a bug in the suite.
 
 **Backend** — `cd server && node selftest.mjs`. Spins up the real API against
 temp data directories with a mock Tor proxy and a mock Dojo, and exercises

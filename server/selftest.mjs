@@ -1265,30 +1265,41 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 //     which CodeQL flagged as js/shell-command-injection-from-environment and
 //     which really does misbehave: df and du read a leading hyphen as an option,
 //     so WEB_ROOT=-x measured something other than what was asked for and said
-//     nothing about it. statfs() and a walk answer both questions inside Node,
-//     which is why the assertion below is about the source and not only the
-//     behaviour: the point is that the dataflow is gone, not that it is escaped.
+//     nothing about it. statfs() and a walk answer both questions inside Node.
+//     Two of the checks below read the source rather than the behaviour, because
+//     the point is that the dataflow is gone and not merely escaped; the rest
+//     assert on values, which is the better instrument wherever it is available.
 {
   const cr = await import("./check-resources.ts");
   const src = await fsp.readFile(new URL("./check-resources.ts", import.meta.url), "utf8");
 
   // every sh() call site takes a literal command and a literal argument list.
-  // A variable in either is the regression this exists to catch.
-  //     One identifier is allowed through: `unit`, which the loop takes from a
-  //     literal list of systemd unit names written in the file. Anything else
-  //     must be a string literal, so reinstating `sh("du", ["-sb", p])` fails
-  //     here rather than shipping. Widening the allowlist should require an
-  //     argument about where that value comes from.
-  const ALLOWED = new Set(["unit"]);
-  const calls = [...src.matchAll(/\bsh\(\s*([^)]*?)\)/gs)].map((m) => m[1]);
+  // A variable in either is the regression this exists to catch. One identifier
+  // is allowed through: `unit`, which the loop takes from the exported UNITS.
+  // Anything else must be a string literal, so reinstating `sh("du", ["-sb", p])`
+  // fails here rather than shipping. Widening the allowlist should require an
+  // argument about where that value comes from.
+  const ALLOWED = new Set(["UNITS", "unit"]);
+  const calls = [...src.matchAll(/\bsh\(([^)]*?)\)/gs)].map((m) => m[1]);
   ok(calls.length >= 2, "the diagnostic still shells out for what only a binary can answer");
   const identifiers = calls.flatMap((c) =>
     [...c.replace(/"(?:[^"\\]|\\.)*"/g, "").matchAll(/[A-Za-z_$][\w$.]*/g)].map((m) => m[0]));
   ok(identifiers.every((i) => ALLOWED.has(i)) && !calls.some((c) => c.includes("`")),
      "no sh() call site passes anything but a string literal and a known unit name: "
      + JSON.stringify(identifiers));
-  ok(/const units = \[\s*(?:"[^"]+"\s*,?\s*)+\]/.test(src),
-     "and those unit names are a literal list in the file, not read from anywhere");
+
+  // UNITS is checked as a value, not as text. The previous version of this
+  // matched the declaration with a regex whose repeated group could match the
+  // same input two ways, which CodeQL flagged as js/redos and which really was
+  // exponential: 24 quoted tokens with no closing bracket took 356 ms, doubling
+  // every two. Nothing untrusted ever reached it, but a test asserting on the
+  // spelling of a line was the wrong instrument for the question anyway.
+  ok(Array.isArray(cr.UNITS) && cr.UNITS.length >= 2
+     && cr.UNITS.every((u) => typeof u === "string" && u.endsWith(".service") && !u.includes("/")),
+     "the units the diagnostic asks systemctl about are a fixed list: " + cr.UNITS.join(", "));
+  const decl = src.slice(src.indexOf("export const UNITS"), src.indexOf("];", src.indexOf("export const UNITS")));
+  ok(decl.length > 0 && !/process\.env|`|\$\{|\(/.test(decl),
+     "and that list is written out in the file, not read from the environment");
   ok(!/sh\(\s*"(?:du|df|sh|bash)"/.test(src),
      "df, du and a shell are gone: nothing spawns a process that parses a path");
 

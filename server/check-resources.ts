@@ -56,12 +56,23 @@ const gb = (bytes: number) => (bytes / (1024 * MB)).toFixed(1) + " GB";
 const read = async (p: string) => { try { return await readFile(p, "utf8"); } catch { return null; } };
 
 // Every call site passes a command and an argument list written in this file,
-// never a path, a name or anything else derived from the environment. The
-// backend suite enforces that by reading this source, so a future edit that
+// never a path, a name or anything else derived from the environment. The one
+// exception is UNITS below, which the suite checks directly. A future edit that
 // interpolates a variable in here fails the gate rather than shipping.
 const sh = async (cmd: string, args: string[]) => {
   try { return (await exec(cmd, args)).stdout.trim(); } catch { return null; }
 };
+
+// The only values this file passes to a subprocess that are not written inline
+// at the call site. They are exported so the suite can assert on the array
+// itself rather than reading this source and guessing: an assertion about what
+// a program does is worth more than one about how it is spelled.
+export const UNITS = [
+  "dojobay-server.service",
+  "dojobay-update.service",
+  "tor.service",
+  "nginx.service",
+];
 
 // Replaces `df`. statfs reports the filesystem holding the path, and the
 // arithmetic matches what df prints: used counts the blocks the filesystem
@@ -135,9 +146,8 @@ const report = async () => {
 
   // ---- what our services use ------------------------------------------------
   console.log("\nSERVICES  (current / peak since boot)");
-  const units = ["dojobay-server.service", "dojobay-update.service", "tor.service", "nginx.service"];
   let ourPeak = 0;
-  for (const unit of units) {
+  for (const unit of UNITS) {
     const base = `/sys/fs/cgroup/system.slice/${unit}`;
     const cur = Number((await read(`${base}/memory.current`)) || 0);
     const peak = Number((await read(`${base}/memory.peak`)) || 0);

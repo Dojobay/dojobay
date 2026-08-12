@@ -119,6 +119,13 @@ const blockOf = (msgText, addr, sig) =>
 const signedText = signedTextOf(canonical, paymentCode);
 const sigLine = Buffer.from(msg.sign(signedText, priv, true, net47.messagePrefix)).toString("base64");
 const signedBlock = blockOf(signedText, notifAddr, sigLine);
+// Any payload can be signed the same way. Pairing edits need a signature over
+// the NEW details, so the suite must be able to produce one on demand rather
+// than reusing the block that covers the payload being replaced.
+const signBlockFor = (p) => {
+  const text = signedTextOf(JSON.stringify({ pairing: p.pairing, explorer: p.explorer }), paymentCode);
+  return blockOf(text, notifAddr, Buffer.from(msg.sign(text, priv, true, net47.messagePrefix)).toString("base64"));
+};
 const create = await api("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", jurisdiction: "Europe", hardware: "N100 16GB", payload, signed: signedBlock });
 ok(create.status === 200 && create.body.submission.status === "pending", "valid submission accepted, pending review");
 
@@ -191,7 +198,7 @@ H6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLq
   await new Promise((r) => down.listen(19078, "127.0.0.1", () => r(null)));
   const { PROBE_CFG } = await import("./probe.mjs");
   PROBE_CFG.proxyPort = 19078;                 // live object, mutated in place
-  const r = await api("/api/dojo", "POST", { network: "testnet", name: "selftest-node", payload, signed: null });
+  const r = await api("/api/dojo", "POST", { network: "testnet", name: "selftest-node", payload, signed: signedBlock });
   ok(r.status === 422 && /connection gate/.test(r.body.error), "unreachable node rejected by connection gate");
   PROBE_CFG.proxyPort = 19077;                 // restore the up proxy
   down.close();
@@ -252,7 +259,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await apiB("/api/auth47/poll?nonce=" + chB.body.nonce);
   const ncB = await apiB("/api/dojo/name-check?network=mainnet&name=Selftest%20Node");
   ok(ncB.status === 200 && ncB.body.available === false, "name-check reports a taken name (case/punctuation-insensitive)");
-  const dup = await apiB("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", payload, signed: null });
+  const dup = await apiB("/api/dojo", "POST", { network: "mainnet", name: "selftest-node", payload, signed: signedBlock });
   ok(dup.status === 409, "duplicate name from another operator rejected with 409");
   const ncOwner = await api("/api/dojo/name-check?network=mainnet&name=selftest-node");
   ok(ncOwner.status === 200 && ncOwner.body.available === true && ncOwner.body.update === true,
@@ -271,6 +278,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const stub = (network, name) => ({
     id: `${network}-${name}`, network, name, paymentCodes: [paymentCode],
     paynym: null, payload: { pairing: { type: "dojo.api", url: "http://" + "a".repeat(56) + ".onion/v2" } },
+    signed: signedBlock,
     status: "pending", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
   });
   await store.putSubmission(stub("testnet", "alpha"));
@@ -296,9 +304,10 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await fsp.mkdir(MIG_DATA, { recursive: true });
   const fixturePayload = { pairing: { type: "dojo.api", url: "http://" + "b".repeat(56) + ".onion/v2" } };
   await fsp.writeFile(MIG_DATA + "/seed.json", JSON.stringify({ nodes: [
-    { id: "mainnet-fam-one", network: "mainnet", name: "Fam One", paynym: "+fam", payload: fixturePayload },
-    { id: "mainnet-fam-two", network: "mainnet", name: "Fam Two", paynym: "+fam", payload: fixturePayload },
+    { id: "mainnet-fam-one", network: "mainnet", name: "Fam One", paynym: "+fam", payload: fixturePayload, signed: signedBlock },
+    { id: "mainnet-fam-two", network: "mainnet", name: "Fam Two", paynym: "+fam", payload: fixturePayload, signed: signedBlock },
     { id: "testnet-keeper", network: "testnet", name: "wanderinKeeper", paynym: null, payload: fixturePayload },
+    { id: "mainnet-fam-mute", network: "mainnet", name: "Fam Mute", paynym: "+fam", payload: fixturePayload },
   ] }, null, 2));
   await fsp.writeFile(MIG_DATA + "/paynym-codes.json", JSON.stringify({ mapping: {
     "+fam": { nymName: "+fam", codes: [{ code: "PMfamSegwit", segwit: true }, { code: "PMfamLegacy", segwit: false }] },
@@ -311,9 +320,13 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const storeAbsent = await fsp.access(MIG_STORE + "/store.json").then(() => false, () => true);
   ok(/create\s+mainnet-fam-one\s+name=one/.test(dry.stdout)
      && /refuse\s+testnet-keeper\s+name=wanderinKeeper/.test(dry.stdout)
-     && /REFUSED: testnet-keeper has no BIP47/.test(dry.stdout)
+     && /REFUSED: testnet-keeper no BIP47 payment code/.test(dry.stdout)
      && storeAbsent,
      "migration --dry-run: family prefix stripped, a code-less node refused, nothing written");
+  ok(/refuse\s+mainnet-fam-mute/.test(dry.stdout)
+     && /REFUSED: mainnet-fam-mute no signed pairing block/.test(dry.stdout)
+     && /2 refused: testnet-keeper, mainnet-fam-mute/.test(dry.stdout),
+     "and an owned node with no signed pairing block is refused too, and counted in the summary");
 
   await run(process.execPath, [script], { env });
   const store1 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
@@ -323,8 +336,9 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && migrated["mainnet-fam-one"].paymentCodes.length === 2
      && migrated["mainnet-fam-one"].source === "seed-migration"
      && !migrated["testnet-keeper"]
+     && !migrated["mainnet-fam-mute"]
      && seedAfter === seedBefore,
-     "migration creates owned records, never writes a code-less one, never rewrites seed.json");
+     "migration creates owned records, never writes a code-less or unsigned one, never rewrites seed.json");
 
   const second = await run(process.execPath, [script], { env });
   const store2 = await fsp.readFile(MIG_STORE + "/store.json", "utf8");
@@ -619,13 +633,18 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
         operator_domain_proof: { domain: "example.org", paymentCode, txt_name: "_dojobay.example.org",
           txt_value: `dojobay-domain-v1 pm=${paymentCode}`, signed: signedUrlBlock, verified_at: "2026-07-01T00:00:00Z" } },
       { id: "mainnet-imported", network: "mainnet", name: "imported", paynym: "+imp",
-        paymentCode: "PMimpDisplay",
+        paymentCode: "PMimpDisplay", signed: signedBlock,
         payload: { pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } },
         // a forged proof: the signature does not check out against the code
         operator_domain: "evil.example",
         operator_domain_proof: { domain: "evil.example", paymentCode: "PM8T" + "9".repeat(112),
           txt_name: "_dojobay.evil.example", txt_value: "dojobay-domain-v1 pm=PM8T" + "9".repeat(112),
           signed: signedUrlBlock, verified_at: "2026-07-01T00:00:00Z" } },
+      // published by an instance that does not enforce the signature rule, or
+      // from before it existed. It must not enter this store.
+      { id: "mainnet-hearsay", network: "mainnet", name: "hearsay", paynym: "+imp",
+        paymentCode: "PMimpDisplay",
+        payload: { pairing: { type: "dojo.api", url: "http://" + "f".repeat(56) + ".onion/v2", apikey: "k" } } },
     ],
   };
   const remoteDocs = {
@@ -660,6 +679,8 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && histAfter["mainnet-imported"] && histAfter["mainnet-imported"].checks.length === 1
      && histAfter["mainnet-selftest-node"].checks[0].t !== "2026-07-01 00:00",
      "bootstrap imports new nodes with all code variants and history; existing ids untouched");
+  ok(!(await store.getSubmission("mainnet-hearsay")),
+     "an unsigned node published by the remote instance is refused rather than imported");
 
   // A verified domain travels with the data, because the signed statement names
   // the domain and the code but never the instance that verified it. It must NOT
@@ -1016,7 +1037,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
    * @returns {import("../types.js").StoreRecord}
    */
   const mk = (id, status, updated) => ({ id, network: "mainnet", name: id, status,
-    paymentCodes: [paymentCode], payload, updated_at: updated });
+    paymentCodes: [paymentCode], payload, signed: signedBlock, updated_at: updated });
   const day = 86400 * 1000, now = Date.now();
   await st.putSubmission(mk("mainnet-rej-old", "rejected", new Date(now - 30 * day).toISOString()));
   await st.putSubmission(mk("mainnet-rej-new", "rejected", new Date(now - 2 * day).toISOString()));
@@ -1115,7 +1136,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const movedUrl = "http://" + "m".repeat(56) + ".onion/v2";
   const moved = { pairing: { ...payload.pairing, url: movedUrl }, explorer: payload.explorer };
 
-  const r = await api("/api/dojo/pairing", "POST", { id, payload: moved });
+  const r = await api("/api/dojo/pairing", "POST", { id, payload: moved, signed: signBlockFor(moved) });
   const after = await st.getSubmission(id);
   ok(r.status === 200 && after.payload.pairing.url === movedUrl,
      "the pairing payload is replaced: " + JSON.stringify(r.body?.error || ""));
@@ -1132,12 +1153,21 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(bad.status === 400 && /signature gate/.test(bad.body.error),
      "a signature that does not cover the new payload is refused");
 
+  // and omitting it entirely is refused rather than nulling the stored one. An
+  // edit with no block used to assign rec.signed = null, which is how a
+  // verified listing could quietly become an unattested one.
+  const none = await api("/api/dojo/pairing", "POST", { id, payload: moved });
+  const stillSigned = await st.getSubmission(id);
+  ok(none.status === 400 && /cannot carry over/.test(none.body.error) && stillSigned.signed,
+     "an edit with no signed block is refused, told why the old one will not do, and the "
+     + "stored signature survives: " + JSON.stringify(none.body?.error || ""));
+
   // an unreachable address never replaces a working one: point the prober at the
   // proxy that reports "host unreachable", as the submission gate test does
   const dead = { pairing: { ...payload.pairing, url: "http://" + "z".repeat(56) + ".onion/v2" }, explorer: payload.explorer };
   const { PROBE_CFG: PC } = await import("./probe.mjs");
   PC.proxyPort = 19078;
-  const down = await api("/api/dojo/pairing", "POST", { id, payload: dead });
+  const down = await api("/api/dojo/pairing", "POST", { id, payload: dead, signed: signBlockFor(dead) });
   PC.proxyPort = 19077;
   const stillThere = await st.getSubmission(id);
   ok(down.status === 422 && /connection gate/.test(down.body.error)
@@ -1147,7 +1177,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   // and only the owner may do it
   const otherRec = { ...before, id: "mainnet-not-mine", name: "not-mine", paymentCodes: ["PM8T" + "7".repeat(112)] };
   await st.putSubmission(otherRec);
-  const notMine = await api("/api/dojo/pairing", "POST", { id: "mainnet-not-mine", payload: moved });
+  const notMine = await api("/api/dojo/pairing", "POST", { id: "mainnet-not-mine", payload: moved, signed: signBlockFor(moved) });
   ok(notMine.status === 404, "a record owned by another payment code is not editable");
   await st.deleteSubmission("mainnet-not-mine");
 
@@ -1205,18 +1235,23 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(threw2, "and one with no paymentCodes field at all");
   ok((await st.getSubmission("mainnet-orphan")) === null, "nothing is written when it refuses");
 
-  // a record that predates the rule, injected past the store, is withheld from
-  // the published list rather than shown
-  const raw = JSON.parse(await fsp.readFile(process.env.SERVER_DATA_DIR + "/store.json", "utf8"));
-  raw.submissions["mainnet-legacy-orphan"] = { ...base, id: "mainnet-legacy-orphan", paymentCodes: [] };
-  await fsp.writeFile(process.env.SERVER_DATA_DIR + "/store.json", JSON.stringify(raw, null, 2) + "\n");
+  // A record that predates the rule, injected past putSubmission, is withheld
+  // from the published list rather than shown. Injected into the LOADED store,
+  // not into store.json: the store holds itself in memory as a single writer
+  // and load() returns that cache, so a record written to the file behind a
+  // running process is invisible to the rebuild. This test used to write the
+  // file, which meant it asserted that a record the rebuild had never heard of
+  // did not appear — true, and no evidence of anything.
+  const loaded = await st.get();
+  loaded.submissions["mainnet-legacy-orphan"] =
+    /** @type {any} */ ({ ...base, id: "mainnet-legacy-orphan", paymentCodes: [], signed: signedBlock });
   await rb();
   const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
   ok(!pub.nodes.some((n) => n.id === "mainnet-legacy-orphan"),
      "a code-less record already in the store is withheld from the published list");
 
-  delete raw.submissions["mainnet-legacy-orphan"];
-  await fsp.writeFile(process.env.SERVER_DATA_DIR + "/store.json", JSON.stringify(raw, null, 2) + "\n");
+  delete loaded.submissions["mainnet-legacy-orphan"];
+  await rb();
 }
 
 // 33) minimum Dojo version, judged on what the node reports live and applied to
@@ -1252,7 +1287,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const { store: st } = await import("./store.ts");
   const before = await st.getSubmission("mainnet-selftest-node");
   const resubmit = await api("/api/dojo", "POST", {
-    network: "mainnet", name: "selftest-node", jurisdiction: "Testland", payload,
+    network: "mainnet", name: "selftest-node", jurisdiction: "Testland", payload, signed: signedBlock,
   });
   ok(resubmit.status === 200,
      "an operator updating a listing they already hold is not re-judged: " + JSON.stringify(resubmit.body?.error || ""));
@@ -1341,6 +1376,65 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   await fsp.rm(root, { recursive: true, force: true });
   await fsp.rm(outside, { force: true });
+}
+
+// 35) a listing without a signed pairing block is structurally impossible, on
+//     the same three-point pattern as the payment-code rule in 32: the gates
+//     refuse it with something an operator can act on, the store refuses it
+//     however the record was assembled, and the rebuild withholds anything that
+//     predates the rule rather than publishing it. The signature is the only
+//     part of a listing a visitor can check without trusting this site, so a
+//     listing without one asks for trust that cannot be earned.
+{
+  const { store: st } = await import("./store.ts");
+  const { rebuild: rb } = await import("./build-public.ts");
+  const base = { network: "mainnet", name: "mute", status: "approved",
+                 paymentCodes: [paymentCode], payload };
+
+  let threw = null;
+  try { await st.putSubmission(/** @type {any} */ ({ ...base, id: "mainnet-mute" })); }
+  catch (e) { threw = e; }
+  ok(threw && /must carry a signed pairing block/.test(threw.message),
+     "the store refuses a record with no signed block");
+  ok(threw && /remove-listing/.test(threw.message),
+     "and says what to do about it rather than only that it refused");
+  ok((await st.getSubmission("mainnet-mute")) === null, "nothing is written when it refuses");
+
+  // a shape check, not a verification: whether the block verifies is settled at
+  // the gates, which have the session and the canonical message to hand.
+  let threw2 = null;
+  try { await st.putSubmission(/** @type {any} */ ({ ...base, id: "mainnet-mute2", signed: "I promise it is mine" })); }
+  catch (e) { threw2 = e; }
+  ok(threw2, "and refuses a signed field that is not a signed-message block at all");
+
+  // the submit gate refuses first, before the connection gate spends thirty
+  // seconds probing a node whose submission cannot be accepted anyway
+  const noSig = await api("/api/dojo", "POST", {
+    network: "mainnet", name: "gate-mute", jurisdiction: "Testland", payload,
+  });
+  ok(noSig.status === 400 && /signature gate/.test(noSig.body.error)
+     && /PayNym/.test(noSig.body.error),
+     "the submit gate refuses an unsigned submission and says how to sign: "
+     + JSON.stringify(noSig.body?.error || ""));
+  ok(!(await st.getSubmission("mainnet-gate-mute")), "and no record is created by the attempt");
+
+  // a record that predates the rule, injected past the store, is withheld from
+  // the published list rather than shown
+  const legacy = /** @type {any} */ ({ ...base, id: "mainnet-legacy-mute", name: "legacy-mute" });
+  const loaded = await st.get();
+  loaded.submissions["mainnet-legacy-mute"] = legacy;
+  await rb();
+  const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
+  ok(!pub.nodes.some((n) => n.id === "mainnet-legacy-mute"),
+     "an unsigned record already in the store is withheld from the published list");
+
+  // and the audit calls it a failure now, rather than leaving it as a decision
+  const { auditRecord } = await import("./audit-signed.mjs");
+  ok(auditRecord(legacy).bucket === "UNSIGNED",
+     "the auditor still buckets it as UNSIGNED, which now exits non-zero");
+
+  delete loaded.submissions["mainnet-legacy-mute"];
+  await rb();
 }
 
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });

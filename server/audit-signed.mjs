@@ -23,8 +23,10 @@
 //   FAILED    a signature is present but verifies for none of them
 //   UNSIGNED  no signature stored (pre-gate migration, or a code-less record)
 //   ERROR     the record could not be evaluated at all
-// Exits non-zero if anything is FAILED or ERROR, so it can back a cron check.
-// UNSIGNED alone does not fail the run: those are for a per-record decision.
+// Exits non-zero if anything is FAILED, ERROR or UNSIGNED, so it can back a
+// cron check. UNSIGNED counted as a failure since the signature became a
+// structural requirement: the store refuses to write such a record and the
+// rebuild withholds it, so one showing up here is not awaiting a decision.
 // =============================================================================
 import { store } from "./store.ts";
 import { verifySignedPayload, notificationAddresses } from "./crypto.ts";
@@ -95,11 +97,17 @@ for (const b of ["FAILED", "ERROR", "UNSIGNED", "VERIFIED"]) {
   console.log("");
 }
 
-const bad = buckets.FAILED.length + buckets.ERROR.length;
+// An UNSIGNED record is now a failure, not a decision. Until the signature rule
+// existed there was a legitimate answer to "this record predates the gate" and
+// the audit deliberately left the judgement to a maintainer. The store now
+// refuses to write such a record and the rebuild withholds it, so one appearing
+// here means something got in around those rules or predates them, and either
+// way it is not being published and needs dealing with.
+const bad = buckets.FAILED.length + buckets.ERROR.length + buckets.UNSIGNED.length;
 console.log(
   `Summary: ${buckets.VERIFIED.length} verified, ${buckets.FAILED.length} failed, ` +
   `${buckets.UNSIGNED.length} unsigned, ${buckets.ERROR.length} error.` +
-  (buckets.UNSIGNED.length ? "\nUNSIGNED records are listed for a per-record decision and are not counted as failures." : "") +
-  (bad ? `\nNON-ZERO EXIT: ${bad} record(s) need attention.` : "\nEvery signed record verifies under the current gate."));
+  (buckets.UNSIGNED.length ? "\nUNSIGNED records are withheld from the public list. Ask the operator to sign their\npairing payload and resubmit, or remove the listing with server/remove-listing.ts." : "") +
+  (bad ? `\nNON-ZERO EXIT: ${bad} record(s) need attention.` : "\nEvery record carries a signature and every signature verifies under the current gate."));
 process.exit(bad ? 1 : 0);
 }

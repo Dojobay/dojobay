@@ -32,7 +32,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { store } from "../server/store.ts";
+import { store, hasSignedBlock } from "../server/store.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
@@ -126,7 +126,15 @@ async function main() {
   const plan = nodes.map((n) => {
     if (byId.has(n.id)) return { action: "skip", why: "already in store (left untouched)", node: byId.get(n.id) };
     const codes = n.paynym ? mapping[n.paynym].codes.map((c) => c.code) : [];
-    return { action: codes.length ? "create" : "refuse", node: toRecord(n, nameOf.get(n.id), codes, now) };
+    // Two things make a node unmigratable, and both are the store's rules
+    // rather than this script's: no payment code means no owner, and no signed
+    // pairing block means nothing a visitor can check. Refusing here rather
+    // than letting putSubmission throw is what turns a stack trace part-way
+    // through a migration into a plan you can read before anything is written.
+    const node = toRecord(n, nameOf.get(n.id), codes, now);
+    if (!codes.length) return { action: "refuse", why: "no BIP47 payment code", node };
+    if (!hasSignedBlock(node)) return { action: "refuse", why: "no signed pairing block", node };
+    return { action: "create", node };
   });
 
   console.log(`${DRY ? "DRY RUN — " : ""}migration plan (${nodes.length} seed nodes):`);
@@ -134,17 +142,18 @@ async function main() {
     const owner = node.paynym || "(no PayNym)";
     console.log(`  ${action.padEnd(6)} ${node.id.padEnd(26)} name=${String(node.name).padEnd(18)} ${owner} (${(node.paymentCodes || []).length} codes)${why ? " — " + why : ""}`);
     if (action === "refuse") {
-      console.log(`         REFUSED: ${node.id} has no BIP47 payment code, so it cannot be migrated.`);
-      console.log(`         Give it a PayNym in data/paynym-codes.json, or drop it from the seed.`);
+      console.log(`         REFUSED: ${node.id} ${why}, so it cannot be migrated.`);
+      console.log(`         Give it a PayNym in data/paynym-codes.json and a signed pairing block, or drop it from the seed.`);
     }
   }
 
   const changes = plan.filter((p) => p.action === "create");
   const refused = plan.filter((p) => p.action === "refuse");
-  if (DRY) { console.log(`\ndry run: ${changes.length} change(s) would be made, nothing written.`); return; }
-  if (!changes.length) { console.log("\nnothing to do: every seed node already has a store record."); return; }
+  const tail = refused.length ? ` ${refused.length} refused: ${refused.map((p) => p.node.id).join(", ")}.` : "";
+  if (DRY) { console.log(`\ndry run: ${changes.length} change(s) would be made, nothing written.${tail}`); return; }
+  if (!changes.length) { console.log(`\nnothing to do: every seed node already has a store record.${tail}`); return; }
   for (const { node } of changes) await store.putSubmission(node);
-  console.log(`\napplied ${changes.length} change(s). Now run: node server/build-public.mjs`);
+  console.log(`\napplied ${changes.length} change(s).${tail} Now run: node server/build-public.mjs`);
   console.log("Once the store records exist, slim data/seed.json to the anchor (your own node) in a separate commit.");
 }
 

@@ -19,7 +19,7 @@ import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { httpOverTor } from "./update.mjs";
-import { store } from "../server/store.ts";
+import { store, hasSignedBlock } from "../server/store.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
@@ -83,20 +83,29 @@ export async function bootstrapImport({
   const codeCache = new Map();
   for (const n of nodes) {
     if (existingIds.has(n.id)) { plan.push({ action: "skip", n }); continue; }
+    // A published node from another instance carries its signed block in
+    // dojos.json, so an unsigned one either predates the rule there or was
+    // published by an instance that does not enforce it. Either way it cannot
+    // enter this store, and saying so in the plan is better than a throw from
+    // putSubmission half way through the import.
+    if (!hasSignedBlock(n)) { plan.push({ action: "refuse", n, why: "no signed pairing block" }); continue; }
     let codes = n.paymentCode ? [n.paymentCode] : [];
     if (n.paynym) {
       if (!codeCache.has(n.paynym)) codeCache.set(n.paynym, await fetchCodes(n.paynym).catch(() => []));
       const all = codeCache.get(n.paynym).map((c) => c.code);
       if (all.length) codes = [...new Set([...all, ...codes])];
     }
+    if (!codes.length) { plan.push({ action: "refuse", n, why: "no BIP47 payment code" }); continue; }
     plan.push({ action: "import", n, codes });
   }
 
   const now = new Date().toISOString();
-  for (const { action, n, codes } of plan) {
-    log(`  ${action.padEnd(6)} ${n.id.padEnd(28)} ${n.paynym || "(no PayNym)"} (${(codes || []).length} codes)`);
+  for (const { action, n, codes, why } of plan) {
+    log(`  ${action.padEnd(6)} ${n.id.padEnd(28)} ${n.paynym || "(no PayNym)"} (${(codes || []).length} codes)${why ? " — " + why : ""}`);
   }
   const imports = plan.filter((p) => p.action === "import");
+  const refused = plan.filter((p) => p.action === "refuse");
+  if (refused.length) log(`refused ${refused.length} node(s) that cannot be listed here: ${refused.map((p) => p.n.id).join(", ")}`);
   if (dryRun) { log(`dry run: ${imports.length} node(s) would be imported, nothing written.`); return { imported: 0, planned: imports.length }; }
 
   for (const { n, codes } of imports) {

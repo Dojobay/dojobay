@@ -843,7 +843,7 @@ async function loadJSON(url){
       <p style="margin-bottom:6px">Signed in as <code>${esc(ME.paymentCode.slice(0,12))}…${esc(ME.paymentCode.slice(-4))}</code>
         <button class="copybtn" data-mact="logout" style="margin-left:8px">Sign out</button></p>
       ${ME.admin?'<p style="font-size:12.5px;color:var(--muted)">This payment code moderates the directory: <a href="/admin" style="color:var(--accent)">open the admin console →</a> (same sign-in; signing out here signs you out there too).</p>':""}
-      <p style="font-size:13px;color:var(--muted)">Add or edit a Dojo you operate. Submissions are checked for a live Tor connection and, if you supply a signed payload, for a valid signature, then reviewed by a maintainer before they appear.</p>
+      <p style="font-size:13px;color:var(--muted)">Add or edit a Dojo you operate. Every listing must carry a pairing payload you have signed with your PayNym: that signature is the only part of a listing a visitor can check without trusting this site. Submissions are checked for a live Tor connection and for a valid signature, then reviewed by a maintainer before they appear.</p>
       <h3>Verified domain</h3>
       ${domainSection()}
       <h3>Your Dojos</h3>
@@ -888,7 +888,7 @@ async function loadJSON(url){
         answering over Tor right now, or the update is refused and your current listing is left alone.
         Your listing keeps its place, its approval and its uptime history.</p>
       <label>Pairing payload (JSON) <textarea class="p-payload" rows="8">${esc(current)}</textarea></label>
-      <label>Signed block (optional, but it is what proves the details are yours)
+      <label>Signed block (required: sign the payload above, not the one it replaces)
         <textarea class="p-signed" rows="6" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----"></textarea></label>
       <div class="medit-actions">
         <button class="copybtn" data-mact="pairsave" data-id="${esc(r.id)}">Update pairing</button>
@@ -927,7 +927,7 @@ async function loadJSON(url){
         <label>Hardware <input id="m-hw" maxlength="120" placeholder="e.g. N100 16GB"></label>
         <label>Link (optional; the card title links here) <input id="m-url" maxlength="200" placeholder="https://…"></label>
         <label>Pairing code (JSON) <textarea id="m-payload" rows="6" placeholder='{"pairing":{"type":"dojo.api",...},"explorer":{...}}'></textarea></label>
-        <label>Signed pairing message (optional, but verified if provided) <textarea id="m-signed" rows="5" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----&#10;...&#10;-----END BITCOIN SIGNATURE-----"></textarea></label>
+        <label>Signed pairing message (required) <textarea id="m-signed" rows="5" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----&#10;...&#10;-----END BITCOIN SIGNATURE-----"></textarea></label>
         <button class="reveal" data-mact="submit" style="margin-top:4px">Check connection &amp; submit</button>
       </div>
     </div>`;

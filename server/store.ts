@@ -26,6 +26,22 @@ const FILE = path.join(DIR, "store.json");
 const EMPTY: StoreShape = { submissions: {}, sessions: {}, nonces: {}, domains: {} };
 let cache: StoreShape | null = null;
 
+// Whether a record carries a signed pairing block at all. A shape check, not a
+// verification: the submit gate decided whether the block verifies against the
+// operator's own payment code, and re-deriving that at every read would mean
+// the store and the rebuild silently dropping listings over a cryptographic
+// judgement made elsewhere. This asks only what a caller is entitled to ask
+// here, which is whether there is anything for a visitor to check.
+// server/audit-signed.mjs is the tool that re-runs the real verification over
+// the whole store. It lives in this file rather than beside the verifier so
+// that store.ts stays on node builtins alone: remove-listing.ts and the
+// migration scripts import the store, and should not have to pull in secp256k1
+// to ask a question about a string.
+export function hasSignedBlock(rec: { signed?: string | null } | null | undefined): boolean {
+  const signed = typeof rec?.signed === "string" ? rec.signed.trim() : "";
+  return signed.includes("BEGIN BITCOIN SIGNED MESSAGE") && signed.includes("BEGIN BITCOIN SIGNATURE");
+}
+
 // A submission's ownership is a paymentCodes ARRAY, because one PayNym often
 // carries two BIP47 codes (segwit and legacy variants) and the wallet may sign
 // Auth47 with either. Records written before this schema carried a scalar
@@ -108,13 +124,18 @@ export const store = {
     return Object.values((await load()).submissions)
       .filter((r) => Array.isArray(r.paymentCodes) && r.paymentCodes.includes(paymentCode));
   },
-  // Every record must carry at least one BIP47 payment code. This is the single
-  // chokepoint through which every write to the store passes, so enforcing it
-  // here is what makes a code-less listing structurally impossible rather than
-  // merely discouraged: the payment code is the identity the directory rests
-  // on, and a listing without one cannot be owned, edited, verified or
-  // recognised by a visitor. Historically a few pre-Auth47 records existed
-  // without one, managed by hand from /admin; that door is now closed.
+  // Every record must carry at least one BIP47 payment code and a signed
+  // pairing block. This is the single chokepoint through which every write to
+  // the store passes, so enforcing both here is what makes an unowned or
+  // unattested listing structurally impossible rather than merely discouraged:
+  // the payment code is the identity the directory rests on, and the signature
+  // is what lets a visitor check the pairing details against that identity
+  // without trusting this site at all. A listing without one cannot be owned,
+  // edited, verified or recognised by a visitor; a listing without the other
+  // asks the visitor to take our word for an onion address and an API key,
+  // which is the one thing this directory exists not to require. Historically a
+  // few pre-Auth47 records existed without a code, and rather more predate the
+  // signature gate; both doors are now closed.
   async putSubmission(rec: StoreRecord): Promise<StoreRecord> {
     const normalised = normaliseSubmission(rec);
     const codes = (normalised as StoreRecord).paymentCodes;
@@ -125,6 +146,17 @@ export const store = {
     // owner at all.
     if (!Array.isArray(codes) || !codes.some((c) => typeof c === "string" && /^PM\w{6,}/.test(c.trim()))) {
       throw new Error(`refusing to store ${rec?.id}: a listing must carry a BIP47 payment code`);
+    }
+    // The same kind of guard for the signature: a shape check, not a
+    // verification. Whether the block verifies against the record's own code is
+    // settled at the submit and pairing-edit gates, which have the session and
+    // the canonical message to hand and can say precisely what is wrong. What
+    // must be impossible HERE is a record whose pairing details nobody has
+    // attested to, however it was assembled — by an admin action, an import, a
+    // migration or a future endpoint that has not been written yet.
+    if (!hasSignedBlock(normalised)) {
+      throw new Error(`refusing to store ${rec?.id}: a listing must carry a signed pairing block. ` +
+        `Ask the operator to sign their pairing payload, or remove the listing with server/remove-listing.ts.`);
     }
     const s = await load();
     s.submissions[rec.id] = normalised;

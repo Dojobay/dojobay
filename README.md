@@ -16,8 +16,8 @@ endpoints (Dojo API, explorer, and Electrum server where one is exposed).
 Cards are ordered by measured uptime. Node operators list and manage their
 own Dojos by signing in with their PayNym over **Auth47**: no accounts, no
 email, no passwords — signing a challenge in the wallet proves control of the
-payment code, and submissions pass a live Tor connection check plus a
-moderation review before publication.
+payment code, and submissions pass a live Tor connection check, a signature
+check over the pairing payload, and a moderation review before publication.
 
 Everything is served from a Tor hidden service. There is no clearnet aspect:
 the web server binds to localhost, only the Tor daemon reaches it, and the
@@ -41,11 +41,13 @@ directory also runs a node. Every other listing lives in a server-side store,
 created and managed by its operator over Auth47, and `server/build-public.mjs`
 merges the anchor with every approved submission into the public
 `data/dojos.json`, preserving live statuses. Every listed node carries a
-BIP47 payment code — the code is what ownership, sign-in and the card's
-payment-code chip all key on, and a listing without one cannot be owned,
-edited, verified or recognised. That is enforced structurally rather than by
-convention: the store refuses to write a record without a payment code, and the
-build withholds any that predates the rule instead of publishing it. A systemd timer runs `scripts/update.mjs` every ten minutes, which
+BIP47 payment code and a signed pairing block — the code is what ownership,
+sign-in and the card's payment-code chip all key on, and a listing without one
+cannot be owned, edited, verified or recognised; the signature is the only part
+of a listing a visitor can check without trusting this site at all. Both are
+enforced structurally rather than by convention: the store refuses to write a
+record missing either, and the build withholds any that predates the rules
+instead of publishing it. A systemd timer runs `scripts/update.mjs` every ten minutes, which
 logs into each listed Dojo's API over Tor, reads the chain tip, and maintains
 `data/dojos.json` (statuses and block heights), `data/history.json` (the
 24-hour check series) and `data/history-daily.json` (90-day daily rollups).
@@ -263,9 +265,10 @@ curl -s --socks5-hostname 127.0.0.1:9050 http://<onion>/data/dojos.json \
 Open **Manage my Dojo** in the header, scan the Auth47 challenge with
 Samourai or Ashigaru (Tools → Authenticate using PayNym), and submit your
 node's name, details and pairing payload. The server checks the Dojo answers
-over Tor before the submission is accepted, and a signed pairing message, if
-you provide one, must verify against your payment code's notification
-address. Approved listings appear with your PayNym; you can edit the display
+over Tor before the submission is accepted, and the signed pairing message is
+required and must verify against your payment code's notification address.
+Changing your pairing details later needs a fresh signature over the new ones:
+the old signature covers what you are replacing. Approved listings appear with your PayNym; you can edit the display
 fields or remove the listing at any time with the same sign-in.
 
 ## Minimum Dojo version

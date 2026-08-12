@@ -4,8 +4,10 @@
 // Auth47 login, then a gated "manage my Dojo" API. Two hard gates on any create
 // or pairing-changing edit:
 //   1. connection gate: the pairing code's .onion must currently answer over Tor
-//   2. signature gate:  any supplied signed payload must verify against the
-//      notification address of the authenticated payment code (lab logic)
+//   2. signature gate:  a signed pairing payload is required, and must verify
+//      against the notification address of the authenticated payment code (lab
+//      logic). The store refuses an unsigned record too, so this gate is where
+//      an operator is told what to do, not the only thing standing in the way.
 // Passing both puts the record in a moderation queue; a maintainer approves it
 // (see admin.mjs) before build-public.mjs merges it into the public dojos.json.
 //
@@ -390,8 +392,18 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     if (!nu.ok) return json(res, 400, { error: nu.error });
   }
 
-  // signature gate (optional field, but if present it must verify)
-  if (body.signed) {
+  // signature gate. The signed block is REQUIRED: it is the only part of a
+  // listing a visitor can check without trusting this site, so a listing
+  // without one asks for trust we have no way to earn. Refused here rather than
+  // at the store so the operator is told what to do about it while they still
+  // have the form open, and before the connection gate spends thirty seconds
+  // probing a node whose submission cannot be accepted anyway.
+  if (!body.signed) {
+    return json(res, 400, { error: "signature gate: paste the signed pairing block. " +
+      "Sign the exact pairing text shown above in your wallet under PayNym → Sign message, " +
+      "then paste the whole block, headers included." });
+  }
+  {
     // Operators paste this into a web form, which eats whitespace as readily as
     // a chat window does — and the signature covers the blank line before the
     // BIP47 line. Repair that before judging, so a correct signature is not
@@ -563,7 +575,18 @@ route("POST", /^\/api\/dojo\/pairing$/, async (req, res) => {
   if (payloadErr) return json(res, 400, { error: payloadErr });
 
   body.signed = cleanSigned(body.signed);
-  if (body.signed) {
+  // Required here for the same reason as at submission, and for one more: this
+  // endpoint assigns rec.signed unconditionally, so an edit that omitted the
+  // block used to replace a verified signature with null and quietly turn a
+  // checkable listing into an unattested one. New pairing details need a new
+  // signature over them; the old one covers the old details and would be a lie
+  // about the new.
+  if (!body.signed) {
+    return json(res, 400, { error: "signature gate: paste a signed block covering the NEW pairing details. " +
+      "Your existing signature covers the details you are replacing, so it cannot carry over. " +
+      "Your listing is unchanged." });
+  }
+  {
     const repaired = repairSignedBlock(body.signed);
     if (repaired) body.signed = repaired.block;
     const sig = verifySignedPayload({

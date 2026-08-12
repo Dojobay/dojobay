@@ -13,7 +13,7 @@ import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
-import { store } from "./store.ts";
+import { store, hasSignedBlock } from "./store.ts";
 import { urlOnDomain } from "./domains.ts";
 import type { PublicNode, PairingPayload, StoreRecord } from "../types.js";
 
@@ -187,26 +187,40 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
   } else if (!seed.nodes[0].paymentCode) {
     console.error(`[rebuild] REFUSING to publish the anchor seed node ${seed.nodes[0].id}: it has no BIP47 payment code.`);
   }
-  // A record with no payment code is not published. The store refuses to write
-  // one, so this only fires for something that predates that rule or was edited
-  // by hand — and in that case it is withheld rather than shown, because a
-  // listing nobody can be held to is exactly what this directory must not
-  // carry. Withheld, not deleted: the record stays for a maintainer to look at.
+  // A record with no payment code and no signed pairing block is not published.
+  // The store refuses to write either, so this only fires for something that
+  // predates those rules or was edited by hand — and in that case it is
+  // withheld rather than shown, because a listing nobody can be held to, or
+  // whose details nobody has attested to, is exactly what this directory must
+  // not carry. Withheld, not deleted: the record stays for a maintainer to look
+  // at. The two are reported separately because the remedies differ: a missing
+  // code cannot be supplied by anyone but the operator, while a missing
+  // signature usually means asking them to sign what they already gave us.
   const allApproved = (await store.listSubmissions()).filter((s) => s.status === "approved");
   const codeless = allApproved.filter((s) => !(s.paymentCodes || []).length);
   if (codeless.length) {
     console.error(`[rebuild] REFUSING to publish ${codeless.length} listing(s) with no BIP47 payment code: ${codeless.map((s) => s.id).join(", ")}. A listing must carry a payment code; remove it with server/remove-listing.ts, or give it one.`);
   }
-  const approvedSubs = allApproved.filter((s) => (s.paymentCodes || []).length);
+  const unsigned = allApproved.filter((s) => (s.paymentCodes || []).length && !hasSignedBlock(s));
+  if (unsigned.length) {
+    console.error(`[rebuild] REFUSING to publish ${unsigned.length} listing(s) with no signed pairing block: ${unsigned.map((s) => s.id).join(", ")}. Ask the operator to sign their pairing payload and resubmit, or remove the listing with server/remove-listing.ts.`);
+  }
+  const approvedSubs = allApproved.filter((s) => (s.paymentCodes || []).length && hasSignedBlock(s));
   const approved = approvedSubs.map((s) => toPublicNode(s, displayPaymentCode(s, codesDoc.mapping)));
   const approvedIds = new Set(approved.map((n) => n.id));
 
   const byId = new Map();
-  // The seed anchor is held to the same rule as any other listing.
+  // The seed anchor is held to the same rules as any other listing.
   const seedNodes = (seed.nodes || []).filter((n) => {
-    if (n && n.paymentCode) return true;
-    console.error(`[rebuild] withholding seed node ${n?.id}: no BIP47 payment code.`);
-    return false;
+    if (!n || !n.paymentCode) {
+      console.error(`[rebuild] withholding seed node ${n?.id}: no BIP47 payment code.`);
+      return false;
+    }
+    if (!hasSignedBlock(n)) {
+      console.error(`[rebuild] withholding seed node ${n?.id}: no signed pairing block.`);
+      return false;
+    }
+    return true;
   });
   for (const n of seedNodes) byId.set(n.id, n);
   for (const n of approved) byId.set(n.id, n);

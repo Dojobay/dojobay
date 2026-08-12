@@ -989,9 +989,17 @@ async function loadJSON(url){
     const r = await api.call("/auth47/challenge","POST",{});
     if(r.status!==200){ if(boxEl()) boxEl().innerHTML='<p class="loading">Login unavailable.</p>'; return; }
     const {uri,nonce} = r.body;
+    // The URI is shown as well as encoded because a QR is unusable when the
+    // wallet is on the SAME device as the browser, which is the common case on
+    // a phone: nothing can photograph its own screen. Selecting monospace text
+    // that wraps mid-token by hand is miserable there, so the challenge gets a
+    // copy button like every other opaque string in this interface.
     if(boxEl()) boxEl().innerHTML =
       `<a href="${esc(uri)}"><div class="tile" style="display:inline-block;background:#fff;border-radius:10px;padding:12px">${qrSVG(uri,200)}</div></a>
-       <div class="mono" style="font-size:10.5px;color:var(--faint);margin-top:8px;word-break:break-all">${esc(uri)}</div>`;
+       <div class="a47-uri">
+         <code class="mono">${esc(uri)}</code>
+         <button class="copybtn" data-act="copyurl" data-v="${esc(uri)}">copy challenge</button>
+       </div>`;
     pollTimer = setInterval(async ()=>{
       const p = await api.call("/auth47/poll?nonce="+encodeURIComponent(nonce));
       if(p.status===200 && p.body && p.body.authenticated){ clearInterval(pollTimer); await refreshMe(); (onAuthSuccess||renderManage)(); }
@@ -1127,7 +1135,7 @@ async function loadJSON(url){
   // backend's ADMIN_PAYMENT_CODES sees a moderation panel; others are refused.
   function adminShell(inner){
     document.getElementById("root").innerHTML = `
-    <header><div class="wrap">
+    <header class="no-menu"><div class="wrap">
       <a class="brand" href="./" aria-label="The Dojo Bay">${LOGO}
         <span><div class="name disp">THE DOJO BAY</div><div class="sub mono">operator console</div></span></a>
       <nav><a class="lnk" href="./">\u2190 Directory</a></nav>

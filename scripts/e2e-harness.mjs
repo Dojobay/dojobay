@@ -636,7 +636,50 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an empty network points at the one that is not");
 }
 
-console.log("\nall 28 front-end checks passed");
+// The operator console's header on a narrow screen. The mobile rule pulled
+// .brand out of flow so it could be centred against the hamburger, which left
+// the admin header with no in-flow child at all: it collapsed to its padding
+// and the title printed over the page beneath it, clipped, with the one nav
+// link unreachable because the nav turns into a dropdown that nothing opens.
+{
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  const mobile = css.slice(css.indexOf("@media (max-width:560px)"));
+  const block = mobile.slice(0, mobile.indexOf("@media (prefers-reduced-motion"));
+
+  assert.ok(!/(^|[^)])\s\.brand\{position:absolute/.test(block),
+    "the absolute centring must be conditional, not applied to every header");
+  assert.ok(/header:not\(\.no-menu\) \.brand\{position:absolute/.test(block),
+    "it applies only where a hamburger is in flow to hold the header open");
+  assert.ok(/header\.no-menu nav\{display:flex/.test(block),
+    "and a header without a menu keeps its nav visible rather than hiding it "
+    + "behind a control that does not exist");
+
+  // the admin shell must actually carry the class, or the rules above are dead
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  assert.ok(/<header class="no-menu">/.test(app),
+    "the operator console header opts out of the hamburger layout");
+  assert.equal((app.match(/<header/g) || []).length, 2,
+    "if a third header appears it needs a deliberate decision about which layout it takes");
+  console.log("  ok - the operator console header survives a narrow screen");
+}
+
+// The Auth47 challenge is copyable. A QR is useless when the wallet is on the
+// same device as the browser, which on a phone is the usual case, so the URI
+// underneath is the real affordance and hand-selecting it is miserable.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const fn = app.slice(app.indexOf("async function startAuth47"));
+  const body = fn.slice(0, fn.indexOf("\n  }\n"));
+  assert.ok(/data-act="copyurl"/.test(body) && /data-v="\$\{esc\(uri\)\}"/.test(body),
+    "the challenge carries a copy button wired to the same handler as every other copy");
+  assert.ok(/copy challenge/.test(body), "and says what it copies");
+  // the handler it names must exist, or the button is decoration
+  assert.ok(/if\(a==="copyurl"\)\{copy\(act\.getAttribute\("data-v"\)\)/.test(app),
+    "and copyurl is a real document-level handler, which the admin page shares");
+  console.log("  ok - the Auth47 challenge can be copied, not just photographed");
+}
+
+console.log("\nall 30 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

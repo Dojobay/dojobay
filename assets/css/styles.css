@@ -53,6 +53,13 @@
   .onion-pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-bg);padding:6px 10px;border-radius:7px;margin-left:4px}
   .onion-pill:hover{background:rgba(247,147,26,.16)}
   .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
+  /* The Auth47 challenge, shown under its QR. Wraps anywhere because it is one
+     unbroken token, and carries its own copy button for the same-device case. */
+  .a47-uri{display:flex;align-items:flex-start;gap:8px;justify-content:center;
+    margin-top:10px;flex-wrap:wrap;text-align:left}
+  .a47-uri code{font-size:10.5px;color:var(--faint);word-break:break-all;line-height:1.5;
+    flex:1 1 240px;min-width:0}
+  .a47-uri .copybtn{flex:0 0 auto}
   .upd-line{margin:6px 0}
   /* Self-update has never completed a run on real hardware. The badge is not
      decoration: a maintainer clicking Update from GitHub is the first person
@@ -275,8 +282,19 @@
     .meta{grid-template-columns:1fr}
     header .wrap{padding:14px 18px;position:relative;justify-content:flex-start}
     .burger{display:block;z-index:2}
-    /* centre the title while the hamburger is in use */
-    .brand{position:absolute;left:50%;transform:translateX(-50%)}
+    /* Centre the title while the hamburger is in use. Only then: taking .brand
+       out of flow leaves the burger as the header's only in-flow child, and on
+       a page that has no burger the header collapses to its padding, so the
+       brand overlaps whatever is beneath it. That is what the operator console
+       looked like on a phone, its title clipped over the Moderation heading,
+       and its one nav link was unreachable as well because the nav becomes a
+       dropdown with nothing to open it. */
+    header:not(.no-menu) .brand{position:absolute;left:50%;transform:translateX(-50%)}
+    header.no-menu .wrap{justify-content:space-between;gap:10px}
+    header.no-menu nav{display:flex;position:static;flex-direction:row;background:none;
+      backdrop-filter:none;border:0;padding:0}
+    header.no-menu nav .lnk{padding:8px 10px;font-size:14px;white-space:nowrap}
+    header.no-menu .brand .name{font-size:16px}
     /* the nav becomes a full-width dropdown under the header */
     nav{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;align-items:stretch;gap:2px;
         background:rgba(11,11,12,.97);backdrop-filter:blur(8px);border-bottom:1px solid var(--line-soft);padding:8px 14px 12px}

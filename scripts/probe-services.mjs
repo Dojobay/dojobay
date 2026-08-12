@@ -14,7 +14,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { socks5Connect } from "./update.mjs";
+import { httpOverTor } from "./update.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CFG = {
@@ -29,24 +29,20 @@ const ONLY = (() => { const i = process.argv.indexOf("--only"); return i > -1 ? 
 // Candidate endpoints, tried in order. We dump whatever each returns.
 const ENDPOINTS = ["/support/services", "/support/info", "/status"];
 
-function httpOverTor(host, port, rawReq) {
-  return new Promise(async (resolve, reject) => {
-    let sock;
-    try { sock = await socks5Connect(CFG.proxyHost, CFG.proxyPort, host, port, CFG.timeoutMs); }
-    catch (e) { return reject(e); }
-    let buf = "";
-    let settled = false;
-    const done = (fn, v) => { if (settled) return; settled = true; clearTimeout(t); try { sock.destroy(); } catch {} fn(v); };
-    const t = setTimeout(() => done(reject, new Error("read-timeout")), CFG.timeoutMs);
-    sock.on("data", (d) => { buf += d.toString("utf8"); });
-    sock.on("error", (e) => done(reject, e));
-    sock.on("close", () => {
-      const m = buf.match(/^HTTP\/1\.[01] (\d{3})/);
-      const i = buf.indexOf("\r\n\r\n");
-      done(resolve, { status: m ? +m[1] : 0, body: i >= 0 ? buf.slice(i + 4) : "" });
-    });
-    sock.write(rawReq);
-  });
+// A thin adapter over the shared reader in update.mjs rather than a second copy
+// of it. This file used to carry its own, which is how it kept an unbounded
+// accumulation for a while after the shared one was given a ceiling: a fix
+// applied in one place simply did not reach the other, and nothing said so.
+// Being a hand-run diagnostic makes that lower risk, not less true, and the
+// only thing the private copy did differently was decode the body as UTF-8,
+// which the shared one supports through bodyBuf.
+//
+// The default response ceiling applies. These endpoints return small JSON, so
+// if one ever trips the limit that is itself the finding this script exists to
+// surface, and it will say so rather than filling memory quietly.
+async function torRequest(host, port, rawReq) {
+  const res = await httpOverTor(CFG, host, port, rawReq, CFG.timeoutMs);
+  return { status: res.status, body: res.bodyBuf.toString("utf8") };
 }
 
 async function login(host, port, base, apikey) {
@@ -54,7 +50,7 @@ async function login(host, port, base, apikey) {
   const req = `POST ${base}/auth/login HTTP/1.0\r\nHost: ${host}\r\n` +
     `Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` +
     `Connection: close\r\n\r\n${body}`;
-  const res = await httpOverTor(host, port, req);
+  const res = await torRequest(host, port, req);
   if (res.status !== 200) throw new Error(`login HTTP ${res.status || "no-response"}`);
   const tok = JSON.parse(res.body)?.authorizations?.access_token;
   if (!tok) throw new Error("login: no token");
@@ -64,7 +60,7 @@ async function login(host, port, base, apikey) {
 async function get(host, port, base, endpoint, token) {
   const req = `GET ${base}${endpoint} HTTP/1.0\r\nHost: ${host}\r\n` +
     `Authorization: Bearer ${token}\r\nConnection: close\r\n\r\n`;
-  const res = await httpOverTor(host, port, req);
+  const res = await torRequest(host, port, req);
   let json = null;
   try { json = JSON.parse(res.body); } catch {}
   return { status: res.status, json, body: res.body };

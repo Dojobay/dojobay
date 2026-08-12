@@ -761,4 +761,21 @@ await check("the real source tree sits well inside the budget", async () => {
     `the tree inflates to ${(total / 1048576).toFixed(2)} MiB against a ${(MAX_INFLATED_BYTES / 1048576)} MiB budget; raise the budget deliberately`);
 });
 
+// The reason this exists: probe-services.mjs kept its own copy of the reader and
+// therefore kept the unbounded accumulation for a while after the shared one was
+// fixed. Asserting on the source is the only way to notice a third copy
+// appearing, since a duplicate is by definition not covered by the shared one's
+// tests.
+await check("no second copy of the Tor reader has grown back", async () => {
+  const here = new URL(".", import.meta.url).pathname;
+  for (const f of ["probe-services.mjs", "bootstrap-import.mjs"]) {
+    const src = readFileSync(here + f, "utf8");
+    assert.ok(/import \{[^}]*httpOverTor[^}]*\} from "\.\/update\.mjs"/.test(src)
+              || /from "\.\/update\.mjs"/.test(src) && !/function httpOverTor/.test(src),
+      `${f} should use the shared reader`);
+    assert.ok(!/function httpOverTor/.test(src),
+      `${f} declares its own httpOverTor; give it the shared one instead of a second ceiling to maintain`);
+  }
+});
+
 console.log(`\nall ${passed} checks passed`);

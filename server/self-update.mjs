@@ -32,17 +32,48 @@ import { githubGet } from "./updates.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// The most an archive may inflate to, in total, across every entry.
+//
+// MAX_SOURCE_ZIP_BYTES bounds what arrives over the wire; this bounds what it
+// becomes. Deflate is not size-preserving and the gap is enormous: fifty
+// megabytes of zeroes compresses to about fifty kilobytes, a ratio of roughly a
+// thousand to one, so a peer could stay well inside the 8 MiB download ceiling
+// and still hand back something that expands to gigabytes. The result would be
+// an instance out of memory or out of disk part way through updating itself,
+// which is the worst moment for it to happen: the operator's usual recourse is
+// the box, and the box is the thing that has just stopped.
+//
+// 32 MiB against a real tree that inflates to 0.87 MiB across 70 entries, its
+// largest single file 88 KiB. That is around thirty-five times the true figure,
+// so the project can grow for a long time without anyone revisiting this, and
+// the updater self-test asserts the real tree stays well under it so that
+// growth is noticed as a decision rather than as a failed update.
+//
+// One budget rather than a per-entry limit and a total: each entry is inflated
+// with whatever remains of the allowance, so a single enormous file and ten
+// thousand merely large ones are refused by the same arithmetic.
+export const MAX_INFLATED_BYTES = 32 * 1024 * 1024;
+
+// A zip's central directory declares its own entry count, so this bounds how
+// many files a hostile archive can ask us to create. The byte budget above does
+// not cover it: sixty thousand empty entries cost no memory and still write
+// sixty thousand files into staging. 2000 against a real tree of 70.
+export const MAX_ENTRIES = 2000;
+
 // ---- unzip (matches scripts/pack-source.mjs's writer) ------------------------
 // Reads the central directory and inflates stored/deflated entries. Guards
-// against zip-slip: entries must stay under the single top-level folder.
+// against zip-slip: entries must stay under the single top-level folder, and
+// against decompression bombs: see MAX_INFLATED_BYTES.
 export function unzip(buf) {
   const files = [];
+  let used = 0;
   // find End Of Central Directory
   let eocd = buf.length - 22;
   while (eocd >= 0 && buf.readUInt32LE(eocd) !== 0x06054b50) eocd--;
   if (eocd < 0) throw new Error("not a zip (no EOCD)");
   let count = buf.readUInt16LE(eocd + 10);
   let off = buf.readUInt32LE(eocd + 16);
+  if (count > MAX_ENTRIES) throw new Error(`archive declares ${count} entries, more than the ${MAX_ENTRIES} allowed`);
   for (let i = 0; i < count; i++) {
     if (buf.readUInt32LE(off) !== 0x02014b50) throw new Error("bad central directory");
     const method = buf.readUInt16LE(off + 10);
@@ -57,7 +88,31 @@ export function unzip(buf) {
     const lextraLen = buf.readUInt16LE(lho + 28);
     const dataStart = lho + 30 + lnameLen + lextraLen;
     const comp = buf.subarray(dataStart, dataStart + compSize);
-    const data = method === 8 ? inflateRawSync(comp) : Buffer.from(comp);
+    // Inflated against what is LEFT of the allowance, so the budget is spent
+    // across the archive rather than per entry. zlib stops at the ceiling
+    // instead of allocating and then being asked about it afterwards, which is
+    // the whole point: checking data.length after inflateRawSync would mean the
+    // memory had already been committed.
+    const remaining = MAX_INFLATED_BYTES - used;
+    let data;
+    if (method === 8) {
+      try {
+        data = inflateRawSync(comp, { maxOutputLength: remaining });
+      } catch (e) {
+        // zlib reports this as a Buffer size error, which reads as an internal
+        // fault rather than a rejected archive. Say what actually happened.
+        if (e && (e.code === "ERR_BUFFER_TOO_LARGE" || /larger than/.test(e.message || ""))) {
+          throw new Error(`archive inflates past the ${MAX_INFLATED_BYTES} byte limit at entry ${name}`);
+        }
+        throw e;
+      }
+    } else {
+      if (comp.length > remaining) {
+        throw new Error(`archive inflates past the ${MAX_INFLATED_BYTES} byte limit at entry ${name}`);
+      }
+      data = Buffer.from(comp);
+    }
+    used += data.length;
     files.push({ name, data });
     off += 46 + nameLen + extraLen + commentLen;
   }

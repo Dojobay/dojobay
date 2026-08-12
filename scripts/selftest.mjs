@@ -8,6 +8,7 @@
 // Run: node scripts/selftest.mjs   (exit 0 = all assertions passed)
 
 import net from "node:net";
+import { deflateRawSync } from "node:zlib";
 import tlsMod from "node:tls";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -163,6 +164,45 @@ function makeMiniZip(name, data) {
   const central = Buffer.concat([u32(0x02014b50), u16(20), common, u16(0), u16(0), u16(0), u32(0), u32(0), nb]);
   const end = Buffer.concat([u32(0x06054b50), u16(0), u16(0), u16(1), u16(1), u32(central.length), u32(local.length), u16(0)]);
   return Buffer.concat([local, central, end]);
+}
+
+// makeMiniZip stores its payload (method 0); a bomb has to be deflated to be a
+// bomb, so this is a second builder rather than a parameter on the first.
+function makeDeflatedZip(name, raw) {
+  const comp = deflateRawSync(raw);
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n & 0xffff); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+  const nb = Buffer.from(name, "utf8");
+  // method 8, and the header declares the TRUE inflated size. A hostile archive
+  // would lie here, which is exactly why the guard is enforced by zlib during
+  // inflation rather than by believing this field.
+  const common = Buffer.concat([u16(20), u16(0x0800), u16(8), u16(0), u16(0), u32(0), u32(comp.length), u32(raw.length), u16(nb.length), u16(0)]);
+  const local = Buffer.concat([u32(0x04034b50), common, nb, comp]);
+  const central = Buffer.concat([u32(0x02014b50), u16(20), common, u16(0), u16(0), u16(0), u32(0), u32(0), nb]);
+  const end = Buffer.concat([u32(0x06054b50), u16(0), u16(0), u16(1), u16(1), u32(central.length), u32(local.length), u16(0)]);
+  return Buffer.concat([local, central, end]);
+}
+
+// Several deflated entries in one archive, so the shared-budget behaviour can
+// be told apart from a per-entry limit.
+function concatZip(pairs) {
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n & 0xffff); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+  const locals = [], centrals = [];
+  let off = 0;
+  for (const [name, raw] of pairs) {
+    const comp = deflateRawSync(raw);
+    const nb = Buffer.from(name, "utf8");
+    const common = Buffer.concat([u16(20), u16(0x0800), u16(8), u16(0), u16(0), u32(0), u32(comp.length), u32(raw.length), u16(nb.length), u16(0)]);
+    const local = Buffer.concat([u32(0x04034b50), common, nb, comp]);
+    centrals.push(Buffer.concat([u32(0x02014b50), u16(20), common, u16(0), u16(0), u16(0), u32(0), u32(off), nb]));
+    locals.push(local);
+    off += local.length;
+  }
+  const localAll = Buffer.concat(locals), centralAll = Buffer.concat(centrals);
+  const end = Buffer.concat([u32(0x06054b50), u16(0), u16(0), u16(pairs.length), u16(pairs.length),
+    u32(centralAll.length), u32(localAll.length), u16(0)]);
+  return Buffer.concat([localAll, centralAll, end]);
 }
 
 console.log("self-test: reachability detection");
@@ -655,6 +695,70 @@ await check("source zip round-trips through self-update; staging works; zip-slip
     const evil = makeMiniZip("dojobay/../evil.txt", Buffer.from("x"));
     await assert.rejects(applyUpdate({ bytes: evil, webRoot: "/tmp", spawnHelper: false, log: () => {} }), /unsafe path|does not look like/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+// A decompression bomb. MAX_SOURCE_ZIP_BYTES bounds what arrives; this is about
+// what it becomes, and the gap is not small: deflate turns a run of zeroes into
+// roughly a thousandth of its size, so an archive comfortably inside the
+// download ceiling can still claim gigabytes on the way out.
+await check("an archive that inflates past the budget is refused", async () => {
+  const { unzip, MAX_INFLATED_BYTES } = await import("../server/self-update.mjs");
+  const raw = Buffer.alloc(MAX_INFLATED_BYTES * 2, 0);
+  const bomb = makeDeflatedZip("dojobay/big.bin", raw);
+  assert.ok(bomb.length < 1024 * 1024,
+    `the bomb must be small to be the case in question, it is ${bomb.length} bytes`);
+  assert.throws(() => unzip(bomb), /inflates past the \d+ byte limit at entry dojobay\/big\.bin/,
+    "refused, naming the limit and the entry that hit it");
+});
+
+await check("the budget is spent across the archive, not per entry", async () => {
+  const { unzip, MAX_INFLATED_BYTES } = await import("../server/self-update.mjs");
+  // Two thirds of the budget, twice. Neither entry is individually oversized,
+  // so a per-entry check would pass both and let the archive through at 133%.
+  const chunk = Buffer.alloc(Math.floor(MAX_INFLATED_BYTES * 0.66), 0);
+  const two = concatZip([["dojobay/a.bin", chunk], ["dojobay/b.bin", chunk]]);
+  assert.throws(() => unzip(two), /inflates past the \d+ byte limit at entry dojobay\/b\.bin/,
+    "the second entry is where the shared allowance runs out");
+});
+
+await check("a hostile entry count is refused before anything is inflated", async () => {
+  const { unzip, MAX_ENTRIES } = await import("../server/self-update.mjs");
+  // Zero-length entries cost no memory at all, so the byte budget never fires;
+  // what they cost is a file each in staging.
+  const many = makeMiniZip("dojobay/x.txt", Buffer.alloc(0));
+  many.writeUInt16LE(MAX_ENTRIES + 1, many.length - 22 + 10);
+  assert.throws(() => unzip(many), new RegExp(`declares ${MAX_ENTRIES + 1} entries`),
+    "refused on the declared count, before the entry loop runs");
+});
+
+await check("a bomb aborts the update before staging or backup is touched", async () => {
+  const { applyUpdate, MAX_INFLATED_BYTES } = await import("../server/self-update.mjs");
+  const dir = mkdtempSync("/tmp/dojobay-bomb-");
+  try {
+    const bomb = makeDeflatedZip("dojobay/big.bin", Buffer.alloc(MAX_INFLATED_BYTES * 2, 0));
+    await assert.rejects(applyUpdate({ bytes: bomb, webRoot: dir, spawnHelper: false, log: () => {} }),
+      /inflates past/);
+    // unzip runs first in applyUpdate, so nothing should exist yet. This is the
+    // property that matters operationally: a rejected archive must not leave a
+    // half-made staging tree or a backup of code that was never replaced.
+    const { readdirSync, existsSync } = await import("node:fs");
+    assert.ok(!existsSync(dir + "/data/updates"), "no staging directory was created");
+    assert.ok(!existsSync(dir + "/data/backups"), "no backup was taken");
+    assert.equal(readdirSync(dir).length, 0, "the web root is untouched: " + readdirSync(dir).join(", "));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+await check("the real source tree sits well inside the budget", async () => {
+  const { unzip, MAX_INFLATED_BYTES } = await import("../server/self-update.mjs");
+  const zipPath = new URL("../data/dojobay-src.zip", import.meta.url).pathname;
+  execFileSync(process.execPath, [new URL("./pack-source.mjs", import.meta.url).pathname], { stdio: "ignore" });
+  const files = unzip(readFileSync(zipPath));
+  const total = files.reduce((a, f) => a + f.data.length, 0);
+  // Fails once the tree reaches half the allowance, which is the point at which
+  // raising the ceiling should be a decision somebody makes rather than a
+  // self-update that stops working without explanation.
+  assert.ok(total < MAX_INFLATED_BYTES / 2,
+    `the tree inflates to ${(total / 1048576).toFixed(2)} MiB against a ${(MAX_INFLATED_BYTES / 1048576)} MiB budget; raise the budget deliberately`);
 });
 
 console.log(`\nall ${passed} checks passed`);

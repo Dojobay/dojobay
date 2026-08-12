@@ -196,6 +196,24 @@ async function loadJSON(url){
     const coords=pts.map(p=>{const x=pad+(p.i/n)*(W-2*pad); const y=H-pad-((p.h-min)/span)*(H-2*pad); return x.toFixed(1)+","+y.toFixed(1);});
     return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-label="closing block height over 90 days"><polyline points="${coords.join(" ")}" fill="none" stroke="var(--accent-2)" stroke-width="1.5"/></svg>`;
   }
+  // The two thresholds behind every reliability figure on a card, named because
+  // they were previously three unrelated numbers in two places that disagreed
+  // with each other in the same widget.
+  //
+  // DAY_UP_PCT is what "a day was up" means, and it is deliberately shared: the
+  // 90-day strip paints these days green and the footer counts exactly these
+  // days, so the strip is now a picture of the number printed under it. 95%
+  // rather than 99% because a node re-checked every ten minutes takes 144
+  // checks a day, so 99% left no room for one missed probe or a short restart;
+  // 95% allows about seven misses, roughly an hour.
+  //
+  // DAY_PARTIAL_PCT is not a second definition of "up". It subdivides the days
+  // that were NOT up, so a reader can tell a wobble from an outage: a day that
+  // managed most of its checks is amber, a day that lost more than half is red.
+  // Both are counted as down in the footer. Reading amber as a pass is the
+  // mistake this pair exists to prevent, which is why the tooltip states the
+  // threshold rather than saying "up".
+  const DAY_UP_PCT = 95, DAY_PARTIAL_PCT = 50;
   async function renderHist90(mount, id){
     if(!mount) return;
     const body = mount.querySelector(".h90-body");
@@ -205,28 +223,22 @@ async function loadJSON(url){
     const view = days.slice(-90);
     const bars = view.map(d=>{
       const pct = d.pct==null?null:d.pct;
-      // Green at 95% rather than 99%. A node re-checked every ten minutes racks
-      // up 144 checks a day, so 99% left no room for a single missed probe or a
-      // short restart: one bad check was 0.7% and two put an otherwise healthy
-      // day into the amber band. 95% allows about seven missed checks, which is
-      // roughly an hour, and reserves amber for a day that genuinely wobbled.
-      const cls = pct==null?"na":(pct>=95?"up":(pct>=80?"mid":"down"));
+      const cls = pct==null?"na":(pct>=DAY_UP_PCT?"up":(pct>=DAY_PARTIAL_PCT?"mid":"down"));
       const t = `${d.d}: ${pct==null?"no data":pct+"% up"}${d.close!=null?", close "+Number(d.close).toLocaleString("en-GB"):""}`;
       return `<span class="d90 ${cls}" title="${esc(t)}"></span>`;
     }).join("");
     const closes = view.filter(d=>d.close!=null).map(d=>d.close);
     const latest = closes.length?closes[closes.length-1]:null;
-    // Day-count reliability: a day counts as up when at least half of its
-    // probe checks succeeded (pct >= 50); the percentage is derived from the
-    // same ratio so the two figures always agree, e.g. "94.4% · 68/72 days".
+    // The footer counts the SAME days the strip paints green, so the two can
+    // never disagree about what a good day is.
     const withData = view.filter(d=>d.pct!=null);
-    const upDays = withData.filter(d=>Number(d.pct)>=50).length;
+    const upDays = withData.filter(d=>Number(d.pct)>=DAY_UP_PCT).length;
     const relTxt = withData.length
       ? (p=>`${p%1===0?p:p.toFixed(1)}% · ${upDays}/${withData.length} days`)(100*upDays/withData.length)
       : `${view.length} day${view.length>1?"s":""}`;
     if(body) body.innerHTML =
       `<div class="d90strip">${bars}</div>`+
-      `<div class="d90foot"><span class="faint" title="days with at least half of their checks up, of days with data">${relTxt}</span>`+
+      `<div class="d90foot"><span class="faint" title="days with at least ${DAY_UP_PCT}% of their checks up, of days with data">${relTxt}</span>`+
       (latest!=null?`<span class="faint">closing height ${Number(latest).toLocaleString("en-GB")}</span>`:"")+`</div>`+
       heightSparkline(view);
   }

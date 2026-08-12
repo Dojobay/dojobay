@@ -108,7 +108,9 @@ window.fetch = async (url, opts) => {
     /history\.json/.test(url) ? HIST :
     /history-daily\.json/.test(url) ? { nodes: {
       "mainnet-91xtx93-yellow": { days: [{d:"2026-07-12",pct:100,close:905900},{d:"2026-07-13",pct:99.3,close:906000}] },
-      "mainnet-kilombino": { days: Array.from({length:7},(_,i)=>({d:"2026-07-0"+(7+i),pct:90,close:905000+i})) },
+      // A flat 90% with one day at 60: the exact case that exposed the old
+      // mismatch, where 60 was counted as an up day but painted amber.
+      "mainnet-kilombino": { days: Array.from({length:7},(_,i)=>({d:"2026-07-0"+(7+i),pct:i===0?60:90,close:905000+i})) },
       "mainnet-deadnode": { days: Array.from({length:7},(_,i)=>({d:"2026-07-0"+(7+i),pct:0,close:null})) },
     } } :
     /version\.json/.test(url) ? VERSION :
@@ -164,7 +166,38 @@ assert.ok(h90.querySelectorAll(".d90").length === 2, "hist90 hydrated with daily
 assert.ok(/100% · 2\/2 days/.test(h90.querySelector(".d90foot").textContent), "hist90 stat line, got: " + h90.querySelector(".d90foot").textContent);
 const deadFoot = doc.querySelector('.card[data-id="mainnet-deadnode"] .hist90 .d90foot');
 assert.ok(deadFoot && /0% · 0\/7 days/.test(deadFoot.textContent), "dead node reads 0% · 0/7 days, got: " + (deadFoot && deadFoot.textContent));
-console.log("  ok - 90-day strip on the card, hydrated, with pct · up/total day stat");
+console.log("  ok - 90-day strip on the card, hydrated, with pct \u00b7 up/total day stat");
+
+// The strip and the footer sit in one widget and used to disagree in it: a day
+// at 60% was counted as up in the footer (threshold 50) while the square beside
+// it was painted amber (green at 99). They now share one definition of a good
+// day, so the footer is a count of the green squares above it. kilombino runs
+// at a flat 90% and is the case that exposed the old mismatch.
+{
+  const kFoot = doc.querySelector('.card[data-id="mainnet-kilombino"] .hist90 .d90foot');
+  const kBars = [...doc.querySelectorAll('.card[data-id="mainnet-kilombino"] .hist90 .d90')];
+  assert.ok(kFoot && /0% · 0\/7 days/.test(kFoot.textContent),
+    "a node at a flat 90% counts no day as up, got: " + (kFoot && kFoot.textContent.trim()));
+  assert.ok(kBars.length === 7 && kBars.every((b) => b.classList.contains("mid")),
+    "and every day from 60% to 90% reads amber, not red: a wobble is distinguishable "
+    + "from an outage, got: " + JSON.stringify(kBars.map((b) => b.className)));
+  assert.ok(/at least 95% of their checks/.test(kFoot.querySelector("span").getAttribute("title") || ""),
+    "the footer states the threshold rather than saying 'up', so amber is not misread as a pass");
+
+  // the shared boundary itself: the days the footer counts are exactly the
+  // green ones. yellow sits at 100 and 99.3, both above it.
+  const yBars = [...h90.querySelectorAll(".d90")];
+  assert.equal(yBars.filter((b) => b.classList.contains("up")).length, 2,
+    "both of yellow's days are green");
+  assert.ok(/100% · 2\/2 days/.test(h90.querySelector(".d90foot").textContent),
+    "and the footer counts exactly those two");
+
+  // and the red band still means what it says
+  const dBars = [...doc.querySelectorAll('.card[data-id="mainnet-deadnode"] .hist90 .d90')];
+  assert.ok(dBars.length === 7 && dBars.every((b) => b.classList.contains("down")),
+    "a node at 0% is red across the strip");
+  console.log("  ok - strip and footer share one definition of a good day");
+}
 
 // hamburger: state-driven toggle
 assert.ok(doc.querySelector(".burger"), "burger button rendered");
@@ -603,7 +636,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an empty network points at the one that is not");
 }
 
-console.log("\nall 27 front-end checks passed");
+console.log("\nall 28 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

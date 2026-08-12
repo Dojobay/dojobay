@@ -205,7 +205,12 @@ async function loadJSON(url){
     const view = days.slice(-90);
     const bars = view.map(d=>{
       const pct = d.pct==null?null:d.pct;
-      const cls = pct==null?"na":(pct>=99?"up":(pct>=80?"mid":"down"));
+      // Green at 95% rather than 99%. A node re-checked every ten minutes racks
+      // up 144 checks a day, so 99% left no room for a single missed probe or a
+      // short restart: one bad check was 0.7% and two put an otherwise healthy
+      // day into the amber band. 95% allows about seven missed checks, which is
+      // roughly an hour, and reserves amber for a day that genuinely wobbled.
+      const cls = pct==null?"na":(pct>=95?"up":(pct>=80?"mid":"down"));
       const t = `${d.d}: ${pct==null?"no data":pct+"% up"}${d.close!=null?", close "+Number(d.close).toLocaleString("en-GB"):""}`;
       return `<span class="d90 ${cls}" title="${esc(t)}"></span>`;
     }).join("");
@@ -515,6 +520,28 @@ async function loadJSON(url){
     return String(a.name||a.id).localeCompare(String(b.name||b.id),"en",{sensitivity:"base"});
   }
 
+  // A directory with nothing in it. Reached in two ways that look identical to
+  // this function but mean opposite things to a reader: a freshly installed
+  // instance that has not yet run its first rebuild, and an established one
+  // whose selected network happens to hold no listings. Say which, because
+  // "nothing here" reads as a fault otherwise, and a new operator staring at a
+  // blank page has no way to tell a working install from a broken one.
+  function emptyState(){
+    const other = net==="mainnet" ? "testnet" : "mainnet";
+    const anyElsewhere = (DOJOS.nodes||[]).some(n=>n.network===other);
+    const fresh = !(DOJOS.nodes||[]).length && !DOJOS.generated_at;
+    return '<div class="empty">'
+      + (fresh
+          ? '<p><b>Nothing published yet.</b> This directory has not completed its first refresh. '
+            + 'If you have just installed it, run the rebuild and wait for one probe cycle; listings appear here as they are approved.</p>'
+          : '<p><b>No '+esc(net)+' Dojos are listed right now.</b>'
+            + (anyElsewhere ? ' There are listings on '+esc(other)+': use the network switch above.' : '')
+            + '</p>')
+      + '<p class="empty-cta">If you run a Dojo, you can list it yourself: '
+      + '<button class="lnk" data-act="manage">Manage my Dojo</button>.</p>'
+      + '</div>';
+  }
+
   function render(){
     const list=DOJOS.nodes.filter(n=>n.network===net).sort(byUptime);
     const active=list.filter(n=>n.status==="active").length;
@@ -566,7 +593,9 @@ async function loadJSON(url){
         as unknown rather than up or down.
         (If your device's clock is wrong, this warning can appear on a healthy directory.)
       </div>`:""}
-      <div class="grid${FRESH.stale?" stale":""}">${list.map(card).join("")}</div>
+      ${list.length
+        ? `<div class="grid${FRESH.stale?" stale":""}">${list.map(card).join("")}</div>`
+        : emptyState()}
       <p class="note">The Dojo Bay is a federation of independent operators across different jurisdictions, and every node is reachable over Tor. Nodes go up and down without notice, and only the operator can restart one. Pairing exposes your XPUBs to that node, so do your own due diligence, or <a href="https://dojo-osp.org/install/requirements" target="_blank" rel="noopener">run your own Dojo</a>.</p>
     </main>
 

@@ -44,7 +44,7 @@ content/
   about.md, faq.md, disclaimer.md   # modal copy: edit these, no JS required
 data/
   seed.json                # instance ANCHOR: the operator's own node (exactly one)
-  dojos.json               # GENERATED public list: seed + approved submissions
+  dojos.json               # GENERATED public list: committed EMPTY, see below
   history.json             # rolling 24h check series   (instance-owned)
   history-daily.json       # 90-day daily rollups       (instance-owned)
   operator.json            # signed onion<->payment-code binding for Verify
@@ -78,6 +78,17 @@ deploy/
 running instance: never hand-edit them, and never let a deploy overwrite
 them. The deploy workflow excludes them for that reason, and `server/data/`
 is gitignored because the store holds Dojo API keys and live sessions.
+
+The committed `data/dojos.json` is an **empty scaffold**, and should stay that
+way. The file has to exist so a freshly installed instance serves something at
+`/data/dojos.json` before its first rebuild rather than a 404, but its contents
+are worthless in the repository and actively harmful: a real snapshot goes stale
+within days, publishes every listed operator's API key at a frozen moment, and
+invites someone to read the instance's state from a file that has not described
+it for weeks. `generated_at: null` is deliberate, since it makes the front end
+report the directory as never refreshed and show an empty state that says so.
+Do not commit a populated one, and do not treat a diff to this file as a
+routine refresh.
 
 ## Tests
 

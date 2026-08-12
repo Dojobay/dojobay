@@ -9,6 +9,11 @@
     --accent:#b5302a; --accent-2:#d6534a; --accent-bg:rgba(181,48,42,.12); --accent-line:rgba(181,48,42,.34);
     --btc:#f7931a; --btc-text:#1a1206; --grey-sel:#8a8a8a;
     --up:#3fb950; --up-bg:rgba(63,185,80,.14); --down:#d6584f; --down-dim:#5a3330;
+    /* Every use of this was written as var(--warn,#e0a020) against a token that
+       was never declared, so the fallback always won. Declared here so the
+       amber is adjustable in one place; --mid is the 90-day middle band, which
+       was a bare hex literal for the same reason. */
+    --warn:#e0a020; --mid:#b9a13a;
     --code-bg:#070707; --code-fg:#e6a39b;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -109,6 +114,13 @@
   /* Stale data: the updater has not refreshed dojos.json for several intervals,
      so we stop asserting status. Badges go neutral rather than green or red,
      because "unknown" is the honest answer, not "down". */
+  /* The empty directory. Deliberately quiet: a bordered panel rather than a
+     warning colour, because an instance with nothing published yet is usually
+     new rather than broken. */
+  .empty{border:1px dashed var(--line);border-radius:10px;padding:26px 22px;text-align:center;
+    color:var(--muted);font-size:14px;line-height:1.65;margin:0 0 18px}
+  .empty b{color:var(--text)}
+  .empty-cta{margin-top:8px;font-size:13px;color:var(--faint)}
   .stale-banner{margin:0 0 18px;padding:12px 14px;border-radius:8px;font-size:13.5px;line-height:1.6;
     color:var(--text);background:rgba(214,88,79,.10);border:1px solid rgba(214,88,79,.35)}
   .stale-banner b{color:var(--down)}
@@ -284,7 +296,7 @@
   .hist90{margin-top:12px}
   .d90strip{display:flex;gap:1px;align-items:flex-end;height:22px;margin:8px 0 6px}
   .d90{flex:1 1 0;min-width:1px;height:100%;border-radius:1px;background:var(--line)}
-  .d90.up{background:var(--up)} .d90.mid{background:#b9a13a} .d90.down{background:var(--down)} .d90.na{background:var(--line)}
+  .d90.up{background:var(--up)} .d90.mid{background:var(--mid)} .d90.down{background:var(--down)} .d90.na{background:var(--line)}
   .d90foot{display:flex;justify-content:space-between;font-size:11px;font-family:'JetBrains Mono',monospace}
   .spark{display:block;margin-top:6px;opacity:.9}
 

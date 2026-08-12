@@ -524,7 +524,72 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an open tab refetches, and never redraws under an open dialog");
 }
 
-console.log("\nall 23 front-end checks passed");
+// A directory with no listings. This needs its own JSDOM rather than a mutation
+// of the shared one: every check above runs against a single mounted page, and
+// emptying its data mid-run would leave the page in a state no reader ever
+// sees. The repository now ships an empty data/dojos.json scaffold, so the
+// fresh-install path below is not hypothetical, it is what a new operator gets
+// for the minute between installing and the first rebuild.
+{
+  const mountWith = async (dojos) => {
+    const d = new JSDOM(`<!DOCTYPE html><html><body><div id="root"></div></body></html>`,
+      { url: "http://dojobay.onion/", runScripts: "outside-only", pretendToBeVisual: true });
+    const w = d.window;
+    w.confirm = () => true; w.prompt = () => "";
+    w.qrcode = () => ({ addData(){}, make(){}, getModuleCount(){ return 21; }, isDark(){ return false; } });
+    w.markdown = { render: (t) => t };
+    w.fetch = async (url) => {
+      const body =
+        /dojos\.json/.test(url) ? dojos :
+        /history\.json/.test(url) ? { nodes: {} } :
+        /history-daily\.json/.test(url) ? { nodes: {} } :
+        /version\.json/.test(url) ? VERSION :
+        /\/api\/me/.test(url) ? { authenticated: false } : null;
+      if (body === null) return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}), text: async () => "" };
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => body, text: async () => JSON.stringify(body) };
+    };
+    w.eval(appJs);
+    await new Promise((r) => setTimeout(r, 80));
+    return d;
+  };
+
+  // 1. a freshly installed instance: the shipped scaffold, never rebuilt.
+  const fresh = await mountWith({ generated_at: null, interval_minutes: 10, nodes: [] });
+  const fd = fresh.window.document;
+  assert.equal(fd.querySelectorAll(".card").length, 0, "no cards are drawn for an empty list");
+  const emptyBox = fd.querySelector(".empty");
+  assert.ok(emptyBox, "an empty directory shows an empty state rather than a blank page");
+  assert.ok(/not completed its first refresh/i.test(emptyBox.textContent),
+    "a never-rebuilt instance says so, rather than implying nobody is listed: " + JSON.stringify(emptyBox.textContent.trim().slice(0, 80)));
+  assert.ok(emptyBox.querySelector('[data-act="manage"]'),
+    "and offers the route to listing a Dojo, which is the only useful action from here");
+  console.log("  ok - a fresh install shows 'not yet refreshed', not an empty grid");
+
+  // The staleness banner must not also fire here. generated_at is null, so
+  // freshness() reports unknown, and two competing explanations for the same
+  // blank page would be worse than either alone.
+  assert.ok(!fd.querySelector(".grid"), "no grid element is emitted at all when there is nothing to put in it");
+  fresh.window.close();
+
+  // 2. an established instance whose selected network is empty. Different
+  //    message: the data is current, the other network has listings.
+  const oneSided = await mountWith({
+    generated_at: new Date().toISOString(), interval_minutes: 10,
+    nodes: [{ id: "testnet-only", network: "testnet", name: "only", status: "active",
+      paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+      payload: { pairing: { type: "dojo.api", version: "1.28.0", apikey: "k", url: "http://" + "b".repeat(56) + ".onion/v2" } } }],
+  });
+  const od = oneSided.window.document;
+  const box2 = od.querySelector(".empty");
+  assert.ok(box2 && /No mainnet Dojos/i.test(box2.textContent),
+    "an empty network says which network is empty: " + JSON.stringify(box2 && box2.textContent.trim().slice(0, 80)));
+  assert.ok(/testnet/i.test(box2.textContent),
+    "and points at the network that does have listings rather than leaving the reader stuck");
+  oneSided.window.close();
+  console.log("  ok - an empty network points at the one that is not");
+}
+
+console.log("\nall 26 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

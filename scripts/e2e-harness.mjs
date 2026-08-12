@@ -463,6 +463,20 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   assert.ok(/overflow-y:auto/.test(body) && /min-height:0/.test(body),
     "only the modal body scrolls, and it can shrink inside the flex column");
   console.log("  ok - dialog scrolls its body, so content never passes behind the header");
+
+  // Every var(--x) must resolve to a declared property. An undeclared custom
+  // property is silent: it takes the fallback, renders plausibly and errors
+  // nowhere, so --warn spent its whole life resolving to its own fallback and
+  // .admin-row to a colour nobody had chosen deliberately. Both were only found
+  // by looking. This check is what stops the third one hiding as long.
+  const declared = new Set([...css.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((m) => m[1]));
+  const sources = ["/assets/css/styles.css", "/assets/js/app.js", "/index.html"]
+    .map((f) => { try { return readFileSync(REPO + f, "utf8"); } catch { return ""; } }).join("\n");
+  const undeclared = [...new Set([...sources.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g)]
+    .map((m) => m[1]).filter((n) => !declared.has(n)))];
+  assert.deepEqual(undeclared, [],
+    "every custom property referenced must be declared in :root, undeclared: " + JSON.stringify(undeclared));
+  console.log("  ok - no var() reference falls through to a fallback for want of a declaration");
 }
 
 
@@ -589,7 +603,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an empty network points at the one that is not");
 }
 
-console.log("\nall 26 front-end checks passed");
+console.log("\nall 27 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

@@ -14,6 +14,13 @@
        amber is adjustable in one place; --mid is the 90-day middle band, which
        was a bare hex literal for the same reason. */
     --warn:#e0a020; --mid:#b9a13a;
+    /* Same class of bug, found by auditing every var() reference against the
+       declarations: .admin-row asked for --card and had been taking #0e0e10 by
+       fallback since it was written. Declared at that value rather than at
+       --panel, so nothing changes appearance; whether the admin rows were meant
+       to sit a shade darker than the cards they resemble is a separate
+       question, and not one to answer by accident a second time. */
+    --card:#0e0e10;
     --code-bg:#070707; --code-fg:#e6a39b;
   }
   *{box-sizing:border-box;margin:0;padding:0}

@@ -1185,8 +1185,19 @@ async function loadJSON(url){
       + '<button class="abtn ok" data-adm="update-github">Update from GitHub</button>'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button>'
       + '</div>';
-    return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel+'</p>'
+    // Marked experimental in the panel itself rather than only in the docs,
+    // because the person about to click is not reading the docs. This stays
+    // until a self-update has completed on real hardware; when it goes, the
+    // note in README goes with it.
+    const note = '<p class="upd-exp-note">Self-update has not yet completed a run on production hardware. '
+      + 'It fetches over Tor, verifies what it fetched, keeps a full copy of the current code under '
+      + '<code>data/backups/</code> and restarts the service. If the restart does not come back you will need '
+      + 'shell access to the box to recover, so do not run it where you cannot reach a terminal. '
+      + 'Updating by deploy or by hand remains the supported path.</p>';
+    return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel
+      + '<span class="upd-exp" title="Never yet run to completion on real hardware">experimental</span></p>'
       + (behindAny? controls : '<div class="upd-controls">'+controls+'<span style="font-size:11px;color:var(--faint)">(you can still reinstall the current code)</span></div>')
+      + note
       + '</div>';
   }
   function updateProgress(){
@@ -1247,11 +1258,11 @@ async function loadJSON(url){
     const b=evEl(e)?.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
     if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; ADM_EDIT_ID=null; renderAdminPanel(); return; }
-    if(act==="update-github"){ if(confirm("Update this instance from GitHub over Tor? The service will restart.")) startUpdate("github"); return; }
+    if(act==="update-github"){ if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
     if(act==="update-peer"){
       const onion=prompt("Trusted peer .onion to update from:"); if(!onion) return;
       const code=prompt("That operator's BIP47 payment code (verifies who you're trusting):")||"";
-      if(confirm("Update this instance from "+onion+" over Tor? The service will restart.")) startUpdate("peer",{onion,code});
+      if(confirm("Update this instance from "+onion+" over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. You are also trusting that peer's copy of the code. The service will restart; if it does not come back you will need shell access to the box.")) startUpdate("peer",{onion,code});
       return;
     }
     if(act==="update-dismiss"){ UPDATE_RUN=null; clearInterval(UPDATE_POLL); ADMIN_UPDATES=null; renderAdminPanel(); return; }

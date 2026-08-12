@@ -411,6 +411,13 @@ peer .onion* and the console fetches the verified source over Tor, backs up
 the current code to `data/backups/`, swaps in the new tree, and restarts the
 service, showing a progress bar and hard-reloading when the instance returns.
 
+**Self-update is experimental**, and the admin console labels it so. It has
+never yet completed a run on production hardware: the code path is tested, the
+hardware path is not, and the failure that matters is a service that does not
+come back, which needs shell access to the box to recover. Do not run it where
+you cannot reach a terminal. Deploying by push, or the manual upgrade above,
+remains the supported path until this note is removed.
+
 A peer update reuses the same trust gate as bootstrapping: you supply the
 peer's payment code, and nothing is applied unless that peer's operator
 signature verifies for the onion you named. Either way the archive contains

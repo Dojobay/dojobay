@@ -25,6 +25,9 @@ import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { httpOverTor } from "../scripts/update.mjs";
+
+/** @see the call site in fetchFromPeer for why this is not the shared default. */
+export const MAX_SOURCE_ZIP_BYTES = 8 * 1024 * 1024;
 import { githubGet } from "./updates.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -99,8 +102,17 @@ export async function fetchFromPeer({ onionHost, trustedCode, cfg, log = (/** @t
     throw new Error("peer is operated by a different payment code than the one you trusted");
   }
   log(`peer ${onionHost} verified ✓`);
+  // The one response in the project that legitimately runs to megabytes, so it
+  // opts out of httpOverTor's 2 MiB default and sets its own. 8 MiB against a
+  // zip that is currently a little under 400 KiB: twenty times the real figure,
+  // which leaves room for the tree to grow for years without anyone having to
+  // think about this number, while still refusing a peer that tries to hand
+  // back something the size of a disk image. Note that this bounds the DOWNLOAD
+  // only: unzip() inflates each entry, so a peer could still send a small
+  // archive that expands enormously, and bounding that is a separate job.
   const zres = fetchZip ? await fetchZip() : await httpOverTor(c, onionHost, 80,
-    `GET /data/dojobay-src.zip HTTP/1.0\r\nHost: ${onionHost}\r\nConnection: close\r\n\r\n`, 120000);
+    `GET /data/dojobay-src.zip HTTP/1.0\r\nHost: ${onionHost}\r\nConnection: close\r\n\r\n`, 120000,
+    MAX_SOURCE_ZIP_BYTES);
   if (zres.status !== 200) throw new Error(`source zip: HTTP ${zres.status || "no response"}`);
   const bytes = zres.bodyBuf || Buffer.from(zres.body, "latin1");
   let version = null;

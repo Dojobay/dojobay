@@ -12,7 +12,7 @@ import tlsMod from "node:tls";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert";
-import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg } from "./update.mjs";
+import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg, httpOverTor, MAX_RESPONSE_BYTES } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -105,6 +105,30 @@ function mockProxy(mode) {
             sock.write(Buffer.concat([Buffer.from("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\n\r\n", "latin1"), png]));
           }
           if (mode === "avatar-notpng") sock.write("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<html>not found</html>");
+          // A node that answers and then never stops. Writes headers, then
+          // pushes 256 KiB chunks on a short interval and never ends the
+          // socket, which is precisely the shape the byte cap exists to stop:
+          // the read-timeout alone would let it accumulate for the full
+          // timeout. Deliberately does NOT declare Content-Length, since a
+          // reader that trusted that header would not need a cap at all.
+          // Streams forever WITHOUT ever sending an HTTP status line, so the
+          // unauthenticated probe's "is this HTTP yet?" test never matches and
+          // its buffer is the thing that grows.
+          if (mode === "babble") {
+            const chunk = Buffer.alloc(64 * 1024, 0x2e);
+            const t = setInterval(() => sock.write(chunk), 5);
+            sock.on("close", () => clearInterval(t));
+            sock.on("error", () => clearInterval(t));
+            return;
+          }
+          if (mode === "firehose") {
+            sock.write("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n");
+            const chunk = Buffer.alloc(256 * 1024, 0x41);
+            const t = setInterval(() => { if (!sock.write(chunk)) { /* let it drain */ } }, 5);
+            sock.on("close", () => clearInterval(t));
+            sock.on("error", () => clearInterval(t));
+            return;                       // never sock.end()
+          }
           // mode === "silent" -> accept stream but never respond
           sock.end();
         }
@@ -170,6 +194,72 @@ await check("connect succeeds, CONNECT_ONLY=1 -> up", async () => {
     const r = await probe("http://silentnode00000.onion/v2", cfg(port, { connectOnly: true }));
     assert.equal(r.up, true, JSON.stringify(r));
   });
+});
+
+// A node that answers and then never stops sending. Before the cap, the reader
+// accumulated until the socket closed or the timeout fired, so this shape put
+// however many megabytes a Tor circuit carries in thirty seconds into the heap,
+// once per concurrent probe. The tests below assert the three things that
+// matter: the read is abandoned, it is abandoned near the ceiling rather than
+// after the timeout, and one node behaving this way does not affect the cycle.
+await check("a response that never ends is abandoned at the byte ceiling", async () => {
+  await withProxy("firehose", async (port) => {
+    const req = "GET / HTTP/1.0\r\nHost: x.onion\r\nConnection: close\r\n\r\n";
+    // a small explicit cap, so the test does not have to push 2 MiB to prove it
+    await assert.rejects(
+      httpOverTor(cfg(port), "firehose000000.onion", 80, req, 5000, 512 * 1024),
+      /exceeded 524288 bytes/,
+      "the read rejects with a reason naming the limit it hit");
+  });
+});
+
+await check("and abandoned promptly, not left running until the timeout", async () => {
+  await withProxy("firehose", async (port) => {
+    const req = "GET / HTTP/1.0\r\nHost: x.onion\r\nConnection: close\r\n\r\n";
+    const t0 = Date.now();
+    // The timeout is 8s and the responder writes 256 KiB every 5ms, so a cap
+    // that only took effect at close would sit here for the full 8 seconds.
+    await assert.rejects(httpOverTor(cfg(port), "firehose000000.onion", 80, req, 8000, 512 * 1024));
+    const ms = Date.now() - t0;
+    assert.ok(ms < 4000, `gave up after ${ms}ms, which is not obviously before the 8s timeout`);
+  });
+});
+
+await check("a firehose node is one failed probe, not a failed cycle", async () => {
+  await withProxy("firehose", async (port) => {
+    // The authenticated path, which is what a listed node with an apikey gets,
+    // and the one that reads a whole body through httpOverTor. What matters is
+    // that it RETURNS rather than throws: the caller loops over nodes, so an
+    // escaping error here would take the rest of the cycle with it.
+    const r = await probe("http://firehose000000.onion/v2", cfg(port, { apikey: "k", timeoutMs: 20000 }));
+    assert.equal(r.up, false, JSON.stringify(r));
+    assert.ok(/exceeded/.test(r.reason), "and the reason names the cap: " + JSON.stringify(r.reason));
+  });
+});
+
+await check("a node that never speaks HTTP is not listened to indefinitely either", async () => {
+  await withProxy("babble", async (port) => {
+    // The unauthenticated path keeps its own buffer, which only stopped growing
+    // when a status line matched. A stream that never contains one bypassed the
+    // ceiling entirely until this was fixed.
+    const t0 = Date.now();
+    const r = await probe("http://babble0000000000.onion/v2", cfg(port, { timeoutMs: 8000 }));
+    const ms = Date.now() - t0;
+    assert.equal(r.up, false, JSON.stringify(r));
+    assert.equal(r.reason, "no-http-response", JSON.stringify(r));
+    assert.ok(ms < 4000, `gave up after ${ms}ms rather than promptly`);
+  });
+});
+
+await check("the default ceiling is generous against real responses, and stated once", async () => {
+  // A Dojo /wallet reply for two dummy xpubs is single-digit KB and a PayNym
+  // avatar is a small PNG, so the default sits three orders of magnitude above
+  // anything legitimate. This pins the number so that lowering it towards real
+  // traffic, or removing it, is a deliberate act rather than a quiet one.
+  assert.equal(MAX_RESPONSE_BYTES, 2 * 1024 * 1024);
+  const { MAX_SOURCE_ZIP_BYTES } = await import("../server/self-update.mjs");
+  assert.ok(MAX_SOURCE_ZIP_BYTES > MAX_RESPONSE_BYTES,
+    "the source zip is the one legitimate exception and must be allowed more, not less");
 });
 
 await check("no proxy listening -> down", async () => {

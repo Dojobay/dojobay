@@ -162,10 +162,36 @@ export function socks5Connect(proxyHost, proxyPort, host, port, timeoutMs) {
 const DUMMY_XPUB = "xpub661MyMwAqRbcFhv1kNXxwyGrJUVPrmiBNTVDYAtpzF5zu9ceuhn5yV6oaSdveis14LSeBLzpWb58pDNN6hC59TTDyiN7iJR7kUQgXNMfZCL";
 const DUMMY_TPUB = "tpubD6NzVbkrYhZ4XW6sCZX49tcDdbb3rADEv65WtiwyL9qteSHMyvdB7vmdpUiiBDpErEyYnvWh3guBWPryVZ3K2tuX3K7RPq5MLS16HN9awey";
 
+// The most bytes a response may accumulate before the read is abandoned.
+//
+// Every caller of httpOverTor is talking to a machine somebody else controls:
+// that is the point of the probe. Without a ceiling the reader accumulates
+// whatever arrives until the socket closes or the timeout fires, so a listed
+// node that simply never stops sending can push thirty seconds of Tor
+// throughput into the heap, times CONCURRENCY parallel probes, on a VPS whose
+// documented minimum is 1 GB. Nothing about that requires malice: a Dojo
+// misconfigured to return a file rather than JSON does it by accident.
+//
+// 2 MiB is chosen against the largest legitimate response any probe path sees,
+// which is a Dojo /wallet reply for two dummy xpubs, single-digit kilobytes.
+// A PayNym avatar is a small PNG and sits under the same ceiling comfortably;
+// it does not get a tighter limit of its own, because a second constant would
+// have to be kept in a sensible relationship with this one, and 2 MiB already
+// bounds the disk that syncAvatars can consume to a few tens of megabytes
+// across every listed code. The one caller that legitimately needs more is
+// self-update fetching a peer's source zip, and it passes its own value.
+export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+// The unauthenticated probe reads only until it recognises an HTTP status line,
+// so it needs a far smaller ceiling than a full response: this bounds how long
+// it will listen to something that is not speaking HTTP at all.
+export const MAX_STATUS_LINE_BYTES = 64 * 1024;
+
 // Send one HTTP/1.0 request over a fresh Tor stream and read the whole reply
 // (Connection: close means the server ends the body by closing). Resolves with
-// { status, body } or rejects on connect/read failure.
-export function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
+// { status, body } or rejects on connect failure, read timeout, or a reply that
+// runs past maxBytes.
+export function httpOverTor(cfg, host, port, rawRequest, timeoutMs, maxBytes = MAX_RESPONSE_BYTES) {
   return new Promise(async (resolve, reject) => {
     let socket;
     try {
@@ -175,7 +201,17 @@ export function httpOverTor(cfg, host, port, rawRequest, timeoutMs) {
     let settled = false;
     const done = (fn, v) => { if (settled) return; settled = true; clearTimeout(timer); try { socket.destroy(); } catch {} fn(v); };
     const timer = setTimeout(() => done(reject, new Error("read-timeout")), timeoutMs);
-    socket.on("data", (d) => { buf = Buffer.concat([buf, d]); });
+    socket.on("data", (d) => {
+      buf = Buffer.concat([buf, d]);
+      // Rejected the moment the ceiling is crossed rather than at close, so the
+      // socket is destroyed and the memory released now. Waiting would mean a
+      // node that never closes still occupies the full timeout while holding
+      // everything it has sent. done() destroys the socket, so no further data
+      // events arrive and the partial buffer goes out of scope with this call.
+      if (buf.length > maxBytes) {
+        done(reject, new Error(`response exceeded ${maxBytes} bytes`));
+      }
+    });
     socket.on("error", (e) => done(reject, e));
     socket.on("close", () => {
       const s = buf.toString("latin1");
@@ -456,6 +492,14 @@ export async function probe(url, cfgIn = CFG) {
     socket.on("data", (d) => {
       got += d.toString("latin1");
       if (/^HTTP\//i.test(got)) finish(true, "http");
+      // The same unbounded accumulation httpOverTor had, reached by a different
+      // door. A well-behaved server puts its status line in the first packet
+      // and the test above ends the read immediately, but a node that sends
+      // anything NOT starting with "HTTP/" is never matched, so before this
+      // guard `got` grew until the timeout with no ceiling at all. A status
+      // line is a few dozen bytes; 64 KiB without one means this is not an HTTP
+      // server, which is the answer the probe wanted anyway.
+      else if (got.length > MAX_STATUS_LINE_BYTES) finish(false, "no-http-response");
     });
     socket.on("error", () => finish(got.length > 0, "socket-error"));
     socket.on("close", () => finish(got.length > 0, "closed"));

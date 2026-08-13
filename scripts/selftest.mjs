@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import assert from "node:assert";
 import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg, httpOverTor, MAX_RESPONSE_BYTES } from "./update.mjs";
 import { packSource } from "./pack-source.mjs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -683,11 +683,30 @@ await check("source zip round-trips through self-update; staging works; zip-slip
     const onDisk = await readFile(path.join(process.cwd(), "package.json"));
     assert.ok(pkg && Buffer.compare(pkg.data, onDisk) === 0, "inflated file matches source byte-for-byte");
 
-    // apply into a temp web root without spawning the helper: staging + backup exist
+    // Apply into a temp web root without spawning the helper: staging + backup
+    // exist. The web root is given a minimal tree first, because updating one
+    // with no code in it is not a scenario that happens and the backup guard
+    // now refuses it. Instance data goes in too, so the filter can be observed
+    // doing its job rather than merely inspected in the source.
     const webRoot = await mkdtemp(path.join(tmpdir(), "dojobay-web-"));
+    await mkdir(path.join(webRoot, "server", "data"), { recursive: true });
+    await mkdir(path.join(webRoot, "server", "node_modules", "left-pad"), { recursive: true });
+    await mkdir(path.join(webRoot, "assets", "js"), { recursive: true });
+    await writeFile(path.join(webRoot, "server", "index.mjs"), "// current code");
+    await writeFile(path.join(webRoot, "server", "data", "store.json"), '{"sessions":"secret"}');
+    await writeFile(path.join(webRoot, "server", "node_modules", "left-pad", "i.js"), "x");
+    await writeFile(path.join(webRoot, "assets", "js", "app.js"), "// current app");
+
     const res = await applyUpdate({ bytes: buf, sourceLabel: "test", version: "deadbeef", webRoot, spawnHelper: false, log: () => {} });
     const staged = await readFile(path.join(res.staging, "server/index.mjs")).then(() => true, () => false);
     assert.ok(staged && res.entries > 30, "new tree staged");
+
+    const inBackup = async (rel) => readFile(path.join(res.backupDir, rel)).then(() => true, () => false);
+    assert.ok(await inBackup("server/index.mjs"), "the code that is about to be replaced is backed up");
+    assert.ok(await inBackup("assets/js/app.js"), "from every code directory, not just the first");
+    assert.ok(!(await inBackup("server/data/store.json")),
+      "and instance data is NOT copied: sessions and node API keys live there");
+    assert.ok(!(await inBackup("server/node_modules/left-pad/i.js")), "nor node_modules");
     await rm(webRoot, { recursive: true, force: true });
 
     // zip-slip: an entry escaping the top folder must be refused
@@ -776,6 +795,61 @@ await check("no second copy of the Tor reader has grown back", async () => {
     assert.ok(!/function httpOverTor/.test(src),
       `${f} declares its own httpOverTor; give it the shared one instead of a second ceiling to maintain`);
   }
+});
+
+// The nginx example is not documentation: install.mjs reads this exact file and
+// writes it to sites-available, so a rule missing here is a rule missing on
+// every instance the installer has ever produced.
+await check("the nginx example refuses to serve the updater's working directories", async () => {
+  const conf = readFileSync(new URL("../deploy/nginx-onion.conf.example", import.meta.url).pathname, "utf8");
+  // Literal patterns rather than regexes assembled from strings. There are two
+  // of them and they never vary, so building the pattern bought nothing and
+  // cost a real escaping question (CodeQL js/incomplete-sanitization: the
+  // hand-rolled escape covered / and not backslash).
+  assert.ok(/location\s+\^~\s+\/data\/backups\/\s*\{[^}]*return 404/.test(conf),
+    "/data/backups/ must be refused, with ^~");
+  assert.ok(/location\s+\^~\s+\/data\/updates\/\s*\{[^}]*return 404/.test(conf),
+    "/data/updates/ must be refused, with ^~");
+  // ^~ is load-bearing rather than stylistic. Without it these are plain prefix
+  // matches, which LOSE to the `~* \.(html|js|css|md)$` block below them, and a
+  // backed-up app.js or README.md is served with a 200. Verified against real
+  // nginx: removing the modifier turns those two 404s into 200s.
+  assert.ok(/location\s+~\*\s+\\\.\(html\|js\|css\|md\)\$/.test(conf),
+    "the regex block this must outrank still exists; if it has gone, revisit the modifier");
+  // and the published source zip must still be reachable: it is how a peer
+  // fetches code during a federated self-update, and how anyone reads what an
+  // instance is running.
+  assert.ok(!/location[^\n]*dojobay-src\.zip[^\n]*404/.test(conf),
+    "data/dojobay-src.zip stays served");
+});
+
+await check("the backup filter excludes by path segment, not by substring", async () => {
+  const src = readFileSync(new URL("../server/self-update.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(!/p\.includes\("node_modules"\)/.test(src) && !/includes\(path\.sep \+ "data"/.test(src),
+    "the substring test is gone: it excluded everything at a web root such as /srv/data/dojobay");
+  assert.ok(/path\.relative\(webRoot, p\)/.test(src) && /split\(path\.sep\)\.some/.test(src),
+    "exclusion is decided on the path relative to the web root, a segment at a time");
+});
+
+await check("an update refuses to proceed when the backup came out empty", async () => {
+  const { applyUpdate } = await import("../server/self-update.mjs");
+  // The failure this guards is silent by construction: the copy loop swallows
+  // per-entry errors, so a filter that excluded everything produced no backup
+  // and no complaint, and the swap went ahead over irreplaceable code.
+  const dir = mkdtempSync("/tmp/dojobay-nobackup-");
+  try {
+    // The archive must be a plausible source tree, or the shape check refuses
+    // it first and this proves nothing. It did exactly that on the first
+    // attempt: the assertion passed while the guard was removed.
+    const zip = concatZip([
+      ["dojobay/server/index.mjs", Buffer.from("// new")],
+      ["dojobay/assets/js/app.js", Buffer.from("// new")],
+    ]);
+    // An empty web root, so there is nothing to back up and the count is zero.
+    await assert.rejects(applyUpdate({ bytes: zip, webRoot: dir, spawnHelper: false, log: () => {} }),
+      /refusing to update without one/,
+      "refused for the absent backup specifically, not for some earlier reason");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 console.log(`\nall ${passed} checks passed`);

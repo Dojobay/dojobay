@@ -232,12 +232,49 @@ export async function applyUpdate({ bytes, sourceLabel, version, webRoot = ROOT,
 
   log(`backing up current code to data/backups/${stamp}…`);
   await mkdir(backupDir, { recursive: true });
-  // back up code dirs/files only; never instance data
+  // Back up code only, never instance data. The exclusion is decided on the
+  // path RELATIVE to the web root, matched a segment at a time.
+  //
+  // It used to be a substring test against the absolute path, which was wrong
+  // in a way that only showed up at certain install locations and then showed
+  // up catastrophically. An instance deployed under, say, /srv/data/dojobay has
+  // "/data/" in every absolute path it owns, so every entry was excluded, cp
+  // copied nothing, and because this loop swallows its errors the update
+  // carried on and replaced the running code with no backup at all. The backup
+  // is the whole recovery story for a self-update; silently not taking one is
+  // the worst available outcome. "node_modules" had the same shape of bug.
+  //
+  // Failures are still swallowed per entry, deliberately: a tree that lacks
+  // install.sh should not fail an update. What is no longer possible is
+  // swallowing ALL of them and calling it a backup, which the check below
+  // catches.
+  const excluded = new Set(["node_modules", "data"]);
+  let backedUp = 0;
   for (const rel of ["assets", "content", "deploy", "scripts", "server", ".github",
     "index.html", "manifest.json", "sw.js", "package.json", "README.md", "CONTRIBUTING.md",
     "install.sh", "dojobay-install.desktop"]) {
     const src = path.join(webRoot, rel);
-    try { await stat(src); await cp(src, path.join(backupDir, rel), { recursive: true, filter: (p) => !p.includes("node_modules") && !p.includes(path.sep + "data" + path.sep) }); } catch {}
+    try {
+      await stat(src);
+      await cp(src, path.join(backupDir, rel), {
+        recursive: true,
+        filter: (p) => {
+          const relPath = path.relative(webRoot, p);
+          // Outside the web root entirely: a symlink pointing away. Refuse it
+          // rather than following it into somebody's home directory.
+          if (!relPath || relPath.startsWith("..") || path.isAbsolute(relPath)) return false;
+          return !relPath.split(path.sep).some((seg) => excluded.has(seg));
+        },
+      });
+      backedUp++;
+    } catch { /* absent from this tree; not every install has every entry */ }
+  }
+  // server/ and assets/ exist in every Dojo Bay tree, so backing up fewer than
+  // two entries means something is wrong with the copy rather than with the
+  // tree. Refuse to go on: swapping in new code without a backup is the one
+  // failure this whole path exists to make survivable.
+  if (backedUp < 2) {
+    throw new Error(`backup produced only ${backedUp} entr${backedUp === 1 ? "y" : "ies"} from ${webRoot}; refusing to update without one`);
   }
 
   const manifest = { source: sourceLabel, version, staged_at: stamp, files: entries.length };

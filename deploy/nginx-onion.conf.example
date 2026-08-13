@@ -18,10 +18,27 @@ server {
     gzip_types text/css text/javascript application/javascript application/json image/svg+xml text/markdown;
 
     # The directory data is rewritten every 10 minutes — keep it fresh.
+    # This block matches everything under data/, which is why the two
+    # exclusions below have to be stated: they sit inside the same directory.
     location /data/ {
         add_header Cache-Control "max-age=60";
         default_type application/json;
     }
+
+    # Working areas of the self-updater, inside the web root only because that
+    # is where the code lives. data/backups/ holds a full copy of the previous
+    # tree after every self-update and nothing prunes it; data/updates/ holds
+    # the staged incoming tree. Both are code rather than secrets, so this is
+    # not plugging a leak, it is declining to serve an unbounded and growing
+    # archive of every version this instance has ever run to anyone who guesses
+    # a timestamp. The published source is data/dojobay-src.zip, served below,
+    # and that is the only copy of the code this instance offers deliberately.
+    #
+    # ^~ so these win over the regex location blocks further down: a plain
+    # prefix match would lose to `location ~* \.(html|js|css|md)$` and the
+    # backed-up markdown and JavaScript would be served after all.
+    location ^~ /data/backups/ { return 404; }
+    location ^~ /data/updates/ { return 404; }
 
     # Static assets and fonts can be cached for a day.
     # Code and markup must revalidate so a deploy shows up immediately.
@@ -43,7 +60,7 @@ server {
 
     # SECURITY: the backend's data (store.json: sessions, payment codes, node
     # API keys) and source live under server/ inside the web root. Never serve
-    # them over the onion.
+    # them over the onion. This one IS plugging a leak, unlike the two above.
     location ^~ /server/ { return 404; }
 
     # Serve the SPA shell for the admin route (client-side view; auth is enforced

@@ -733,8 +733,19 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   // correct code -> returns verified bytes, which apply() stages
   const got = await fetchFromPeer({ onionHost: peerOnion, trustedCode: paymentCode, fetchDoc, fetchZip, log: () => {} });
+  // A web root with code in it, because applyUpdate now refuses to replace a
+  // tree it could not back up, and an empty directory is not a tree anyone
+  // updates. Instance data alongside, so the backup filter is exercised rather
+  // than assumed.
   const webRoot = await fsp.mkdtemp(pathMod.join(os.tmpdir(), "dojobay-suweb-"));
+  await fsp.mkdir(pathMod.join(webRoot, "server", "data"), { recursive: true });
+  await fsp.mkdir(pathMod.join(webRoot, "assets"), { recursive: true });
+  await fsp.writeFile(pathMod.join(webRoot, "server", "index.mjs"), "// current");
+  await fsp.writeFile(pathMod.join(webRoot, "server", "data", "store.json"), "{}");
+  await fsp.writeFile(pathMod.join(webRoot, "assets", "app.js"), "// current");
   const applied = await applyUpdate({ ...got, webRoot, spawnHelper: false, log: () => {} });
+  const backedUpStore = await fsp.readFile(pathMod.join(applied.backupDir, "server/data/store.json")).then(() => true, () => false);
+  ok(!backedUpStore, "the backup carries code but never the store, which holds sessions and node API keys");
   const stagedOk = await fsp.readFile(pathMod.join(applied.staging, "server/index.mjs")).then(() => true, () => false);
   ok(got.version === "peercommit" && stagedOk && applied.entries > 30,
      "verified peer archive is staged for apply");

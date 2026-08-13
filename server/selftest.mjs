@@ -104,6 +104,63 @@ ok(me.body.authenticated && me.body.paymentCode === paymentCode, "session bound 
   ok(r.status === 401, "mismatched signature rejected at login");
 }
 
+// 2b) THE RELAY. A proof is only evidence of what it was signed over, and the
+//     library can check that the challenge's r parameter is a well-formed URL
+//     but not that it is OURS. Without the binding, an attacker takes a live
+//     nonce from this instance, shows a victim the same challenge with r
+//     rewritten to their own site, and relays the signed result back here: the
+//     victim's wallet displays the attacker's site, the signature verifies, and
+//     a session is minted here in the victim's name.
+{
+  const ch3 = await api("/api/auth47/challenge", "POST", {});
+  const relayed = (() => {
+    const u = new URL(ch3.body.uri);
+    u.searchParams.delete("c");
+    u.searchParams.set("r", "http://attacker7777777777777777777777777777777777777777777.onion");
+    return decodeURIComponent(u.toString());
+  })();
+  // Genuinely signed by the real operator, over the attacker's resource. This
+  // is the whole point: the signature is valid and the nonce is live.
+  const sig = Buffer.from(msg.sign(relayed, priv, true, net47.messagePrefix)).toString("base64");
+  const r = await api("/api/auth47/callback", "POST",
+    { auth47_response: "1.0", challenge: relayed, signature: sig, nym: paymentCode });
+  ok(r.status === 401 && /different site/.test(r.body.error || ""),
+     "a validly signed proof naming another site is refused: " + JSON.stringify(r.body.error));
+  const p3 = await api("/api/auth47/poll?nonce=" + ch3.body.nonce);
+  ok(!p3.body.authenticated, "and no session is waiting to be collected with that nonce");
+}
+
+// 2c) the binding tolerates the differences that are not differences, and only
+//     those. A trailing slash and host case are the same site; a different
+//     origin or a path underneath it is not.
+{
+  const { makeAuth47 } = await import("./crypto.ts");
+  const a47 = makeAuth47(process.env.BASE_URL);
+  const mk = async (resource) => {
+    const ch4 = await api("/api/auth47/challenge", "POST", {});
+    const u = new URL(ch4.body.uri);
+    u.searchParams.delete("c");
+    u.searchParams.set("r", resource);
+    const c = decodeURIComponent(u.toString());
+    const sg = Buffer.from(msg.sign(c, priv, true, net47.messagePrefix)).toString("base64");
+    return api("/api/auth47/callback", "POST",
+      { auth47_response: "1.0", challenge: c, signature: sg, nym: paymentCode });
+  };
+  ok((await mk(process.env.BASE_URL + "/")).status === 200,
+     "a trailing slash is the same site");
+  ok((await mk(process.env.BASE_URL + "/somewhere")).status === 401,
+     "a path underneath it is not");
+  ok((await mk(process.env.BASE_URL.replace("http://", "https://"))).status === 401,
+     "nor is the same host on another scheme");
+
+  // and the shape itself: a caller who forgets the expectation gets a refusal
+  // rather than a silent pass, which is what made the original bug invisible.
+  const unbound = a47.verify({ auth47_response: "1.0", challenge: "auth47://x?r=http://y.onion",
+    signature: "AA==", nym: paymentCode });
+  ok(!unbound.ok && /expected resource/.test(unbound.error),
+     "verify refuses outright when no expected resource is given: " + JSON.stringify(unbound.error));
+}
+
 // 3) submit a Dojo with a valid signed payload -> passes both gates -> pending
 const payload = {
   pairing: { type: "dojo.api", version: "1.28.0", apikey: "deadbeef", url: "http://ebtnuwk5qayotlk7brszskn2zbtzu54y24s6lmojt6j4cv7uaiwlsyad.onion/v2" },

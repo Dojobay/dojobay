@@ -227,7 +227,9 @@ route("POST", /^\/api\/auth47\/challenge$/, async (req, res) => {
 route("POST", /^\/api\/auth47\/callback$/, async (req, res) => {
   let proof;
   try { proof = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
-  const v = auth47.verify(proof);
+  // BASE_URL is what challengeURI put in the r parameter, so it is what the
+  // proof must name. See makeAuth47.verify for what this stops.
+  const v = auth47.verify(proof, { expectedResource: BASE_URL });
   if (!v.ok) return json(res, 401, { error: v.error });
   // tie proof back to a live nonce (prevents replay to a different session)
   let nonce = null;

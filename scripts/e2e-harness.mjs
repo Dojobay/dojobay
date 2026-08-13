@@ -796,7 +796,24 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - markdown escapes attributes and refuses schemes it should not follow");
 }
 
-console.log("\nall 32 front-end checks passed");
+// The challenge and its copy button stack, at every width. Laid out as a row
+// the button landed wherever the URI stopped wrapping, which put it mid-line on
+// one phone and below the text on another for the same page.
+{
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  const block = css.slice(css.indexOf(".a47-uri{"), css.indexOf(".upd-line{"));
+  assert.ok(/flex-direction:column/.test(block),
+    "the challenge and its button are stacked");
+  assert.ok(!/flex-wrap/.test(block),
+    "and not wrapped, which is what made the position depend on where the text ran out");
+  // and nothing in the mobile block quietly puts it back
+  const mobile = css.slice(css.indexOf("@media (max-width:560px)"));
+  assert.ok(!/\.a47-uri\{[^}]*flex-direction:row/.test(mobile),
+    "no width-specific rule turns it back into a row");
+  console.log("  ok - the Auth47 copy button sits below the challenge at every width");
+}
+
+console.log("\nall 33 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

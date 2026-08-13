@@ -48,10 +48,56 @@ export function makeAuth47(baseUrl) {
     return decodeURIComponent(u.toString());
   }
 
+  // Two URLs naming the same resource. Compared as parsed URLs rather than as
+  // strings, so a trailing slash or a difference in host case is not treated as
+  // a different site, while a different origin or path is. Anything that does
+  // not parse is not equal to anything.
+  function sameResource(a: string, b: string): boolean {
+    try {
+      const norm = (u: string) => {
+        const x = new URL(u);
+        return x.origin.toLowerCase() + x.pathname.replace(/\/+$/, "") + x.search;
+      };
+      return norm(a) === norm(b);
+    } catch { return false; }
+  }
+
   // Verify a posted proof. Returns { ok, paymentCode } or { ok:false, error }.
-  function verify(proof: unknown): VerifyResult {
+  //
+  // expectedResource is REQUIRED, and the shape is the point. A signature is
+  // only ever evidence of what it was made over, so a verifier that takes only
+  // the thing being verified can answer "is this signed?" but never "is this
+  // signed FOR ME?". The other three verifiers in this file all take an
+  // expectation for that reason: verifySignedPayload takes expectedMessage and
+  // expectedAddress, verifySignedUrlClaim takes expectedUrl, verifyOperatorDoc
+  // takes expectedOnion. This one did not, and the missing binding was
+  // invisible rather than a missing argument.
+  //
+  // What it prevents: the library checks that the challenge's r parameter is a
+  // well-formed http(s) URL, but it cannot know which URL is ours. Without this
+  // comparison an attacker could take a live nonce from this instance, show a
+  // victim the same challenge with r rewritten to their own site, and relay the
+  // resulting proof back here. The victim's wallet would display the attacker's
+  // site, the signature would verify, and a session would be minted here in the
+  // victim's name. The r parameter exists so a person can see what they are
+  // signing into, and this check is what makes that display mean anything.
+  function verify(proof: unknown, { expectedResource }: { expectedResource?: string } = {}): VerifyResult {
+    // Fail closed rather than throwing: a caller who forgot this is a bug, but
+    // a 500 from an auth endpoint is a worse way to find out than a refusal
+    // that names the omission.
+    if (!expectedResource) {
+      return { ok: false, error: "internal: no expected resource supplied, refusing to verify an unbound proof" };
+    }
     const res = verifier.verifyProof(proof);
     if (res.result !== "ok") return { ok: false, error: res.error };
+    // Read the resource from the challenge the signature actually covers, not
+    // from anything the caller passed alongside it.
+    const challenge = (proof as { challenge?: unknown }).challenge;
+    let resource: string | null = null;
+    try { resource = new URL(String(challenge)).searchParams.get("r"); } catch { /* unparseable */ }
+    if (!resource || !sameResource(resource, expectedResource)) {
+      return { ok: false, error: `proof was signed for a different site (${resource || "no resource"}), not this one` };
+    }
     // Auth47 defines two proof shapes: a nym proof carrying a payment code, and
     // an address proof carrying a plain address. Only the former identifies an
     // operator here, and reading .nym off the wrong one would bind a session to

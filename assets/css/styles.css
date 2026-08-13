@@ -55,11 +55,16 @@
   .burger{display:none;background:none;border:0;color:var(--text);padding:6px;cursor:pointer;border-radius:7px}
   /* The Auth47 challenge, shown under its QR. Wraps anywhere because it is one
      unbroken token, and carries its own copy button for the same-device case. */
-  .a47-uri{display:flex;align-items:flex-start;gap:8px;justify-content:center;
-    margin-top:10px;flex-wrap:wrap;text-align:left}
+  /* Column, always, at every width. Side by side the button lands wherever the
+     URI happens to stop wrapping, so it sits mid-line on one screen and below
+     on another, and on the narrow case it crowds the text it belongs to. The
+     URI is a single unbroken token that has to wrap anyway, so there is no
+     width at which a row reads better. */
+  .a47-uri{display:flex;flex-direction:column;align-items:center;gap:10px;
+    margin-top:10px;text-align:left}
   .a47-uri code{font-size:10.5px;color:var(--faint);word-break:break-all;line-height:1.5;
-    flex:1 1 240px;min-width:0}
-  .a47-uri .copybtn{flex:0 0 auto}
+    max-width:44ch;width:100%}
+  .a47-uri .copybtn{align-self:center}
   .upd-line{margin:6px 0}
   /* Self-update has never completed a run on real hardware. The badge is not
      decoration: a maintainer clicking Update from GitHub is the first person

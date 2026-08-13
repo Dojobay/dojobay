@@ -1505,6 +1505,86 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await rb();
 }
 
+// 36) the published file is produced by an allowlist, and only by that
+//     allowlist. The store holds moderation status, the owning payment codes,
+//     submission timestamps, the probe result recorded at submission and import
+//     provenance, none of which belong to the public. A redaction list would be
+//     wrong by default and would need updating every time the store grew a
+//     field; naming the output instead is right by default. These checks are
+//     what stop that property being lost quietly.
+{
+  const { store: st } = await import("./store.ts");
+  const { rebuild: rb, PUBLIC_NODE_KEYS } = await import("./build-public.ts");
+  const loaded = await st.get();
+
+  // A record carrying every field the store type knows about, plus four it does
+  // not. The extras are the point: store.json is JSON, so the TypeScript
+  // interface constrains what we WRITE and not what is there, and a field added
+  // by a future endpoint, a migration or a hand edit is exactly the case an
+  // allowlist has to survive.
+  loaded.submissions["mainnet-allowlist"] = /** @type {any} */ ({
+    id: "mainnet-allowlist", network: "mainnet", name: "allowlist", status: "approved",
+    paymentCodes: [paymentCode, "PMsecondCodeNobodyShouldSee"], payload, signed: signedBlock,
+    jurisdiction: "Testland", country: "TL", hardware: "a box", paynym: "+al", name_url: null,
+    last_probe: { up: true, reason: "http", ms: 5 },
+    created_at: "2026-01-01T00:00:00Z", updated_at: "2026-02-02T00:00:00Z",
+    source: "bootstrap-import:some.onion",
+    // not in StoreRecord at all
+    moderator_note: "operator was rude in DMs",
+    session_hint: "sid-should-never-be-published",
+    internal_score: 0.42,
+    admin_only: { reviewer: "max" },
+  });
+  await rb();
+  const pub = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
+  const node = pub.nodes.find((n) => n.id === "mainnet-allowlist");
+  ok(node, "the record is published at all, so the rest of this is meaningful");
+
+  // The exact key set. Not a subset check: a field appearing in the output
+  // without being named here must fail, which is the whole request.
+  const keys = Object.keys(node).sort();
+  ok(JSON.stringify(keys) === JSON.stringify([...PUBLIC_NODE_KEYS].sort()),
+     "the published node's keys are exactly the allowlist. Unexpected: "
+     + JSON.stringify(keys.filter((k) => !PUBLIC_NODE_KEYS.includes(k)))
+     + " missing: " + JSON.stringify(PUBLIC_NODE_KEYS.filter((k) => !keys.includes(k))));
+
+  // And named, so a failure says which secret escaped rather than only that the
+  // shape changed.
+  for (const k of ["moderator_note", "session_hint", "internal_score", "admin_only",
+                   "last_probe", "created_at", "updated_at", "source", "paymentCodes"]) {
+    ok(!(k in node), `${k} is not published`);
+  }
+  // The moderation status is published as a FIELD, but never with a moderation
+  // VALUE: the public status is a liveness state written by the probe, and the
+  // store's pending/approved/rejected must not reach it.
+  ok(!["pending", "approved", "rejected"].includes(node.status),
+     "the public status is a liveness state, not a moderation state: " + node.status);
+  // Ownership is published as one display code, never the full set.
+  ok(typeof node.paymentCode === "string" && !JSON.stringify(pub).includes("PMsecondCodeNobodyShouldSee"),
+     "only the display payment code is published, not every code the owner holds");
+
+  // The seed anchor is held to the same allowlist. It used to be published as
+  // it sits in seed.json, so the file had two producers and one filter.
+  const seedPath = process.env.PUBLIC_DATA_DIR + "/seed.json";
+  const seedDoc = JSON.parse(await fsp.readFile(seedPath, "utf8"));
+  seedDoc.nodes[0].operator_private_note = "not for publication";
+  await fsp.writeFile(seedPath, JSON.stringify(seedDoc, null, 2) + "\n");
+  await rb();
+  const pub2 = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"));
+  const anchor = pub2.nodes.find((n) => n.id === seedDoc.nodes[0].id);
+  ok(anchor, "the seed anchor is published");
+  ok(!("operator_private_note" in anchor),
+     "a field added to seed.json is not published just because it is in seed.json");
+  ok(JSON.stringify(Object.keys(anchor).sort()) === JSON.stringify([...PUBLIC_NODE_KEYS].sort()),
+     "and the anchor's keys are the same allowlist as any other node: "
+     + JSON.stringify(Object.keys(anchor).sort()));
+
+  delete loaded.submissions["mainnet-allowlist"];
+  delete seedDoc.nodes[0].operator_private_note;
+  await fsp.writeFile(seedPath, JSON.stringify(seedDoc, null, 2) + "\n");
+  await rb();
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

@@ -94,6 +94,34 @@ export function declaredIndexer(payload: Partial<PairingPayload> | null | undefi
   return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}$/i.test(u.trim())) ? u.trim() : null;
 }
 
+// Every key the published dojos.json may contain for a node. Exported so the
+// suite can assert on it rather than restating it, and so that adding a field
+// to toPublicNode without adding it here fails the gate: publishing a new field
+// should be a decision somebody makes, not a consequence of editing a record
+// shape somewhere else.
+export const PUBLIC_NODE_KEYS = Object.freeze([
+  "id", "network", "name", "name_url", "status", "paynym", "paymentCode",
+  "jurisdiction", "country", "hardware", "version", "detected_version",
+  "detected_indexer", "operator_domain", "operator_domain_proof",
+  "block_height", "indexer_url", "checked_at", "payload", "signed",
+]);
+
+// The allowlist itself, and the only producer of a published node.
+//
+// It names every field rather than deleting the ones it does not want, which is
+// the distinction that matters: a redaction list is wrong by default and has to
+// be updated whenever the store gains a field, whereas this is right by default
+// and has to be updated whenever the PUBLIC shape should change. The store
+// holds things that must never be published (moderation status, the owning
+// payment codes, submission timestamps, the probe result recorded at
+// submission, import provenance) and it will hold more in future.
+//
+// One field is copied wholesale rather than picked apart: `payload`. That is
+// deliberate, since the pairing payload including its API key is the entire
+// point of a listing and a visitor needs it byte for byte to pair. It does mean
+// the allowlist has a nested edge: anything added inside payload is published.
+// The store gate is what keeps that honest, since payload is what the operator
+// signed and the signature covers its exact contents.
 function toPublicNode(sub: StoreRecord, paymentCode: string | null): PublicNode {
   return {
     id: sub.id,
@@ -222,7 +250,19 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
     }
     return true;
   });
-  for (const n of seedNodes) byId.set(n.id, n);
+  // Seed nodes go through the SAME allowlist as store records. They used to be
+  // published as they sit in data/seed.json, which meant the public file had two
+  // producers and only one of them filtered anything. Nothing has ever leaked
+  // that way, because seed.json is written by the installer and its fields
+  // happen to be a subset of what toPublicNode emits, but "happens to be a
+  // subset" is not a property anybody was maintaining: seed.json is
+  // instance-owned and documented as hand-editable, so a field added there went
+  // straight to the published file unread. One producer, one allowlist.
+  //
+  // The cast is safe because toPublicNode reads only fields a seed node has;
+  // the owning code is passed as an argument rather than read from the record,
+  // which is why a seed node's singular paymentCode needs no reshaping.
+  for (const n of seedNodes) byId.set(n.id, toPublicNode(n as unknown as StoreRecord, n.paymentCode || null));
   for (const n of approved) byId.set(n.id, n);
   const nodes = [...byId.values()];
 

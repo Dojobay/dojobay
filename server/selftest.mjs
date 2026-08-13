@@ -1505,6 +1505,33 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await rb();
 }
 
+// 35b) the archive download must ask for a media type the endpoint will serve.
+//      It asked for application/octet-stream, and GitHub's archive route
+//      answers 415 to that, so self-update failed on its first request and was
+//      never once seen to work. Checked against the live endpoint while fixing
+//      it: octet-stream 415, application/vnd.github+json 302, */* 302, and the
+//      302 goes to codeload, which this transport already follows.
+{
+  const { githubRequestHead } = await import("./updates.mjs");
+  const head = (opts) => githubRequestHead("/repos/Dojobay/dojobay/zipball/abc", "api.github.com", opts);
+
+  const accept = (h) => (h.match(/\r\nAccept:\s*([^\r\n]+)/) || [])[1];
+  ok(accept(head({ binary: true })) === "*/*",
+     "a download asks for anything the route serves: " + JSON.stringify(accept(head({ binary: true }))));
+  ok(!/octet-stream/.test(head({ binary: true })),
+     "and specifically not octet-stream, which this endpoint refuses outright");
+  ok(accept(head({})) === "application/vnd.github+json",
+     "while metadata calls keep the type that pins the API version");
+
+  // the rest of the request has to stay a well-formed HTTP/1.1 head, since the
+  // reply parser depends on Connection: close and on identity encoding.
+  const h = head({ binary: true });
+  ok(/^GET \/repos\/Dojobay\/dojobay\/zipball\/abc HTTP\/1\.1\r\n/.test(h), "request line intact");
+  ok(/\r\nHost: api\.github\.com\r\n/.test(h), "Host is the hop's host, not a constant");
+  ok(/\r\nAccept-Encoding: identity\r\n/.test(h) && /\r\nConnection: close\r\n\r\n$/.test(h),
+     "identity encoding and Connection: close, which the reply parser relies on");
+}
+
 // 36) the published file is produced by an allowlist, and only by that
 //     allowlist. The store holds moderation status, the owning payment codes,
 //     submission timestamps, the probe result recorded at submission and import

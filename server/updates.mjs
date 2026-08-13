@@ -21,8 +21,25 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GITHUB_REPO = process.env.GITHUB_REPO || "Dojobay/dojobay";
 const API_HOST = "api.github.com";
 
-// One HTTPS GET to api.github.com through the Tor SOCKS proxy. HTTP/1.1 with
-// Connection: close; handles both content-length and chunked replies.
+// The request line and headers, separated out so the Accept value is testable
+// without a network or a TLS mock. It is not a detail: a download used to ask
+// for `application/octet-stream`, and GitHub's archive route answers 415
+// Unsupported Media Type to that, so self-update never got past its first
+// request and no operator ever saw it work. Verified against the live endpoint:
+// octet-stream returns 415, while both `application/vnd.github+json` and `*/*`
+// return the 302 to codeload that this transport already follows.
+//
+// `*/*` rather than the JSON type, because a download genuinely will take
+// whatever the route serves and saying so is true; asking for JSON to obtain a
+// zip works only by convention and would be the next thing to break quietly.
+// The metadata calls keep the JSON type, which is what those routes serve and
+// what pins the API version.
+export function githubRequestHead(apiPath, host, { binary = false } = {}) {
+  return `GET ${apiPath} HTTP/1.1\r\nHost: ${host}\r\nUser-Agent: dojobay-update-check\r\n` +
+    `Accept: ${binary ? "*/*" : "application/vnd.github+json"}\r\n` +
+    `Accept-Encoding: identity\r\nConnection: close\r\n\r\n`;
+}
+
 // One HTTPS GET over the Tor SOCKS proxy. Handles chunked replies, returns
 // both a text `body` and a raw `bodyBuf`, and follows GitHub's redirect from
 // api.github.com to codeload for zipball downloads (binary: true) up to a few
@@ -37,9 +54,7 @@ export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 300
   const res = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, timeoutMs);
     const socket = tls.connect({ socket: raw, servername: _host }, () => {
-      socket.write(
-        `GET ${apiPath} HTTP/1.1\r\nHost: ${_host}\r\nUser-Agent: dojobay-update-check\r\n` +
-        `Accept: ${binary ? "application/octet-stream" : "application/vnd.github+json"}\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
+      socket.write(githubRequestHead(apiPath, _host, { binary }));
     });
     const chunks = [];
     socket.on("data", (d) => chunks.push(d));

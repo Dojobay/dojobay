@@ -90,8 +90,15 @@ export function anchorSeed({ network, name, paymentCode, paynym, payload, jurisd
     name_url: name_url || null, payload,
   }] };
 }
-export const operatorDoc = (onionHost, paymentCode, verifySigned) =>
-  ({ onion: `http://${onionHost}/`, paymentCode, verifySigned });
+// paynym is optional and carries no security weight: the binding that matters
+// is verifySigned, which proves the payment code signed this onion address. The
+// name is a convenience so the Verify popup can link to the PayNym directory
+// and a reader can check the operator's reputation for themselves. Instances
+// installed before this field existed simply have no link, unless their
+// operator adds it by hand or their own listing supplies it; nothing about
+// verification changes either way.
+export const operatorDoc = (onionHost, paymentCode, verifySigned, paynym = null) =>
+  ({ onion: `http://${onionHost}/`, paymentCode, paynym: paynym || null, verifySigned });
 
 // Collect a multiline paste from a readline interface, terminated by a line
 // containing only `endWord`.

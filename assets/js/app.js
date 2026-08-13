@@ -697,10 +697,38 @@ async function loadJSON(url){
     try{ if(!OPERATOR) OPERATOR = await loadJSON("data/operator.json"); }
     catch(e){ body.innerHTML='<p class="loading">Operator signature unavailable.</p>'; return; }
     const signed = OPERATOR.verifySigned || "";
+    // Error correction H, not the default M. The avatar covers roughly 4% of
+    // the symbol area, which only M's 15% budget makes marginal; H's 30% has
+    // room to spare. The cost is density, and it is worth stating the numbers
+    // because they look alarming out of context: this lands at about 2.7px per
+    // module at 300px, where the pairing QR that every visitor already scans
+    // sits at 2.2px. Denser than nothing, less dense than what ships.
+    const qr = qrSVG(signed, 300, "H");
+    // The operator's PayNym, so a reader can put a face and a name to whoever
+    // signed this, the same way every listing does. The avatar keys on the
+    // payment code, which operator.json always carries and which the updater
+    // already syncs alongside the listed nodes.
+    const avatar = OPERATOR.paymentCode
+      ? `<img class="qr-avatar" alt="" fetchpriority="high" decoding="async" src="data/avatars/${encodeURIComponent(OPERATOR.paymentCode)}.png" onerror="this.remove()">`
+      : "";
+    // The NAME is a separate problem: operator.json was defined before this was
+    // wanted and older instances have no paynym field, so it is read when
+    // present and otherwise recovered from the operator's own listing, which is
+    // published and carries both the payment code and the PayNym. Either way
+    // the link is omitted rather than guessed at if neither source has it.
+    const paynym = OPERATOR.paynym
+      || ((DOJOS && DOJOS.nodes || []).find((n) => n.paynym && n.paymentCode === OPERATOR.paymentCode) || {}).paynym
+      || null;
+    const paynymLine = paynym
+      ? '<p style="font-size:12.5px;color:var(--muted);text-align:center;margin:0 0 4px">Signed by '
+        + `<a class="pn" href="${PAYNYM_WEB}/${esc(paynym)}" target="_blank" rel="noopener">${esc(paynym)}</a>`
+        + ' \u00b7 <span style="color:var(--faint)">look the PayNym up yourself before trusting it</span></p>'
+      : "";
     body.innerHTML =
       '<p style="font-size:13px;color:var(--muted)">This directory\u2019s operator has signed its onion address with their BIP47 payment code. '+
       'Scan or copy the signed message and verify it against the payment code to confirm you are on the genuine site and not a phishing clone.</p>'+
-      '<div style="text-align:center;margin:16px 0"><div style="display:inline-block;background:#fff;border-radius:10px;padding:12px">'+qrSVG(signed,300)+'</div></div>'+
+      '<div style="text-align:center;margin:16px 0"><div class="tile" style="display:inline-block;background:#fff;border-radius:10px;padding:12px">'+qr+avatar+'</div></div>'+
+      paynymLine+
       '<div class="lbl"><span class="t">Signed message</span><button class="copybtn" data-act="copyverify">Copy</button></div>'+
       '<pre class="verify-pre">'+esc(signed)+'</pre>';
   }

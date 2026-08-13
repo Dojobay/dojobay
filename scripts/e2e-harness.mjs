@@ -90,6 +90,19 @@ try { window.location.reload = () => { window.__reloaded = true; }; } catch (e) 
 window.qrcode = (t, ec) => { window.__lastEC = ec; return { addData(){}, make(){}, getModuleCount(){ return 21; }, isDark(){ return false; } }; };
 window.markdown = { render: (t) => t };
 window.__updateStatusSeq = [];
+const OPERATOR_SIGNED = [
+  "-----BEGIN BITCOIN SIGNED MESSAGE-----",
+  "http://dojobayeryasshgghz537de5ckgd5hhi4z5sdeil3roeh65fwhdnu2yd.onion/",
+  "",
+  "BIP47:",
+  "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9",
+  "-----BEGIN BITCOIN SIGNATURE-----",
+  "Version: Bitcoin-qt (1.0)",
+  "Address: 1K9Mdqs9hmZKxeMUDRLk4RZT5AJMfNtGpa",
+  "IN/fS2xr5k7px/ncdIWMHil3KnqpWEcigvKa7W20rpWzO3aco8uIOFRAYYhtB+1ZyI3DtPI34fc7ZPN0ZX2Nn5U=",
+  "-----END BITCOIN SIGNATURE-----",
+].join("\n");
+
 window.fetch = async (url, opts) => {
   if (opts && opts.method === "POST" && /\/api\/admin\/update$/.test(url)) {
     window.__updateStarted = JSON.parse(opts.body || "{}");
@@ -114,7 +127,11 @@ window.fetch = async (url, opts) => {
       "mainnet-deadnode": { days: Array.from({length:7},(_,i)=>({d:"2026-07-0"+(7+i),pct:0,close:null})) },
     } } :
     /version\.json/.test(url) ? VERSION :
-    /operator\.json/.test(url) ? { onion: "http://x.onion/", paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9", verifySigned: "-----BEGIN..." } :
+    // A realistic signed block, not a placeholder: the Verify popup renders it
+    // as a QR, and a three-word payload produces a symbol nothing can be
+    // concluded from. No paynym field either, which is deliberate — that is
+    // what every instance installed before the field existed looks like.
+    /operator\.json/.test(url) ? { onion: "http://x.onion/", paymentCode: "PM8TJfHaHuh5xgKoEbrkWaBtytb8qrRNYdmHzxiFcvacD6HpyyxvSV3VLKYsr6UvMxB4jvJP4xxNvCp2pRY3cJPNmLB2L8nYEttaFVszXSBjXNMy8cD9", verifySigned: OPERATOR_SIGNED } :
     /\/api\/admin\/updates/.test(url) ? { available: true, commit: "abc1234", built: "2026-01-01", commits_behind: 3, status: "behind", latest_release: "v0.1", releases_behind: 1 } :
     /\/api\/me/.test(url) ? (meCalls++, ME) :
     /\/api\/domain$/.test(url) ? { claim: { domain: "example.org", verified: true, verified_at: "2026-07-01T00:00:00Z", last_check: "2026-07-20T00:00:00Z", last_result: "ok", failing_since: null, grace_days: 7 } } :
@@ -679,7 +696,48 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the Auth47 challenge can be copied, not just photographed");
 }
 
-console.log("\nall 30 front-end checks passed");
+// The Verify popup identifies the operator the same way every listing does.
+// Two separate things: the avatar, keyed on the payment code that operator.json
+// always carries, and the PayNym name, which it may not.
+{
+  doc.querySelector('[data-act="verify"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  const body = doc.getElementById("ov-body");
+  assert.equal(doc.getElementById("ov-title").textContent, "Verify this directory");
+
+  const tile = body.querySelector(".tile");
+  assert.ok(tile, "the QR sits in a .tile, which is what gives the overlay something to position against");
+  const img = tile.querySelector("img.qr-avatar");
+  assert.ok(img, "the operator's PayNym avatar overlays the QR, as on a listing");
+  assert.ok(/data\/avatars\/PM8TJfHaHuh5/.test(img.getAttribute("src")),
+    "keyed on the operator's own payment code: " + img.getAttribute("src"));
+
+  // Error correction H, not the default M: an overlay eats into the recovery
+  // budget and M allows 15% where H allows 30%. The stubbed QR library records
+  // the level it was asked for, so this is the real call rather than a reading
+  // of the source.
+  assert.ok(tile.querySelector("svg"), "a QR is rendered");
+  assert.equal(window.__lastEC, "H",
+    "the Verify QR asks for error correction H, since it now carries an overlay");
+
+  const link = body.querySelector("a.pn");
+  assert.ok(link, "the operator's PayNym is linked");
+  assert.ok(/paynym25chftmsywv4v2r67agbrr62lcxagsf4tymbzpeeucucy2ivad\.onion/.test(link.getAttribute("href")),
+    "to the PayNym directory's onion, not a clearnet mirror: " + link.getAttribute("href"));
+  assert.equal(link.getAttribute("target"), "_blank");
+  assert.ok(/noopener/.test(link.getAttribute("rel") || ""), "and opened without handing over window.opener");
+  // this fixture's operator.json has NO paynym field, so the name can only have
+  // come from the operator's own published listing. That is the path every
+  // instance installed before the field existed will take.
+  assert.equal(link.textContent, "+91xTx93x3",
+    "recovered from the operator's own listing when operator.json predates the field");
+
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  console.log("  ok - Verify shows who signed: avatar on the QR, PayNym linked to its directory");
+}
+
+console.log("\nall 31 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

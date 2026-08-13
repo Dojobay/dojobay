@@ -138,7 +138,7 @@ async function main() {
         + "\n-----END BITCOIN SIGNATURE----- line. It finishes as soon as it"
         + "\nsees that line, so there is nothing to type afterwards.",
     });
-    opDoc = operatorDoc(onionHost, paymentCode, block.trim());
+    opDoc = operatorDoc(onionHost, paymentCode, block.trim(), paynym || null);
     const v = crypto.verifyOperatorDoc(opDoc, { expectedOnion: `http://${onionHost}` });
     if (v.ok) { ui.ok("signature verifies against your payment code's notification address"); break; }
     ui.err(v.error);

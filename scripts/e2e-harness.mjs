@@ -737,7 +737,66 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - Verify shows who signed: avatar on the QR, PayNym linked to its directory");
 }
 
-console.log("\nall 31 front-end checks passed");
+// The markdown renderer, exercised as though its input were hostile. It is not
+// today: content/about.md and content/faq.md are shipped in the repository and
+// nothing else calls render. These checks exist so that the day something else
+// does, the boundary is already there rather than discovered afterwards.
+{
+  const mdSrc = readFileSync(REPO + "/assets/js/markdown.js", "utf8");
+  const g = {};
+  new Function("module", "globalThis", "window", mdSrc)({}, g, undefined);
+  const md = g.markdown;
+
+  // Attribute injection. escapeHtml left the quote alone, and the link rule
+  // interpolates into href="…", so a URL could close the attribute and open
+  // another. Browsers accept href="x"onfocus=… with no whitespace between.
+  const attr = md.render('[t](x"onfocus=alert)');
+  assert.ok(/href="x&quot;onfocus=alert"/.test(attr),
+    "a quote in a URL is escaped rather than closing the attribute: " + attr);
+  assert.ok(!/"onfocus=/.test(attr.replace(/&quot;/g, "")) || /&quot;/.test(attr),
+    "no bare quote survives into the tag");
+  assert.ok(/&quot;/.test(md.render('say "this"')), "and quotes in prose are escaped too");
+  assert.ok(/&#39;/.test(md.render("it's")), "as are apostrophes");
+
+  // Scheme allowlist. Each of these used to become a live link.
+  for (const u of ["javascript:alert", "JaVaScRiPt:alert", "data:text/plain,x",
+                   "vbscript:x", "file:///etc/passwd", "//evil.onion"]) {
+    const out = md.render(`[t](${u})`);
+    assert.ok(!/<a /.test(out), `${u} must not become a link, got: ${out}`);
+    assert.ok(out.includes("[t]("), "and the markdown stays visible so an author sees it did not work");
+  }
+  // And the spellings that only become a scheme once the browser has discarded
+  // characters it ignores when resolving a URL. \u0001 is chosen deliberately:
+  // it is not \s, so the link rule accepts it inside a URL, which makes it the
+  // one control character that can actually reach safeUrl. A tab or newline
+  // cannot, since the URL pattern stops at whitespace, and a NUL becomes
+  // U+FFFD in an attribute before any scheme is resolved. Asserting on those
+  // two passes whether or not the stripping exists, which is how the first
+  // version of this check was written and why it proved nothing.
+  const smuggled = md.render("[t](java\u0001script:alert)");
+  assert.ok(!/<a /.test(smuggled),
+    "a control character inside the scheme does not smuggle it past the check: " + JSON.stringify(smuggled));
+
+  // and the forms the content actually uses still work
+  for (const u of ["https://dojo-osp.org", "http://abc.onion/lab", "./about"]) {
+    assert.ok(new RegExp('href="' + u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '"').test(md.render(`[t](${u})`)),
+      `${u} must still link`);
+  }
+  // rel="noopener" is not decoration: these open in a new tab.
+  assert.ok(/rel="noopener"/.test(md.render("[t](https://x.org)")), "external links keep noopener");
+
+  // the shipped content is unaffected: same links, same count
+  for (const f of ["about", "faq"]) {
+    const html = md.render(readFileSync(REPO + "/content/" + f + ".md", "utf8"));
+    const links = (html.match(/<a href="/g) || []).length;
+    const raw = (readFileSync(REPO + "/content/" + f + ".md", "utf8").match(/\]\(/g) || []).length;
+    assert.equal(links, raw, `every link in content/${f}.md still renders as one: ${links} of ${raw}`);
+    assert.ok(!/<script/i.test(html), "and nothing in it produces a script tag");
+  }
+  console.log("  ok - markdown escapes attributes and refuses schemes it should not follow");
+}
+
+console.log("\nall 32 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

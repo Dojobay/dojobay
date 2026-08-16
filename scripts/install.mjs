@@ -27,7 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   isPaymentCode, isOnionHost, onionHostOf, isNodeName, parsePairing,
-  operatorMessage, mergeTorrc, renderServerUnit, renderUpdateUnit, renderNginx,
+  operatorMessage, mergeTorrc, renderServerUnit, renderUpdateUnit, renderNginx, SERVICE_USER,
   anchorSeed, operatorDoc,
 } from "./installer-lib.mjs";
 import { chooseUI } from "./installer-ui.mjs";
@@ -251,10 +251,17 @@ async function main() {
     const block = await ui.paste("Signed pairing payload", {
       endMarker: "-----END BITCOIN SIGNATURE-----",
       note: "Now sign your pairing payload, the same way you signed your onion\n"
-        + "address in step 5. Sign this EXACT text under PayNym → Sign message:\n\n"
+        + "address in step 5. Sign this EXACT text under PayNym \u2192 Sign message,\n"
+        + "including the blank line and the BIP47 line at the end:\n\n"
         + wrapForNote(pairingText)
-        + "\n\nThen paste the full signed block below, including its own"
-        + "\n-----END BITCOIN SIGNATURE----- line.",
+        + "\n\n    BIP47:\n" + wrapForNote(paymentCode)
+        + "\n\nThe BIP47 line is required, not decoration. It is what makes the\n"
+        + "block you publish self-contained: a reader pastes it into a verifier\n"
+        + "and gets your payment code back, instead of having to be told\n"
+        + "separately which code to check it against. A block without it will\n"
+        + "be refused here even if the signature itself is good.\n\n"
+        + "Then paste the whole signed block below, including its own\n"
+        + "-----END BITCOIN SIGNATURE----- line.",
     });
     // Same repair the web form applies: a paste through a terminal or a chat
     // window loses the blank line before the BIP47 line, which the signature
@@ -269,12 +276,28 @@ async function main() {
       expectedAddress: crypto.notificationAddresses(paymentCode),
       network: anchor.network === "testnet" ? "testnet" : "bitcoin",
     });
-    if (sig.ok) {
+    // The signature verifying is necessary and not sufficient. verifySignedPayload
+    // only checks a BIP47 line when one is present, because the submission gate
+    // has an authenticated session and supplies the code itself. Here there is
+    // no session, and more to the point this block is about to be published: a
+    // reader with a verifier needs the payment code inside the message, or they
+    // are trusting this site to tell them which code to check it against, which
+    // is the one thing the signature exists to avoid.
+    if (sig.ok && !sig.paymentCode) {
+      ui.err("that block verifies, but it carries no BIP47 line. Sign the payload again "
+        + "with a blank line, then BIP47:, then your payment code, so a reader can check "
+        + "it without being told your code separately.");
+    } else if (sig.ok && String(sig.paymentCode).trim() !== paymentCode.trim()) {
+      ui.err("the BIP47 line inside the signed block is a different payment code from the "
+        + "one you gave in step 3.");
+    } else if (sig.ok) {
       anchorSigned = candidate;
-      ui.ok("pairing payload signed by your payment code" + (repaired?.note ? ` (${repaired.note})` : ""));
+      ui.ok("pairing payload signed by your payment code, BIP47 line included"
+        + (repaired?.note ? ` (${repaired.note})` : ""));
       break;
+    } else {
+      ui.err(sig.error);
     }
-    ui.err(sig.error);
     if (!(await ui.confirm("Try pasting the signed block again?", true))) {
       await ui.fail("Every listing needs a signed pairing payload, including your own; "
         + "without one your directory would publish nothing.");
@@ -322,6 +345,16 @@ async function main() {
     await writeFile(path.join(dataDir, "operator.json"), JSON.stringify(opDoc, null, 2) + "\n");
     log("seed.json (anchor) + operator.json written");
 
+    // The account the services run as, created before the units that name it.
+    // A system account with no login and no home: it needs to read the code and
+    // write under data/, and nothing else.
+    const haveUser = await run("id", ["-u", SERVICE_USER]).then(() => true, () => false);
+    if (!haveUser) {
+      await run("useradd", ["--system", "--no-create-home", "--shell", "/usr/sbin/nologin", SERVICE_USER]);
+      log(`created service account ${SERVICE_USER}`);
+    } else {
+      log(`service account ${SERVICE_USER} already exists`);
+    }
     const nginxTpl = await readFile(path.join(webRoot, "deploy/nginx-onion.conf.example"), "utf8");
     await writeFile("/etc/nginx/sites-available/dojobay", renderNginx(nginxTpl, { webRoot }));
     await run("ln", ["-sf", "/etc/nginx/sites-available/dojobay", "/etc/nginx/sites-enabled/dojobay"]);
@@ -346,9 +379,80 @@ async function main() {
     await run("node", ["build-public.mjs"], { cwd: path.join(webRoot, "server"), env: { ...process.env } });
     await run("node", [path.join(webRoot, "scripts/pack-source.mjs")]);
     log("public list built; source archive packed");
+
+    // Ownership of the whole tree, and it has to happen HERE, after everything
+    // this installer writes and not before.
+    //
+    // It used to run before the bootstrap import, the public build and the
+    // source pack. All three of those write as root, because the installer runs
+    // under sudo and the import runs in-process, and two of them write by
+    // rename, so they produce new root-owned files even where a chowned one
+    // stood. The service account then could not write data/dojos.json, the
+    // history files or data/avatars, so the first probe cycle failed with
+    // permission denied and the timer failed the same way every ten minutes
+    // afterwards. Nothing announced it: nginx serves the directory as static
+    // files whether or not anything behind it is alive, so the site came up
+    // looking finished while the updater had never once run. What an operator
+    // saw was a list of Dojos with no block heights, no avatars and no probe
+    // results, and no reason given.
+    //
+    // Ownership of the whole tree rather than data/ alone: the backend writes
+    // the store, the updater writes the published list and the avatars, and a
+    // self-update replaces the code in place.
+    await run("chown", ["-R", `${SERVICE_USER}:${SERVICE_USER}`, webRoot]);
+
+    // And prove it took, rather than assuming. This is the check that would
+    // have turned a silent non-polling instance into a sentence at install
+    // time, so it is worth the two seconds: write and delete a file in each
+    // directory the updater has to write, as the account the updater will be.
+    const mustWrite = [dataDir, path.join(dataDir, "avatars"), path.join(webRoot, "server", "data")];
+    const unwritable = [];
+    for (const dir of mustWrite) {
+      await run("install", ["-d", "-o", SERVICE_USER, "-g", SERVICE_USER, dir]).catch(() => {});
+      const probe = path.join(dir, ".installer-write-check");
+      const ok = await run("sudo", ["-u", SERVICE_USER, "touch", probe]).then(() => true, () => false);
+      await run("rm", ["-f", probe]).catch(() => {});
+      if (!ok) unwritable.push(dir);
+    }
+    if (unwritable.length) {
+      await ui.fail(`${SERVICE_USER} cannot write to ${unwritable.join(", ")}. `
+        + "The instance would serve its list and never poll: no statuses, no block heights, "
+        + `no avatars. Fix the ownership (chown -R ${SERVICE_USER}:${SERVICE_USER} ${webRoot}) and re-run.`);
+    }
+    log(`${SERVICE_USER} can write everywhere the updater needs to`);
     await run("systemctl", ["enable", "--now", "nginx", "dojobay-server.service", "dojobay-update.timer"]);
     await run("systemctl", ["restart", "nginx", "dojobay-server.service"]);
     log("services enabled and started");
+
+    // One probe cycle now, rather than leaving the first one to the timer.
+    //
+    // The timer's first run is relative to boot, so on a machine that has been
+    // up a while it fires promptly, and on one that has just booted it does not.
+    // Either way an operator finishing an install looks at their directory
+    // immediately, and what they saw was whatever the bootstrap import carried
+    // over: statuses from another instance's last cycle, no block heights, and
+    // no avatars, because none of those exist until something probes. Running it
+    // here means the first page they load is their own instance's work.
+    //
+    // Run as the service account so nothing it writes is owned by root, and
+    // failure is reported rather than fatal: the units are installed, the timer
+    // will come round, and an unreachable Tor at this exact moment should not
+    // undo an otherwise complete install.
+    log("running the first probe cycle over Tor (this takes a minute)…");
+    try {
+      await run("sudo", ["-u", SERVICE_USER, "node", path.join(webRoot, "scripts", "update.mjs")],
+        { cwd: webRoot });
+      log("first probe cycle complete: statuses, block heights and avatars are your own");
+    } catch (e) {
+      // Non-fatal, and it is worth being clear why that is defensible now and
+      // was not before. The writability check above has already ruled out the
+      // failure that never recovers; what is left is Tor being slow or a node
+      // being down at this exact moment, which the timer genuinely will fix.
+      log("✗ first probe cycle failed: " + e.message);
+      log("  ownership is correct, so this is most likely Tor or an unreachable node,");
+      log("  and the timer will retry within ten minutes. To run it by hand:");
+      log(`  sudo -u ${SERVICE_USER} node ${path.join(webRoot, "scripts", "update.mjs")}`);
+    }
   });
 
   await ui.finish([

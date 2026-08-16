@@ -581,6 +581,46 @@ await check("the launcher finds node itself and refuses an old one clearly", asy
   }
 });
 
+// An instance that serves its node list and never polls is the worst failure
+// this installer can produce, because everything looks finished: nginx serves
+// the directory as static files whether or not anything behind it is alive, so
+// the site comes up, the list is there, and only the things the updater writes
+// are missing. It was caused by ordering. The chown to the service account ran
+// BEFORE the bootstrap import, the public build and the source pack, all three
+// of which write as root, two of them by rename, so they left root-owned files
+// the updater could never write again.
+await check("the installer chowns after everything it writes as root, not before", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const at = (needle) => {
+    const i = src.indexOf(needle);
+    assert.notEqual(i, -1, `install.mjs no longer contains ${JSON.stringify(needle)}`);
+    return i;
+  };
+  const chown = at('await run("chown", ["-R", `${SERVICE_USER}');
+  for (const step of ['bootstrapImport({', '"build-public.mjs"', 'scripts/pack-source.mjs']) {
+    assert.ok(at(step) < chown,
+      `${step} runs as root and must happen BEFORE the chown, or it leaves files the service user cannot write`);
+  }
+  // and the services must start after it, or they start against a root tree
+  assert.ok(chown < at('"enable", "--now"'), "services are enabled after ownership is settled");
+  assert.ok(chown < at('scripts", "update.mjs"'), "and the first probe cycle runs after it too");
+});
+
+// Ordering alone is not enough to rely on: it is invisible, and a future edit
+// that inserts another root-run step below the chown reintroduces the bug
+// silently. The installer proves the ownership took before it starts anything.
+await check("the installer proves the service user can write before finishing", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const block = src.slice(src.indexOf("const mustWrite"), src.indexOf("systemctl", src.indexOf("const mustWrite")));
+  assert.ok(/dataDir/.test(block) && /avatars/.test(block) && /server", "data"/.test(block),
+    "it checks the published data dir, the avatar dir and the store dir: everything the updater writes");
+  assert.ok(/sudo", \["-u", SERVICE_USER, "touch"/.test(block),
+    "as the service account, not as root, since root can always write");
+  assert.ok(/ui\.fail\(/.test(block),
+    "and a failure is fatal: an install that cannot poll is not an install, and saying so at "
+    + "install time is what saves an operator from a directory that looks finished and is not");
+});
+
 // The installer has one UI, and it is the one people have actually finished an
 // install with. The full-screen TUI used to be the default on any terminal that
 // looked capable, which meant the path least exercised was the path most taken.
@@ -725,6 +765,140 @@ await check("the torii is symmetrical, whole, and drawn in ones and zeroes", asy
     if (real) Object.defineProperty(process.stdout, "isTTY", real);
     else delete process.stdout.isTTY;
   }
+});
+
+// Both units shipped naming an account that was true of one machine and of
+// nobody else's: the backend said deploy, the updater said dojobay, neither
+// renderer touched the line and the installer created neither. Both services
+// then failed 217/USER on a fresh box, silently, because nginx serves the
+// directory as static files whether or not the backend is alive. The updater
+// never ran, which is what an operator actually noticed: stale statuses, no
+// block heights, no avatars.
+await check("the units name an account the installer actually creates", async () => {
+  const lib = await import("./installer-lib.mjs");
+  const { SERVICE_USER, renderServerUnit, renderUpdateUnit } = lib;
+
+  // Rendered with a name that is NOT the default, deliberately. The updater
+  // template happens to be hardcoded to the same account the installer now
+  // creates, so asserting on the default passes whether or not the renderer
+  // rewrites anything: the first version of this check did exactly that and
+  // survived having the rewrite deleted.
+  const OTHER = "svcacct";
+  const srvTpl = readFileSync(new URL("./dojobay-server.service", import.meta.url).pathname, "utf8");
+  const updTpl = readFileSync(new URL("./dojobay-update.service", import.meta.url).pathname, "utf8");
+  const srv = renderServerUnit(srvTpl, { webRoot: "/srv/db", baseUrl: "http://x.onion", adminCode: "PM8Tx", user: OTHER });
+  const upd = renderUpdateUnit(updTpl, { webRoot: "/srv/db", user: OTHER });
+
+  for (const [name, unit] of [["server", srv], ["updater", upd]]) {
+    assert.ok(new RegExp(`^User=${OTHER}$`, "m").test(unit), `${name} runs as the account it was given`);
+    assert.ok(new RegExp(`^Group=${OTHER}$`, "m").test(unit), `${name} group matches`);
+    assert.ok(!/^User=(deploy|dojobay)$/m.test(unit),
+      `${name} does not keep the account its template was written for`);
+    assert.ok(/^WorkingDirectory=\/srv\/db/m.test(unit), `${name} points at the chosen web root`);
+  }
+  // and the default, which is what the installer actually uses
+  assert.ok(new RegExp(`^User=${SERVICE_USER}$`, "m").test(renderUpdateUnit(updTpl, { webRoot: "/srv/db" })),
+    "the default account is the one the installer creates");
+  // one account for both, or the store is written by one service and read by
+  // another that cannot open it
+  assert.equal((srv.match(/^User=(.*)$/m) || [])[1], (upd.match(/^User=(.*)$/m) || [])[1],
+    "both services run as the same account");
+
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/useradd/.test(src) && /SERVICE_USER/.test(src), "the installer creates that account");
+  assert.ok(/chown", \["-R", `\$\{SERVICE_USER\}:\$\{SERVICE_USER\}`, webRoot\]/.test(src),
+    "and gives it the tree, since the backend writes the store and a self-update rewrites the code");
+});
+
+// An install used to finish and leave the operator looking at another
+// instance's numbers: the timer's first run is boot-relative, and nothing had
+// probed even once, so there were no block heights and no avatars because
+// neither exists until something asks for them.
+await check("the installer runs a probe cycle before it declares success", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const tail = src.slice(src.indexOf("services enabled and started"));
+  assert.ok(/scripts", "update\.mjs"/.test(tail) || /update\.mjs/.test(tail),
+    "the updater is invoked during the install, after the services are up");
+  assert.ok(/sudo", \["-u", SERVICE_USER/.test(tail),
+    "as the service account, so nothing it writes is left owned by root");
+  assert.ok(/catch \(e\)/.test(tail) && /timer will retry/.test(tail),
+    "and a failure here reports itself rather than undoing an otherwise complete install");
+});
+
+// The anchor's signed block is published, so a reader must be able to check it
+// without being told which payment code to check it against.
+await check("the anchor signature must carry a BIP47 line", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/BIP47 line is required/.test(src),
+    "the prompt says so before the operator signs, not after they paste");
+  assert.ok(/BIP47:\\n" \+ wrapForNote\(paymentCode\)/.test(src),
+    "and shows the exact line to append, rather than describing it");
+  assert.ok(/sig\.ok && !sig\.paymentCode/.test(src),
+    "a block with a good signature and no BIP47 line is refused");
+  assert.ok(/different payment code from the/.test(src),
+    "as is one naming somebody else's code");
+});
+
+// Both units shipped naming an account that was true of one machine and of
+// nobody else's: the backend said deploy, the updater said dojobay, neither
+// renderer touched the line and the installer created neither. Both services
+// then failed 217/USER on a fresh box, silently, because nginx serves the
+// directory as static files whether or not the backend is alive. The updater
+// never ran, which is what an operator actually noticed: stale statuses, no
+// block heights, no avatars.
+await check("the units name an account the installer actually creates", async () => {
+  const lib = await import("./installer-lib.mjs");
+  const { SERVICE_USER, renderServerUnit, renderUpdateUnit } = lib;
+
+  const srv = renderServerUnit(readFileSync(new URL("./dojobay-server.service", import.meta.url).pathname, "utf8"),
+    { webRoot: "/srv/db", baseUrl: "http://x.onion", adminCode: "PM8Tx" });
+  const upd = renderUpdateUnit(readFileSync(new URL("./dojobay-update.service", import.meta.url).pathname, "utf8"),
+    { webRoot: "/srv/db" });
+
+  for (const [name, unit] of [["server", srv], ["updater", upd]]) {
+    assert.ok(new RegExp(`^User=${SERVICE_USER}$`, "m").test(unit), `${name} runs as the service account`);
+    assert.ok(new RegExp(`^Group=${SERVICE_USER}$`, "m").test(unit), `${name} group matches`);
+    assert.ok(!/^User=deploy$/m.test(unit), `${name} does not still name a machine-specific account`);
+    assert.ok(/^WorkingDirectory=\/srv\/db/m.test(unit), `${name} points at the chosen web root`);
+  }
+  // one account for both, or the store is written by one service and read by
+  // another that cannot open it
+  assert.equal((srv.match(/^User=(.*)$/m) || [])[1], (upd.match(/^User=(.*)$/m) || [])[1],
+    "both services run as the same account");
+
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/useradd/.test(src) && /SERVICE_USER/.test(src), "the installer creates that account");
+  assert.ok(/chown", \["-R", `\$\{SERVICE_USER\}:\$\{SERVICE_USER\}`, webRoot\]/.test(src),
+    "and gives it the tree, since the backend writes the store and a self-update rewrites the code");
+});
+
+// An install used to finish and leave the operator looking at another
+// instance's numbers: the timer's first run is boot-relative, and nothing had
+// probed even once, so there were no block heights and no avatars because
+// neither exists until something asks for them.
+await check("the installer runs a probe cycle before it declares success", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const tail = src.slice(src.indexOf("services enabled and started"));
+  assert.ok(/scripts", "update\.mjs"/.test(tail) || /update\.mjs/.test(tail),
+    "the updater is invoked during the install, after the services are up");
+  assert.ok(/sudo", \["-u", SERVICE_USER/.test(tail),
+    "as the service account, so nothing it writes is left owned by root");
+  assert.ok(/catch \(e\)/.test(tail) && /timer will retry/.test(tail),
+    "and a failure here reports itself rather than undoing an otherwise complete install");
+});
+
+// The anchor's signed block is published, so a reader must be able to check it
+// without being told which payment code to check it against.
+await check("the anchor signature must carry a BIP47 line", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/BIP47 line is required/.test(src),
+    "the prompt says so before the operator signs, not after they paste");
+  assert.ok(/BIP47:\\n" \+ wrapForNote\(paymentCode\)/.test(src),
+    "and shows the exact line to append, rather than describing it");
+  assert.ok(/sig\.ok && !sig\.paymentCode/.test(src),
+    "a block with a good signature and no BIP47 line is refused");
+  assert.ok(/different payment code from the/.test(src),
+    "as is one naming somebody else's code");
 });
 
 await check("installer library: validators, torrc idempotence, unit rendering", async () => {

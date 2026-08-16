@@ -60,15 +60,30 @@ export function stripTorrc(existing) {
 // ---- systemd + nginx rendering ----------------------------------------------
 // Templates ship in scripts/ and deploy/ with the reference values baked in;
 // rendering is a substitution over those known markers.
-export function renderServerUnit(template, { webRoot, baseUrl, adminCode }) {
+// The account both services run as. It is rendered into the units, and the
+// installer creates it, because the templates shipped with names that were true
+// of one particular machine and of nobody else's: the backend unit said deploy
+// and the updater unit said dojobay, neither renderer touched either line, and
+// the installer created neither account. On a fresh box both services therefore
+// failed to start with 217/USER. Nothing said so out loud: nginx serves the
+// directory as static files whether or not the backend is alive, so the site
+// came up looking correct while the updater never ran once, which is why an
+// install could finish with stale statuses, no block heights and no avatars.
+export const SERVICE_USER = "dojobay";
+
+export function renderServerUnit(template, { webRoot, baseUrl, adminCode, user = SERVICE_USER }) {
   return template
+    .replace(/^User=.*$/gm, `User=${user}`)
+    .replace(/^Group=.*$/gm, `Group=${user}`)
     .replace(/WorkingDirectory=.*/g, `WorkingDirectory=${path.join(webRoot, "server")}`)
     .replace(/Environment=BASE_URL=.*/g, `Environment=BASE_URL=${baseUrl}`)
     .replace(/Environment=ADMIN_PAYMENT_CODES=.*/g, `Environment=ADMIN_PAYMENT_CODES=${adminCode}`)
     .replace(/ExecStart=.*/g, `ExecStart=/usr/bin/env node ${path.join(webRoot, "server", "index.mjs")}`);
 }
-export function renderUpdateUnit(template, { webRoot }) {
+export function renderUpdateUnit(template, { webRoot, user = SERVICE_USER }) {
   return template
+    .replace(/^User=.*$/gm, `User=${user}`)
+    .replace(/^Group=.*$/gm, `Group=${user}`)
     .replace(/WorkingDirectory=.*/g, `WorkingDirectory=${webRoot}`)
     .replace(/ExecStart=.*/g, `ExecStart=/usr/bin/env node ${path.join(webRoot, "scripts", "update.mjs")}`);
 }

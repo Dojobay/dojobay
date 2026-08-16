@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 // The Dojo Bay guided installer.
 //
-//   sudo node scripts/install.mjs [--plain]
+//   sudo node scripts/install.mjs
 //
-// Phase two: a full-screen TUI (persistent header, arrow-key forms, progress
-// panels for the slow Tor operations) on capable terminals, falling back to
-// the phase-one sequential flow on dumb/tiny terminals or with --plain. All
-// stage logic is UI-independent and talks to scripts/installer-ui.mjs; the
-// TUI's pure core (key decoding, form reduction, frame rendering) lives in
-// scripts/tui.mjs and is covered by scripts/selftest.mjs.
+// A guided sequential flow: one question at a time, scrolling, so the whole
+// transcript survives in the scrollback when something goes wrong on a machine
+// somebody is configuring once. Stage logic is UI-independent and talks to
+// scripts/installer-ui.mjs.
+//
+// There was a full-screen TUI, chosen by default on any terminal that looked
+// capable. It is parked rather than removed (scripts/tui.mjs, still self-tested)
+// because the idea is worth returning to, but nothing routes to it: a
+// full-screen program clears away the output that would explain a failure, and
+// it is the path on which nobody has completed an install. --plain used to
+// select this flow and is still accepted, so existing scripts do not break.
 //
 // The flow: prerequisites -> backend deps -> identity -> hidden service
 // (fresh, or an imported vanity key) -> the REQUIRED operator signature ->

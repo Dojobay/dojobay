@@ -117,18 +117,12 @@ footer serves it, or GitHub), extract, and run:
 ./install.sh
 ```
 
-On a capable terminal this is a full-screen TUI — arrow-key forms, a
-persistent header, live progress panels for the slow Tor operations — and it
-falls back to a plain sequential flow on dumb or tiny terminals (or with
-`./install.sh --plain`). On a desktop, `dojobay-install.desktop` makes the
-same wizard double-clickable, but it needs two things first, and gives no
-feedback when they are missing: the file must be marked executable
-(`chmod +x dojobay-install.desktop`, or right-click → Allow Launching, as GNOME
-requires), and a terminal emulator must be registered for `Terminal=true` to
-work. If double-clicking appears to do nothing, run `./install.sh` from a
-terminal instead — it is the same wizard and it will say what is wrong. Over
-SSH it runs
-headless in the terminal. The wizard checks prerequisites (offering to
+Run it from a terminal, locally or over SSH. It is a guided sequential flow:
+it asks one thing at a time, explains what it is about to do, and everything
+it prints stays on the screen and in your scrollback, which is what you want
+when something goes wrong on a server you are configuring once. There is no
+double-click launcher and no full-screen mode; the same is true of the
+uninstaller. The wizard checks prerequisites (offering to
 install `tor` and `nginx`), takes your BIP47 payment code, creates the hidden
 service — or **imports your existing .onion key** if you have a vanity
 address (point it at your `hs_ed25519_secret_key`; generating vanity keys is

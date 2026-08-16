@@ -109,18 +109,13 @@ const INV = (s) => `${ESC}7m${s}${ESC}27m`;
 const plainLen = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").length;
 const padTo = (s, w) => s + " ".repeat(Math.max(0, w - plainLen(s)));
 
-// The torii gate over waves, in ones and zeroes. Redrawn on every frame, so it
-// is the compact cut rather than the full one; installer-lib.mjs holds both and
-// explains why. Seven rows because an 80x24 terminal has to fit a form under it.
-export const HEADER = [
-    " 0000000000011                1100000000000",
-    " 100000000000000000000000000000000000000001",
-    "      11000000000000000000000000000011",
-    "           100001          100001",
-    "           000000          000000",
-    "000001    1000000001    1000000001    100000",
-    "    10000001      10000001      10000001",
-];
+// No gate here. The full art is sixty-six columns by thirty-four rows and this
+// header is redrawn on every keystroke: it would leave an eighty by twenty-four
+// terminal with nothing but a header, and a cut-down version of it turned out
+// to be a worse picture rather than a smaller one. installer-lib.mjs prints the
+// real thing once, before the TUI takes over. A rule and a wordmark do the job
+// a frame header actually has, which is to say which program you are in.
+export const HEADER = [];
 
 /**
  * @param {{ width?: number, stepLabel?: string, title?: string,
@@ -129,11 +124,7 @@ export const HEADER = [
 export function renderFrame({ width = 80, stepLabel = "", title = "", body = [], footer = "" }) {
   const lines = [];
   for (const l of HEADER) lines.push(R(l));
-  // The wordmark is a line of its own rather than letters cut into the gate.
-  // The art is ones and zeroes throughout, and punching a name through it would
-  // mean neither reading cleanly; this also keeps the gate identical to the one
-  // installer-lib.mjs prints, which the suite checks.
-  lines.push(BOLD("  THE DOJO BAY"));
+  lines.push(R(" ") + BOLD("THE DOJO BAY") + R("  " + "0".repeat(Math.max(0, width - 16))));
   lines.push(padTo(DIM(stepLabel), width - 1) );
   lines.push(R("── ") + BOLD(title) + " " + R("─".repeat(Math.max(2, width - 6 - plainLen(title)))));
   lines.push("");

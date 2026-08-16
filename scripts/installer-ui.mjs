@@ -15,12 +15,28 @@ import { makeScreen } from "./tui.mjs";
 //   show(title, lines[])                          informational screen
 //   finish(lines[]) / fail(message)               terminal states
 
-export function chooseUI(argv = process.argv) {
-  const plain = argv.includes("--plain")
-    || !process.stdin.isTTY || !process.stdout.isTTY
-    || process.env.TERM === "dumb"
-    || (process.stdout.columns || 80) < 80 || (process.stdout.rows || 24) < 22;
-  return plain ? sequentialUI() : tuiUI();
+// One UI, and it is the sequential one.
+//
+// The full-screen TUI was the default on any terminal that looked capable, with
+// the sequential flow as a fallback. That was the wrong way round for a program
+// whose whole job is to be run once, carefully, on somebody's server: the TUI
+// takes over the screen, so when something goes wrong the output that would
+// explain it is gone, and it is the path nobody has completed an install on.
+// The sequential flow scrolls, which means the whole transcript stays on the
+// screen and in the scrollback, and it is what every successful install so far
+// has used. It also matches the uninstaller, which has only ever been
+// sequential.
+//
+// tui.mjs and tuiUI() are kept rather than deleted, and their pure core is
+// still self-tested, because the intention is to come back to this. Nothing
+// reaches them at present, deliberately: an unfinished alternative that people
+// can stumble into is worse than one that is parked.
+//
+// `--plain` is accepted and ignored, so anyone who learned to pass it, or has
+// it in a script, is not met with an error about an option that used to be the
+// only way to get the working path.
+export function chooseUI(_argv = process.argv) {
+  return sequentialUI();
 }
 
 // ---- sequential (phase one) --------------------------------------------------

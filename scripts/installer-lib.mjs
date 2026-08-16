@@ -166,51 +166,62 @@ export const bold = (s) => (TTY ? `\x1b[1m${s}\x1b[0m` : s);
 export const ok = (s) => (TTY ? `\x1b[38;5;71m${s}\x1b[0m` : s);
 export const bad = (s) => (TTY ? `\x1b[38;5;196m${s}\x1b[0m` : s);
 
-// The torii gate over two waves, drawn in ones and zeroes: the directory is a
-// list of machines, and the mark it puts at the top of an install is made of
-// the only two symbols any of them really has.
+// The torii gate over three bands of wave, drawn in ones and zeroes: a
+// directory of machines, marked with the only two symbols any of them has.
 //
-// Both variants are generated symmetrically and pasted here rather than built
-// at runtime, because a banner is not worth a layout engine and a literal
-// cannot drift. The compact one is not merely shorter: the sequential UI prints
-// its banner once and lets it scroll, while the TUI redraws every frame, so an
-// eighteen-row header would leave nothing on an 80x24 terminal but a header.
-export const TORII_FULL = [
-    " 0000000000011                1100000000000",
-    " 100000000000000000000000000000000000000001",
-    " 100000000000000000000000000000000000000001",
-    "      11000000000000000000000000000011",
-    "      10000000000000000000000000000001",
-    "      10000000000000000000000000000001",
-    "           100001          100001",
-    "           000000          000000",
-    "           000000          000000",
-    "           100001          100001",
-    "           000000          000000",
-    "           000000          000000",
-    "           100001          100001",
-    "",
-    "00001      10000001      10000001      10000",
-    "0000001  100000000001  100000000001  1000000",
-    "  100000000001  100000000001  100000000001",
-    "     100001        100001        100001",
+// Sixty-six columns and thirty-four rows, which is the whole thing rather than
+// a version of it that fits somewhere convenient. A first attempt squeezed it
+// to forty-four columns and one wave band so the TUI could redraw it every
+// frame, and the result was not a smaller gate but a different and much worse
+// picture. If it will not fit, it is not drawn at all.
+//
+// Symmetry is structural rather than checked afterwards: every row is laid out
+// from the centre and its left half mirrored onto its right. Note that for an
+// even width the mirror axis falls BETWEEN two columns, so a crest centred on
+// c pairs with one centred on W-c; centring on the middle column instead puts
+// each crest half a cell off the axis and the mirror clips one side of it.
+export const TORII = [
+  "0000000000011                                        1100000000000",
+  "100000000000000000000000000000000000000000000000000000000000000001",
+  "100000000000000000000000000000000000000000000000000000000000000001",
+  "          1100000000000000000000000000000000000000000011",
+  "          1000000000000000000000000000000000000000000001",
+  "          1000000000000000000000000000000000000000000001",
+  "                100001                      100001",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                100001                      100001",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                100001                      100001",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                000000                      000000",
+  "                100001                      100001",
+  "                000000                      000000",
+  "                000000                      000000",
+  "",
+  "        10000001      10000001      10000001      10000001",
+  "      100000000001  100000000001  100000000001  100000000001",
+  "00000000001  100000000001  100000000001  100000000001  10000000000",
+  "  100001        100001        100001        100001        100001",
+  "        10000001      10000001      10000001      10000001",
+  "      100000000001  100000000001  100000000001  100000000001",
+  "00000000001  100000000001  100000000001  100000000001  10000000000",
+  "  100001        100001        100001        100001        100001",
+  "        11111111      11111111      11111111      11111111",
+  "      111111111111  111111111111  111111111111  111111111111",
+  "11111111111  111111111111  111111111111  111111111111  11111111111",
+  "  111111        111111        111111        111111        111111",
 ];
 
-export const TORII_COMPACT = [
-    " 0000000000011                1100000000000",
-    " 100000000000000000000000000000000000000001",
-    "      11000000000000000000000000000011",
-    "           100001          100001",
-    "           000000          000000",
-    "000001    1000000001    1000000001    100000",
-    "    10000001      10000001      10000001",
-];
-
-export function banner(width = (process.stdout.columns || 80), height = (process.stdout.rows || 24)) {
-  if (!process.stdout.isTTY || width < 46) return bold("THE DOJO BAY \u2014 installer\n");
-  // Room for the art, the subtitle and the first prompt, or the top of the gate
-  // scrolls away before anyone reads it.
-  const art = height >= 26 ? TORII_FULL : TORII_COMPACT;
-  return art.map((l) => red(l)).join("\n")
+export function banner(width = (process.stdout.columns || 80)) {
+  const art = TORII[0].length;
+  // Nothing is gained by drawing two thirds of a gate: below the full width it
+  // wraps into rubble, so the name alone is the better answer.
+  if (!process.stdout.isTTY || width < art + 2) return bold("THE DOJO BAY \u2014 installer\n");
+  return TORII.map((l) => red(l)).join("\n")
     + "\n\n" + bold("  THE DOJO BAY") + dim("  \u00b7  onion-only Dojo directory \u00b7 guided install\n");
 }

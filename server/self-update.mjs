@@ -226,7 +226,7 @@ export async function applyUpdate({ bytes, sourceLabel, version, webRoot = ROOT,
   }
 
   // Preserve executable bits the archive is known to carry.
-  for (const rel of ["install.sh", "dojobay-install.desktop"]) {
+  for (const rel of ["install.sh"]) {
     try { const { chmod } = await import("node:fs/promises"); await chmod(path.join(staging, rel), 0o755); } catch {}
   }
 
@@ -252,7 +252,7 @@ export async function applyUpdate({ bytes, sourceLabel, version, webRoot = ROOT,
   let backedUp = 0;
   for (const rel of ["assets", "content", "deploy", "scripts", "server", ".github",
     "index.html", "manifest.json", "sw.js", "package.json", "README.md", "CONTRIBUTING.md",
-    "install.sh", "dojobay-install.desktop"]) {
+    "install.sh"]) {
     const src = path.join(webRoot, rel);
     try {
       await stat(src);

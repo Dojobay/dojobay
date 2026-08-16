@@ -27,7 +27,7 @@ const INCLUDE_FILES = [
   "index.html", "manifest.json", "sw.js", "favicon.svg", "og-image.png",
   "LICENSE", "README.md", "CONTRIBUTING.md", "package.json",
   "tsconfig.json", "types.d.ts",
-  "install.sh", "uninstall.sh", "dojobay-install.desktop",
+  "install.sh", "uninstall.sh",
   "data/version.json",
 ];
 const INCLUDE_DIRS = ["assets", "content", "deploy", "scripts", "server", ".github"];

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Launcher for the Dojo Bay installer. Double-clickable on a desktop (see
-# dojobay-install.desktop) and equally happy headless: ./install.sh over SSH.
+# Launcher for the Dojo Bay installer. Run it from a terminal, locally or over
+# SSH: there is no double-click path, and the installer is a guided sequential
+# flow rather than a full-screen program.
 set -e
 cd "$(dirname "$0")"
 

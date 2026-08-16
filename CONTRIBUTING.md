@@ -58,8 +58,8 @@ server/
   selftest.mjs             # backend test suite (see below)
 scripts/
   install.mjs              # guided installer; stages talk to installer-ui.mjs
-  installer-ui.mjs         # one interface, two faces: full-screen TUI + sequential
-  tui.mjs                  # TUI toolkit; pure core (keys, forms, frames) is self-tested
+  installer-ui.mjs         # the installer's one interface: a sequential flow
+  tui.mjs                  # PARKED full-screen toolkit; nothing routes to it, see below
   installer-lib.mjs        # installer's pure logic: validators, config renderers
   bootstrap-import.mjs     # import nodes + history from a trusted instance (signature-gated)
   update.mjs               # ten-minute Tor prober; maintains statuses + history
@@ -191,6 +191,23 @@ mkdir -p /tmp/launchers && cp server/index.mjs server/build-public.mjs /tmp/laun
 /tmp/codeql/codeql database analyze /tmp/cqdb-launchers javascript-code-scanning.qls \
   --format=sarif-latest --output=/tmp/cq-launchers.sarif
 ```
+
+### The parked TUI
+
+`tui.mjs` and `tuiUI()` in `installer-ui.mjs` are a full-screen installer that
+used to be the default on any terminal that looked capable. Nothing reaches
+them now. That is deliberate and it is not a temporary state to be tidied away
+by deleting the files: a full-screen program takes over the screen, so a
+failure erases the output that would explain it, and it was the path with the
+least real use and the most reported trouble. The sequential flow scrolls,
+which is what an operator wants on a server they are configuring once, and it
+matches the uninstaller, which has only ever been sequential.
+
+The pure core (key decoding, form reduction, frame rendering) is still covered
+by `scripts/selftest.mjs`, so the code does not rot while it waits. If you pick
+this up again, the thing to fix first is not the widgets: it is that a
+full-screen installer needs to leave a readable transcript behind when it exits,
+successfully or otherwise.
 
 ## Conventions
 

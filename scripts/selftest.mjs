@@ -570,13 +570,35 @@ await check("the launcher finds node itself and refuses an old one clearly", asy
   assert.ok(/deb\.nodesource\.com/.test(sh) && /apt install nodejs/.test(sh),
     "and tells the operator where to get a current Node, and what not to install");
 
-  // the desktop entry must pass %k as its own argument, not inside the quotes:
-  // interpolated there, the launcher silently does nothing
-  const desktop = readFileSync(new URL("../dojobay-install.desktop", import.meta.url), "utf8");
-  const exec = (desktop.match(/^Exec=(.*)$/m) || ["", ""])[1];
-  assert.ok(exec.trim().endsWith("sh %k"), "%k is passed as an argument: " + exec.slice(-40));
-  assert.ok(/\$\{1#file:\/\/\}/.test(exec), "and a file:// URI is reduced to a path");
-  assert.ok(/^Terminal=true$/m.test(desktop), "the entry asks for a terminal");
+  // There is no desktop entry any more, and no reference to one. It offered a
+  // double-click install that needed the file marked executable and a terminal
+  // emulator registered, gave no feedback when either was missing, and nobody
+  // ever completed an install through it.
+  assert.ok(!/desktop/i.test(sh), "the launcher no longer mentions a desktop entry");
+  for (const f of ["pack-source.mjs", "../server/self-update.mjs"]) {
+    assert.ok(!/dojobay-install\.desktop/.test(readFileSync(new URL(f, import.meta.url).pathname, "utf8")),
+      `${f} does not still list the removed desktop entry`);
+  }
+});
+
+// The installer has one UI, and it is the one people have actually finished an
+// install with. The full-screen TUI used to be the default on any terminal that
+// looked capable, which meant the path least exercised was the path most taken.
+await check("the installer always runs the sequential flow", async () => {
+  const { chooseUI, sequentialUI, tuiUI } = await import("./installer-ui.mjs");
+  assert.equal(typeof tuiUI, "function", "the TUI adapter is parked, not deleted");
+
+  const src = readFileSync(new URL("./installer-ui.mjs", import.meta.url).pathname, "utf8");
+  const body = src.slice(src.indexOf("export function chooseUI"), src.indexOf("\n}", src.indexOf("export function chooseUI")));
+  assert.ok(/return sequentialUI\(\)/.test(body), "chooseUI returns the sequential flow");
+  assert.ok(!/tuiUI\(\)/.test(body), "and nothing routes to the TUI, on any terminal");
+  assert.ok(!/isTTY|columns|rows|TERM/.test(body),
+    "with no capability sniffing left to send anyone down the other path");
+
+  // --plain was how you asked for the flow that worked. It has to keep being
+  // accepted rather than becoming an unknown-option error in someone's script.
+  assert.equal(typeof chooseUI(["node", "install.mjs", "--plain"]), "object");
+  assert.equal(typeof chooseUI(["node", "install.mjs"]), "object");
 });
 
 await check("installer paste collector keeps every line of a one-chunk paste", async () => {
@@ -657,58 +679,48 @@ await check("the installer's version gate is the directory's version gate", asyn
 });
 
 // The banner is decoration, but a lopsided gate is the first thing an operator
-// sees and it is drawn from literals nobody will re-derive. These checks are
-// cheap and they pin the two things a careless edit would break: symmetry, and
-// the two modules agreeing on the same compact art.
-await check("the torii banner is symmetrical, and both modules draw the same gate", async () => {
-  const { TORII_FULL, TORII_COMPACT, banner } = await import("./installer-lib.mjs");
+// sees and it is drawn from literals nobody will re-derive by hand.
+await check("the torii is symmetrical, whole, and drawn in ones and zeroes", async () => {
+  const { TORII, banner } = await import("./installer-lib.mjs");
   const { HEADER } = await import("./tui.mjs");
 
-  /** @type {Array<[string, string[]]>} */
-  const cuts = [["full", TORII_FULL], ["compact", TORII_COMPACT]];
-  for (const [name, art] of cuts) {
-    const width = Math.max(...art.map((l) => l.length));
-    for (const line of art) {
-      const p = line.padEnd(width, " ");
-      for (let x = 0; x < Math.floor(width / 2); x++) {
-        assert.equal(p[x], p[width - 1 - x],
-          `${name} art is lopsided at column ${x}: ${JSON.stringify(line)}`);
-      }
+  const width = Math.max(...TORII.map((l) => l.length));
+  for (const line of TORII) {
+    const p = line.padEnd(width, " ");
+    for (let x = 0; x < Math.floor(width / 2); x++) {
+      assert.equal(p[x], p[width - 1 - x],
+        `the gate is lopsided at column ${x}: ${JSON.stringify(line)}`);
     }
-    assert.ok(art.every((l) => /^[01 ]*$/.test(l)),
-      `${name} art is drawn in ones and zeroes only`);
-    assert.ok(width <= 44, `${name} art fits a narrow terminal: ${width}`);
   }
+  assert.ok(TORII.every((l) => /^[01 ]*$/.test(l)), "ones and zeroes only");
 
-  // tui.mjs redraws its header on every frame and deliberately imports nothing,
-  // so the art is duplicated there. Duplicated is fine; drifted is not.
-  assert.deepEqual(HEADER, TORII_COMPACT,
-    "the TUI header and the compact banner are the same gate");
-  assert.ok(TORII_COMPACT.length <= 8 && TORII_FULL.length > TORII_COMPACT.length,
-    "the compact cut is short enough to redraw and shorter than the full one");
+  // The whole picture, not a version of it that fits somewhere. Squeezing it to
+  // fit the TUI frame once produced a different and much worse image, so the
+  // dimensions are pinned: a lintel, a second lintel, pillars, and three bands
+  // of wave.
+  assert.equal(width, 66, "full width, as drawn");
+  assert.equal(TORII.length, 34, "full height, three wave bands and all");
+  assert.equal(TORII.filter((l) => !l.trim()).length, 1, "one break, between gate and water");
 
-  // The fallbacks, which is where a banner usually breaks. Note that this suite
-  // runs with its output piped, so isTTY is false and the plain path is what a
-  // naive check would exercise: that is worth asserting outright, and then
-  // faking a TTY to reach the branches that actually draw something.
+  // and the TUI carries none of it, deliberately
+  assert.deepEqual(HEADER, [],
+    "the frame header draws no gate: it is redrawn per keystroke and the art is 34 rows");
+
+  // The fallback, which is where a banner usually breaks. This suite runs with
+  // its output piped, so isTTY is false and the plain path is what a naive
+  // check would exercise: worth asserting outright before faking a TTY.
   assert.ok(!process.stdout.isTTY, "the suite runs without a TTY, so the next line means something");
-  assert.equal(banner(80, 30).includes("0000"), false,
-    "piped output gets plain text: escape codes and box art in a log help nobody");
+  assert.ok(!/[01]{6}/.test(banner(120)), "piped output gets plain text, not escape codes in a log");
 
   const real = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
   Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
   try {
-    // Counted rather than matched on a sample line: the two cuts share several
-    // rows verbatim, so "contains this line" cannot tell them apart. The first
-    // attempt at this test used a pillar row and passed for both.
-    const artRows = (out) => out.replace(/\x1b\[[0-9;]*m/g, "").split("\n")
+    const drawn = (out) => out.replace(/\x1b\[[0-9;]*m/g, "").split("\n")
       .filter((l) => /^[01 ]+$/.test(l) && /[01]/.test(l)).length;
-    assert.equal(artRows(banner(80, 30)), TORII_FULL.filter((l) => l.trim()).length,
-      "a roomy terminal gets every row of the full gate");
-    assert.equal(artRows(banner(80, 24)), TORII_COMPACT.filter((l) => l.trim()).length,
-      "a 24-row terminal gets the compact one, so a form still fits beneath it");
-    assert.ok(!/[01]{6}/.test(banner(40, 30)),
-      "a narrow terminal gets plain text rather than a gate wrapped into rubble");
+    assert.equal(drawn(banner(120)), TORII.filter((l) => l.trim()).length,
+      "a wide terminal gets every row of it");
+    assert.equal(drawn(banner(width + 1)), 0,
+      "one column short of fitting, it is not drawn at all rather than wrapped into rubble");
   } finally {
     if (real) Object.defineProperty(process.stdout, "isTTY", real);
     else delete process.stdout.isTTY;

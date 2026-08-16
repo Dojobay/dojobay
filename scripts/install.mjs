@@ -29,6 +29,22 @@ import { chooseUI } from "./installer-ui.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Thrown by the probe step when the node answers but is too old. Distinguished
+// from an unreachable node because the two need opposite offers: a bad payload
+// is re-pasted, an old Dojo is upgraded and re-probed with the same payload.
+class VersionTooOld extends Error {
+  constructor(message, version) { super(message); this.name = "VersionTooOld"; this.version = version; }
+}
+
+// Long canonical JSON, wrapped for the note pane and indented like the operator
+// message in step 5, so the two signing prompts look the same. Wrapping is
+// display only: the paste is checked against the unwrapped text.
+function wrapForNote(text, width = 64) {
+  const lines = [];
+  for (let i = 0; i < text.length; i += width) lines.push("    " + text.slice(i, i + width));
+  return lines.join("\n");
+}
+
 const TOTAL = 8;
 
 async function main() {
@@ -73,6 +89,10 @@ async function main() {
     log("server dependencies installed ✓");
   });
   const crypto = await import("../server/crypto.ts");
+  const { canonicalPairing } = crypto;
+  // Read once, from the same module the submission gates read it from, so the
+  // installer cannot drift to a different minimum than the instance enforces.
+  const { MIN_DOJO_VERSION } = await import("../server/dojo-version.ts");
 
   // ---- 3. identity -----------------------------------------------------------------
   await ui.step(3, TOTAL, "Your identity");
@@ -157,28 +177,102 @@ async function main() {
     { key: "hardware", label: "Hardware (optional)", type: "text", hint: "e.g. N100 16GB" },
   ], { note: "Running a Dojo Bay requires running a Dojo. This node seeds your directory." });
   let payload;
-  for (;;) {
+  // Two loops, because a bad payload and an old Dojo need different offers. A
+  // payload that will not parse, or a node that does not answer, means pasting
+  // again. A node that answers and is simply too old means going away, upgrading
+  // it, and probing the SAME payload again: asking the operator to re-paste
+  // unchanged JSON after a Dojo upgrade would be busywork with a chance of
+  // introducing a typo.
+  paste: for (;;) {
     const parsed = parsePairing(await ui.paste("Dojo pairing payload", {
       note: "The JSON from your Dojo maintenance tool (pairing + explorer).",
     }));
     if (!parsed.ok) { ui.err(parsed.error); continue; }
-    try {
-      payload = await ui.progress("probing your Dojo over Tor", async (log) => {
-        const { probe, PROBE_CFG } = await import("../server/probe.mjs");
-        log("connecting to " + parsed.payload.pairing.url.slice(0, 46) + "…");
-        // PROBE_CFG carries the Tor SOCKS host, port and timeout; without it the
-        // probe has no proxy to dial. Every other call site spreads it too.
-        const check = await probe(parsed.payload.pairing.url, {
-          ...PROBE_CFG, apikey: parsed.payload.pairing.apikey, network: anchor.network,
+    for (;;) {
+      try {
+        payload = await ui.progress("probing your Dojo over Tor", async (log) => {
+          const { probe, PROBE_CFG } = await import("../server/probe.mjs");
+          const { judgeVersion } = await import("../server/dojo-version.ts");
+          log("connecting to " + parsed.payload.pairing.url.slice(0, 46) + "…");
+          // PROBE_CFG carries the Tor SOCKS host, port and timeout; without it
+          // the probe has no proxy to dial. Every other call site spreads it too.
+          const check = await probe(parsed.payload.pairing.url, {
+            ...PROBE_CFG, apikey: parsed.payload.pairing.apikey, network: anchor.network,
+          });
+          if (!check.up) throw new Error(check.reason || "no response");
+          log(`reachable ✓  block height ${check.height ?? "?"}`);
+
+          // The same judgement a submitted listing gets, from the same function,
+          // so an instance cannot hold itself to a lower standard than the
+          // listings it will publish. The detected version wins over the one
+          // declared in the payload for the reason dojo-version.ts gives: the
+          // declared one is frozen when the payload is generated and is
+          // routinely stale.
+          const v = judgeVersion(check.detectedVersion, parsed.payload.pairing?.version, MIN_DOJO_VERSION);
+          if (!v.ok) throw new VersionTooOld(v.reason, v.version);
+          log(`Dojo ${v.version} ✓  (minimum ${MIN_DOJO_VERSION}${v.source === "declared" ? ", read from the payload" : ""})`);
+          return parsed.payload;
         });
-        if (!check.up) throw new Error(check.reason || "no response");
-        log(`reachable ✓  block height ${check.height ?? "?"}`);
-        return parsed.payload;
-      });
+        break paste;
+      } catch (e) {
+        if (e instanceof VersionTooOld) {
+          // The installer cannot upgrade a Dojo, and it should not work around
+          // one either: this instance would be publishing a node it would refuse
+          // from anybody else. Leave the prompt open, let them upgrade in
+          // another terminal, and re-probe on the same payload.
+          ui.err(e.message);
+          if (await ui.confirm("Upgrade your Dojo now, then re-test the connection?", true)) continue;
+          await ui.fail(`Your Dojo must be ${MIN_DOJO_VERSION} or newer to seed a directory `
+            + "that requires the same of everybody else.");
+        }
+        ui.err("not reachable: " + e.message);
+        if (!(await ui.confirm("Edit the payload and try again?", true))) process.exit(1);
+        continue paste;
+      }
+    }
+  }
+
+  // ---- 6b. anchor signature (required) ------------------------------------------
+  // The anchor is a listing, and every listing must carry a signature over its
+  // pairing payload. Without one the rebuild withholds it, so an instance
+  // installed before this step existed came up with an empty directory and no
+  // explanation. Signed here, against the same canonical text and the same
+  // notification addresses the submission gate uses, so the anchor is checkable
+  // by a visitor on the first page load rather than after a round trip through
+  // Manage my Dojo.
+  const pairingText = canonicalPairing(payload);
+  let anchorSigned;
+  for (;;) {
+    const block = await ui.paste("Signed pairing payload", {
+      endMarker: "-----END BITCOIN SIGNATURE-----",
+      note: "Now sign your pairing payload, the same way you signed your onion\n"
+        + "address in step 5. Sign this EXACT text under PayNym → Sign message:\n\n"
+        + wrapForNote(pairingText)
+        + "\n\nThen paste the full signed block below, including its own"
+        + "\n-----END BITCOIN SIGNATURE----- line.",
+    });
+    // Same repair the web form applies: a paste through a terminal or a chat
+    // window loses the blank line before the BIP47 line, which the signature
+    // covers. A reconstruction is only accepted if it verifies.
+    const repaired = crypto.repairSignedBlock(block.trim());
+    const candidate = repaired ? repaired.block : block.trim();
+    const sig = crypto.verifySignedPayload({
+      signedText: candidate,
+      expectedMessage: pairingText,
+      // A PayNym signs from its mainnet notification address even for a testnet
+      // node, so both derivations are acceptable. Same rule as the gate.
+      expectedAddress: crypto.notificationAddresses(paymentCode),
+      network: anchor.network === "testnet" ? "testnet" : "bitcoin",
+    });
+    if (sig.ok) {
+      anchorSigned = candidate;
+      ui.ok("pairing payload signed by your payment code" + (repaired?.note ? ` (${repaired.note})` : ""));
       break;
-    } catch (e) {
-      ui.err("not reachable: " + e.message);
-      if (!(await ui.confirm("Edit the payload and try again?", true))) process.exit(1);
+    }
+    ui.err(sig.error);
+    if (!(await ui.confirm("Try pasting the signed block again?", true))) {
+      await ui.fail("Every listing needs a signed pairing payload, including your own; "
+        + "without one your directory would publish nothing.");
     }
   }
 
@@ -218,7 +312,7 @@ async function main() {
     await mkdir(dataDir, { recursive: true });
     await writeFile(path.join(dataDir, "seed.json"), JSON.stringify(anchorSeed({
       network: anchor.network, name: anchor.name, paymentCode, paynym: paynym || null,
-      payload, jurisdiction: anchor.jurisdiction, hardware: anchor.hardware,
+      payload, signed: anchorSigned, jurisdiction: anchor.jurisdiction, hardware: anchor.hardware,
     }), null, 2) + "\n");
     await writeFile(path.join(dataDir, "operator.json"), JSON.stringify(opDoc, null, 2) + "\n");
     log("seed.json (anchor) + operator.json written");

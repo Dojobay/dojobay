@@ -29,11 +29,9 @@
 // rebuild withholds it, so one showing up here is not awaiting a decision.
 // =============================================================================
 import { store } from "./store.ts";
-import { verifySignedPayload, notificationAddresses } from "./crypto.ts";
+import { verifySignedPayload, notificationAddresses, canonicalPairing } from "./crypto.ts";
 
 const networkOf = (rec) => (rec.network === "testnet" ? "testnet" : "bitcoin");
-const canonicalPairing = (payload) =>
-  JSON.stringify({ pairing: payload?.pairing, explorer: payload?.explorer });
 
 // Exported so the test suite can assert this reproduces the gate's verdict.
 // This MUST mirror server/index.mjs's signature gate exactly: same canonical

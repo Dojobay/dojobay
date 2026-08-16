@@ -20,7 +20,7 @@ import type { StoreRecord } from "../types.js";
 type Handler = (req: IncomingMessage, res: ServerResponse) => unknown | Promise<unknown>;
 import { randomBytes } from "node:crypto";
 import { store } from "./store.ts";
-import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock } from "./crypto.ts";
+import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock, canonicalPairing } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import { judgeVersion, MIN_DOJO_VERSION } from "./dojo-version.ts";
@@ -193,11 +193,6 @@ function extractIndexer(payload) {
   }
   if (!cand || !isIndexerUrl(cand.url)) return null;
   return { type: "indexer", kind: cand.kind || null, url: cand.url };
-}
-
-// Canonical pairing JSON string the operator must have signed.
-function canonicalPairing(payload) {
-  return JSON.stringify({ pairing: payload.pairing, explorer: payload.explorer });
 }
 
 function validatePayload(payload) {

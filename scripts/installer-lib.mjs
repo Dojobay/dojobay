@@ -77,17 +77,26 @@ export function renderNginx(template, { webRoot }) {
 }
 
 // ---- seed / operator documents ----------------------------------------------
+// `signed` is not optional, and the parameter is deliberately not defaulted:
+// the rebuild withholds a seed node without a signed pairing block, exactly as
+// it withholds any other unsigned listing, so an anchor built without one
+// produces an instance whose directory is empty and which says nothing about
+// why. It was optional once, and that is precisely what happened.
 /**
- * @param {{ network: string, name: string, paymentCode: string, paynym?: string|null,
- *   payload: any, jurisdiction?: string|null, hardware?: string|null, name_url?: string|null }} n
+ * @param {{ network: string, name: string, paymentCode: string, signed: string,
+ *   paynym?: string|null, payload: any, jurisdiction?: string|null,
+ *   hardware?: string|null, name_url?: string|null }} n
  */
-export function anchorSeed({ network, name, paymentCode, paynym, payload, jurisdiction, hardware, name_url }) {
+export function anchorSeed({ network, name, paymentCode, paynym, payload, signed, jurisdiction, hardware, name_url }) {
+  if (!signed || typeof signed !== "string" || !signed.includes("BEGIN BITCOIN SIGNATURE")) {
+    throw new Error("anchorSeed: a signed pairing block is required, or the anchor will be withheld from the published directory");
+  }
   const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return { nodes: [{
     id: `${network}-${slug}`, network, name: String(name).trim(),
     paynym: paynym || null, paymentCode,
     jurisdiction: jurisdiction || null, hardware: hardware || null,
-    name_url: name_url || null, payload,
+    name_url: name_url || null, payload, signed,
   }] };
 }
 // paynym is optional and carries no security weight: the binding that matters

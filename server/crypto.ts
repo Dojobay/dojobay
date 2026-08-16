@@ -124,6 +124,20 @@ export function notificationAddress(paymentCode: string, network: string = "bitc
 // their wallet holds for that code. Deriving on testnet yields an "m…" address
 // that can never match, which silently made every testnet listing unverifiable.
 // Both derivations come from the same code, so accepting either is no weaker.
+// The exact text an operator signs to attest to a pairing payload, and the
+// exact text every gate checks a signature against.
+//
+// It lives here because it had grown two copies, in the submission gate and in
+// audit-signed.mjs, the second carrying a comment warning that it MUST mirror
+// the first. A canonical message that exists twice is a canonical message
+// waiting to disagree with itself, and the failure would be quiet in the worst
+// direction: signatures accepted at submission and reported as invalid by a
+// later audit, or the reverse. The installer needs it too, which would have
+// made three.
+export function canonicalPairing(payload: { pairing?: unknown; explorer?: unknown } | null | undefined): string {
+  return JSON.stringify({ pairing: payload?.pairing, explorer: payload?.explorer });
+}
+
 export function notificationAddresses(paymentCode: string): string[] {
   const out: string[] = [];
   for (const net of ["bitcoin", "testnet"]) {

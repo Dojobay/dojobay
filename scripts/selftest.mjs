@@ -606,6 +606,56 @@ await check("installer paste collector keeps every line of a one-chunk paste", a
   assert.equal(got.split("\n").length, 10, "all ten lines captured");
 });
 
+// The anchor an installer produces is a listing, and a listing without a signed
+// pairing block is withheld by the rebuild. Before this, anchorSeed did not
+// carry one, so a fresh install came up with an empty directory and no
+// explanation for it. These checks are the reason that cannot recur quietly.
+await check("the installed anchor is a listing the rebuild will actually publish", async () => {
+  const { anchorSeed } = await import("./installer-lib.mjs");
+  const { hasSignedBlock } = await import("../server/store.ts");
+  const signed = [
+    "-----BEGIN BITCOIN SIGNED MESSAGE-----", "{}",
+    "-----BEGIN BITCOIN SIGNATURE-----", "Address: 1x", "", "AA==",
+    "-----END BITCOIN SIGNATURE-----",
+  ].join("\n");
+  const base = { network: "mainnet", name: "my node", paymentCode: "PM8Tabc",
+    paynym: "+me", payload: { pairing: { type: "dojo.api", url: "http://x.onion/v2" } } };
+
+  const seed = anchorSeed({ ...base, signed });
+  assert.ok(hasSignedBlock(seed.nodes[0]),
+    "the same predicate the rebuild uses says this anchor is publishable");
+  assert.equal(seed.nodes[0].signed, signed, "and the block is stored verbatim");
+
+  // Refused rather than defaulted. A default would put the empty directory back
+  // and move the failure to somewhere nobody is looking.
+  // The casts are the point rather than a nuisance: the type now says `signed`
+  // is required, and these assert that the runtime says so too, since seed.json
+  // is written by a script that could be edited without a type checker in sight.
+  assert.throws(() => anchorSeed(/** @type {any} */ ({ ...base })), /signed pairing block is required/,
+    "an anchor with no signature is refused at construction");
+  assert.throws(() => anchorSeed(/** @type {any} */ ({ ...base, signed: "I promise it is mine" })), /required/,
+    "and something that is not a signed block does not count as one");
+});
+
+// The installer must hold its own node to the version it will demand of others,
+// and must read that minimum from the same place the submission gate reads it,
+// or an instance could seed itself with a node it would refuse from anybody.
+await check("the installer's version gate is the directory's version gate", async () => {
+  const { judgeVersion, MIN_DOJO_VERSION } = await import("../server/dojo-version.ts");
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/judgeVersion\(check\.detectedVersion, parsed\.payload\.pairing\?\.version, MIN_DOJO_VERSION\)/.test(src),
+    "the anchor probe judges the version, preferring what the node reported over what the payload declares");
+  assert.ok(!/MIN_DOJO_VERSION\s*=\s*["']/.test(src),
+    "and the minimum is imported, never restated where it could drift from the gate");
+
+  // the judgement itself, so a change to the shared helper that let an old node
+  // through would fail here rather than only in the backend suite
+  assert.ok(!judgeVersion("1.26.0", null, MIN_DOJO_VERSION).ok, "1.26.0 is refused");
+  assert.ok(judgeVersion(MIN_DOJO_VERSION, null, MIN_DOJO_VERSION).ok, "the minimum itself is accepted");
+  assert.ok(!judgeVersion(null, null, MIN_DOJO_VERSION).ok,
+    "a node reporting no version at all is refused rather than waved through");
+});
+
 await check("installer library: validators, torrc idempotence, unit rendering", async () => {
   const lib = await import("./installer-lib.mjs");
   assert.ok(lib.isPaymentCode("PM8T" + "1".repeat(112)));

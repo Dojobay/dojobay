@@ -154,27 +154,63 @@ export function collectPasteFrom(rl, endWord = "END", { endMarker = null } = {})
 
 // ---- terminal theme ---------------------------------------------------------
 const TTY = process.stdout.isTTY && !process.env.NO_COLOR;
-export const red = (s) => (TTY ? `\x1b[38;5;160m${s}\x1b[0m` : s);
+// The brand red, #b5302a, the same --accent the site uses. Given exactly when
+// the terminal admits to 24-bit colour and approximated as xterm 124 otherwise.
+// Nearest-by-RGB-distance picks 130 for this colour, which is a burnt orange:
+// the metric is not perceptual and the eye disagrees with it, so 124 is chosen
+// by looking rather than by arithmetic.
+const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM || "");
+export const red = (s) => (TTY ? `\x1b[${TRUECOLOR ? "38;2;181;48;42" : "38;5;124"}m${s}\x1b[0m` : s);
 export const dim = (s) => (TTY ? `\x1b[2m${s}\x1b[0m` : s);
 export const bold = (s) => (TTY ? `\x1b[1m${s}\x1b[0m` : s);
 export const ok = (s) => (TTY ? `\x1b[38;5;71m${s}\x1b[0m` : s);
 export const bad = (s) => (TTY ? `\x1b[38;5;196m${s}\x1b[0m` : s);
 
-// The torii gate over two waves, in the brand red. Falls back to a plain
-// title on narrow or non-TTY terminals.
-export function banner(width = (process.stdout.columns || 80)) {
-  const art = [
-    "  ______________________________________  ",
-    "  \\____________________________________/  ",
-    "     |    ________________________    |   ",
-    "     |    \\______________________/    |   ",
-    "     |     |                    |     |   ",
-    "     |     |   THE  DOJO  BAY   |     |   ",
-    "     |     |                    |     |   ",
-    "    _|_____|_                  _|_____|_  ",
-    "   ~~~\\~~~~/~~~~~~~~~~~~~~~~~~~~\\~~~~/~~~ ",
-    "  ~~~~~~~~~~~~  ~~~~~~~~  ~~~~~~~~~~~~~~  ",
-  ];
-  if (!process.stdout.isTTY || width < 46) return bold("THE DOJO BAY — installer\n");
-  return art.map((l) => red(l)).join("\n") + "\n" + dim("  onion-only Dojo directory · guided install\n");
+// The torii gate over two waves, drawn in ones and zeroes: the directory is a
+// list of machines, and the mark it puts at the top of an install is made of
+// the only two symbols any of them really has.
+//
+// Both variants are generated symmetrically and pasted here rather than built
+// at runtime, because a banner is not worth a layout engine and a literal
+// cannot drift. The compact one is not merely shorter: the sequential UI prints
+// its banner once and lets it scroll, while the TUI redraws every frame, so an
+// eighteen-row header would leave nothing on an 80x24 terminal but a header.
+export const TORII_FULL = [
+    " 0000000000011                1100000000000",
+    " 100000000000000000000000000000000000000001",
+    " 100000000000000000000000000000000000000001",
+    "      11000000000000000000000000000011",
+    "      10000000000000000000000000000001",
+    "      10000000000000000000000000000001",
+    "           100001          100001",
+    "           000000          000000",
+    "           000000          000000",
+    "           100001          100001",
+    "           000000          000000",
+    "           000000          000000",
+    "           100001          100001",
+    "",
+    "00001      10000001      10000001      10000",
+    "0000001  100000000001  100000000001  1000000",
+    "  100000000001  100000000001  100000000001",
+    "     100001        100001        100001",
+];
+
+export const TORII_COMPACT = [
+    " 0000000000011                1100000000000",
+    " 100000000000000000000000000000000000000001",
+    "      11000000000000000000000000000011",
+    "           100001          100001",
+    "           000000          000000",
+    "000001    1000000001    1000000001    100000",
+    "    10000001      10000001      10000001",
+];
+
+export function banner(width = (process.stdout.columns || 80), height = (process.stdout.rows || 24)) {
+  if (!process.stdout.isTTY || width < 46) return bold("THE DOJO BAY \u2014 installer\n");
+  // Room for the art, the subtitle and the first prompt, or the top of the gate
+  // scrolls away before anyone reads it.
+  const art = height >= 26 ? TORII_FULL : TORII_COMPACT;
+  return art.map((l) => red(l)).join("\n")
+    + "\n\n" + bold("  THE DOJO BAY") + dim("  \u00b7  onion-only Dojo directory \u00b7 guided install\n");
 }

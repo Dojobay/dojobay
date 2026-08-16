@@ -96,7 +96,11 @@ export const formValues = valuesOf;
 
 // ---- frame renderer (pure) -----------------------------------------------------
 const ESC = "\x1b[";
-const R = (s) => `${ESC}38;5;160m${s}${ESC}0m`;   // brand red
+// Brand red, #b5302a. Exact where the terminal admits to 24-bit colour, and
+// xterm 124 otherwise. Kept in step with installer-lib.mjs's red(); the two are
+// separate because this module deliberately depends on nothing.
+const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM || "");
+const R = (s) => `${ESC}${TRUECOLOR ? "38;2;181;48;42" : "38;5;124"}m${s}${ESC}0m`;
 const DIM = (s) => `${ESC}2m${s}${ESC}0m`;
 const BOLD = (s) => `${ESC}1m${s}${ESC}0m`;
 const BADC = (s) => `${ESC}38;5;196m${s}${ESC}0m`;
@@ -105,12 +109,17 @@ const INV = (s) => `${ESC}7m${s}${ESC}27m`;
 const plainLen = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").length;
 const padTo = (s, w) => s + " ".repeat(Math.max(0, w - plainLen(s)));
 
+// The torii gate over waves, in ones and zeroes. Redrawn on every frame, so it
+// is the compact cut rather than the full one; installer-lib.mjs holds both and
+// explains why. Seven rows because an 80x24 terminal has to fit a form under it.
 export const HEADER = [
-  " ______________________________ ",
-  " \\____________________________/ ",
-  "   |  |    THE DOJO BAY   |  |  ",
-  "  _|__|_                 _|__|_ ",
-  " ~~\\~~/~~~~~~~~~~~~~~~~~~~\\~~/~ ",
+    " 0000000000011                1100000000000",
+    " 100000000000000000000000000000000000000001",
+    "      11000000000000000000000000000011",
+    "           100001          100001",
+    "           000000          000000",
+    "000001    1000000001    1000000001    100000",
+    "    10000001      10000001      10000001",
 ];
 
 /**
@@ -120,6 +129,11 @@ export const HEADER = [
 export function renderFrame({ width = 80, stepLabel = "", title = "", body = [], footer = "" }) {
   const lines = [];
   for (const l of HEADER) lines.push(R(l));
+  // The wordmark is a line of its own rather than letters cut into the gate.
+  // The art is ones and zeroes throughout, and punching a name through it would
+  // mean neither reading cleanly; this also keeps the gate identical to the one
+  // installer-lib.mjs prints, which the suite checks.
+  lines.push(BOLD("  THE DOJO BAY"));
   lines.push(padTo(DIM(stepLabel), width - 1) );
   lines.push(R("── ") + BOLD(title) + " " + R("─".repeat(Math.max(2, width - 6 - plainLen(title)))));
   lines.push("");

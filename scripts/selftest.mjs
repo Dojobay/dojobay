@@ -656,6 +656,65 @@ await check("the installer's version gate is the directory's version gate", asyn
     "a node reporting no version at all is refused rather than waved through");
 });
 
+// The banner is decoration, but a lopsided gate is the first thing an operator
+// sees and it is drawn from literals nobody will re-derive. These checks are
+// cheap and they pin the two things a careless edit would break: symmetry, and
+// the two modules agreeing on the same compact art.
+await check("the torii banner is symmetrical, and both modules draw the same gate", async () => {
+  const { TORII_FULL, TORII_COMPACT, banner } = await import("./installer-lib.mjs");
+  const { HEADER } = await import("./tui.mjs");
+
+  /** @type {Array<[string, string[]]>} */
+  const cuts = [["full", TORII_FULL], ["compact", TORII_COMPACT]];
+  for (const [name, art] of cuts) {
+    const width = Math.max(...art.map((l) => l.length));
+    for (const line of art) {
+      const p = line.padEnd(width, " ");
+      for (let x = 0; x < Math.floor(width / 2); x++) {
+        assert.equal(p[x], p[width - 1 - x],
+          `${name} art is lopsided at column ${x}: ${JSON.stringify(line)}`);
+      }
+    }
+    assert.ok(art.every((l) => /^[01 ]*$/.test(l)),
+      `${name} art is drawn in ones and zeroes only`);
+    assert.ok(width <= 44, `${name} art fits a narrow terminal: ${width}`);
+  }
+
+  // tui.mjs redraws its header on every frame and deliberately imports nothing,
+  // so the art is duplicated there. Duplicated is fine; drifted is not.
+  assert.deepEqual(HEADER, TORII_COMPACT,
+    "the TUI header and the compact banner are the same gate");
+  assert.ok(TORII_COMPACT.length <= 8 && TORII_FULL.length > TORII_COMPACT.length,
+    "the compact cut is short enough to redraw and shorter than the full one");
+
+  // The fallbacks, which is where a banner usually breaks. Note that this suite
+  // runs with its output piped, so isTTY is false and the plain path is what a
+  // naive check would exercise: that is worth asserting outright, and then
+  // faking a TTY to reach the branches that actually draw something.
+  assert.ok(!process.stdout.isTTY, "the suite runs without a TTY, so the next line means something");
+  assert.equal(banner(80, 30).includes("0000"), false,
+    "piped output gets plain text: escape codes and box art in a log help nobody");
+
+  const real = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+  try {
+    // Counted rather than matched on a sample line: the two cuts share several
+    // rows verbatim, so "contains this line" cannot tell them apart. The first
+    // attempt at this test used a pillar row and passed for both.
+    const artRows = (out) => out.replace(/\x1b\[[0-9;]*m/g, "").split("\n")
+      .filter((l) => /^[01 ]+$/.test(l) && /[01]/.test(l)).length;
+    assert.equal(artRows(banner(80, 30)), TORII_FULL.filter((l) => l.trim()).length,
+      "a roomy terminal gets every row of the full gate");
+    assert.equal(artRows(banner(80, 24)), TORII_COMPACT.filter((l) => l.trim()).length,
+      "a 24-row terminal gets the compact one, so a form still fits beneath it");
+    assert.ok(!/[01]{6}/.test(banner(40, 30)),
+      "a narrow terminal gets plain text rather than a gate wrapped into rubble");
+  } finally {
+    if (real) Object.defineProperty(process.stdout, "isTTY", real);
+    else delete process.stdout.isTTY;
+  }
+});
+
 await check("installer library: validators, torrc idempotence, unit rendering", async () => {
   const lib = await import("./installer-lib.mjs");
   assert.ok(lib.isPaymentCode("PM8T" + "1".repeat(112)));

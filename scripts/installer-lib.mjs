@@ -16,7 +16,30 @@ export const isNodeName = (v) => {
   const slug = String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return slug.length > 0 && String(v).trim().length <= 40;
 };
-export function parsePairing(text) {
+// A Dojo serves its testnet API under a `test` path segment and its mainnet API
+// without one: http://<onion>/test/v2 against http://<onion>/v2. The two are
+// therefore checkable against each other, and worth checking, because getting
+// them crossed produces a listing that is wrong in a way nothing downstream
+// catches. A testnet node listed as mainnet answers, reports a block height, and
+// probes green forever; the only sign is a height a few hundred thousand blocks
+// adrift, which nobody reads as an error. The listing then sends anyone who
+// pairs with it to a chain they did not ask for.
+//
+// Exported so the check has one definition. The web submission gate does not
+// apply it yet; see OUTSTANDING.
+export function pairingNetwork(url) {
+  try {
+    return new URL(url).pathname.split("/").some((seg) => seg.toLowerCase() === "test")
+      ? "testnet" : "mainnet";
+  } catch { return null; }
+}
+
+/**
+ * @param {string} text
+ * @param {{ network?: string }} [opts] the network the operator chose, if known.
+ *   Omitted, the URL is not judged against anything.
+ */
+export function parsePairing(text, { network } = {}) {
   let p;
   try { p = JSON.parse(text); } catch { return { ok: false, error: "not valid JSON" }; }
   const url = p?.pairing?.url;
@@ -25,6 +48,18 @@ export function parsePairing(text) {
     return { ok: false, error: "pairing.url must be an http .onion URL" };
   }
   if (!p.pairing.apikey) return { ok: false, error: "pairing.apikey missing" };
+  if (network) {
+    const looks = pairingNetwork(url);
+    if (looks && looks !== network) {
+      return { ok: false, error: network === "testnet"
+        ? "you chose testnet, but this URL has no /test/ path segment, so it is a mainnet "
+          + "endpoint. A testnet Dojo serves http://<onion>/test/v2. Either paste the testnet "
+          + "payload or change the network above."
+        : "you chose mainnet, but this URL has a /test/ path segment, so it is a testnet "
+          + "endpoint. A mainnet Dojo serves http://<onion>/v2. Either paste the mainnet "
+          + "payload or change the network above." };
+    }
+  }
   return { ok: true, payload: p };
 }
 

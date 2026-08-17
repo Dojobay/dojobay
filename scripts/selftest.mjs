@@ -581,6 +581,57 @@ await check("the launcher finds node itself and refuses an old one clearly", asy
   }
 });
 
+// A Dojo serves testnet under a `test` path segment and mainnet without one, so
+// the two are checkable against each other. Crossing them produces a listing
+// that is wrong in a way nothing downstream catches: a testnet node listed as
+// mainnet answers, reports a height and probes green forever, and the only
+// symptom is a block height a few hundred thousand adrift, which reads as
+// nothing at all.
+await check("a pairing payload must match the network the operator chose", async () => {
+  const { parsePairing, pairingNetwork } = await import("./installer-lib.mjs");
+  const onion = "b3krcphqdbrzkblvti2eiuogfrx6b5lynenv5dxjwsw7hq47dlrc4pid";
+  const mk = (u) => JSON.stringify({ pairing: { type: "dojo.api", apikey: "k", url: u } });
+  const test = `http://${onion}.onion/test/v2`, main = `http://${onion}.onion/v2`;
+
+  assert.equal(pairingNetwork(test), "testnet");
+  assert.equal(pairingNetwork(main), "mainnet");
+  assert.ok(parsePairing(mk(test), { network: "testnet" }).ok, "testnet payload on testnet");
+  assert.ok(parsePairing(mk(main), { network: "mainnet" }).ok, "mainnet payload on mainnet");
+
+  const wrongWay = parsePairing(mk(main), { network: "testnet" });
+  assert.equal(wrongWay.ok, false, "a mainnet URL is refused when testnet was chosen");
+  assert.ok(/\/test\//.test(wrongWay.error) && /testnet Dojo serves/.test(wrongWay.error),
+    "and the message shows the shape expected rather than only complaining: " + wrongWay.error);
+
+  const otherWay = parsePairing(mk(test), { network: "mainnet" });
+  assert.equal(otherWay.ok, false, "and a testnet URL is refused when mainnet was chosen");
+
+  // Only a whole path segment counts. An onion address is base32 and can contain
+  // the letters t, e, s and t in a row by chance, and a substring test would
+  // reject a perfectly good mainnet node roughly whenever it felt like it.
+  assert.equal(pairingNetwork(`http://test${onion.slice(4)}.onion/v2`), "mainnet",
+    "the letters appearing in the onion address itself are not a path segment");
+  assert.equal(pairingNetwork(`http://${onion}.onion/v2/testing`), "mainnet",
+    "nor is a segment that merely starts with them");
+
+  // Omitting the network leaves the URL unjudged, so the parser stays usable
+  // wherever the choice has not been made yet.
+  assert.ok(parsePairing(mk(main)).ok && parsePairing(mk(test)).ok,
+    "with no network given, neither is refused");
+});
+
+// The network prompt is numbered. It always accepted a prefix, but read as an
+// instruction to type the word out, and operators duly typed it out.
+await check("the sequential UI offers numbered choices, and takes numbers or names", async () => {
+  const src = readFileSync(new URL("./installer-ui.mjs", import.meta.url).pathname, "utf8");
+  const block = src.slice(src.indexOf('if (f.type === "toggle")'), src.indexOf("if (f.hint)"));
+  assert.ok(/\$\{i \+ 1\}\) \$\{o\}/.test(block), "options are numbered in the prompt");
+  assert.ok(/byNumber/.test(block) && /startsWith/.test(block),
+    "and a number or a name prefix are both accepted");
+  assert.ok(/byName\.length === 1/.test(block),
+    "an ambiguous prefix is rejected rather than silently taking the first match");
+});
+
 // The timer must schedule from the clock, not from the last successful run.
 // OnUnitActiveSec counts from the service's last ACTIVE state, and a service
 // that fails never becomes active, so a run of failures leaves the timer with

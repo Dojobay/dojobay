@@ -190,8 +190,10 @@ async function main() {
   // introducing a typo.
   paste: for (;;) {
     const parsed = parsePairing(await ui.paste("Dojo pairing payload", {
-      note: "The JSON from your Dojo maintenance tool (pairing + explorer).",
-    }));
+      note: `The JSON from your Dojo maintenance tool (pairing + explorer).\n`
+        + `You chose ${anchor.network}, so the URL should look like `
+        + (anchor.network === "testnet" ? "http://<onion>/test/v2" : "http://<onion>/v2") + ".",
+    }), { network: anchor.network });
     if (!parsed.ok) { ui.err(parsed.error); continue; }
     for (;;) {
       try {

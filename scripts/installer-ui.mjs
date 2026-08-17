@@ -48,10 +48,24 @@ export function sequentialUI() {
   async function askOne(f, all) {
     for (;;) {
       if (f.type === "toggle") {
-        const v = (await rl.question(red(" ▸ ") + `${f.label} (${f.options.join("/")}) [${f.options[f.value ?? 0]}]: `)).trim();
-        const chosen = v === "" ? f.options[f.value ?? 0] : f.options.find((o) => o.toLowerCase().startsWith(v.toLowerCase()));
+        // Numbered, because a scrolling prompt cannot have a checkbox and the
+        // previous phrasing, "Network (mainnet/testnet) [mainnet]:", read as an
+        // instruction to type the word out. It always accepted a prefix; it just
+        // never said so, and an operator typing "mainnet" in full every time is
+        // the interface's fault rather than theirs.
+        const def = f.value ?? 0;
+        const menu = f.options.map((o, i) => `${i + 1}) ${o}`).join("  ");
+        const v = (await rl.question(
+          red(" ▸ ") + `${f.label}  ${menu}  [${def + 1}]: `)).trim();
+        if (v === "") return f.options[def];
+        // A number, or any unambiguous prefix of a name. Both, because someone
+        // who has typed "testnet" at this prompt before should not be told off
+        // for typing it again.
+        const byNumber = /^\d+$/.test(v) ? f.options[Number(v) - 1] : undefined;
+        const byName = f.options.filter((o) => o.toLowerCase().startsWith(v.toLowerCase()));
+        const chosen = byNumber || (byName.length === 1 ? byName[0] : undefined);
         if (chosen) return chosen;
-        say(bad("   ✗ choose one of: " + f.options.join(", ")));
+        say(bad(`   ✗ enter a number 1-${f.options.length}, or one of: ${f.options.join(", ")}`));
         continue;
       }
       if (f.hint) say(dim("   " + f.hint));

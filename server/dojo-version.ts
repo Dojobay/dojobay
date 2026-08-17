@@ -14,6 +14,31 @@
 // the declared one only when the node did not report a header at all.
 // =============================================================================
 
+// Which network a pairing URL is for, read from the URL itself.
+//
+// A Dojo serves its testnet API under a `test` path segment and its mainnet API
+// without one: http://<onion>/test/v2 against http://<onion>/v2. That makes the
+// operator's declared network checkable against the endpoint they gave, and it
+// is worth checking, because a crossed pair is wrong in a way nothing
+// downstream catches. A testnet node listed as mainnet answers, reports a
+// height and probes green indefinitely; the only symptom is a block height a
+// few hundred thousand adrift, which reads as nothing at all, and anyone
+// pairing with it is sent to a chain they did not ask for.
+//
+// A whole path SEGMENT, never a substring: an onion address is base32 and can
+// carry those four letters in a row by chance, and /v2/testing is not a testnet
+// endpoint either.
+//
+// It lives here rather than in the installer because the same judgement belongs
+// at the submission gate, and this module is already where a node's declared
+// properties are judged against what it actually is.
+export function pairingNetwork(url: string): "mainnet" | "testnet" | null {
+  try {
+    return new URL(url).pathname.split("/").some((seg) => seg.toLowerCase() === "test")
+      ? "testnet" : "mainnet";
+  } catch { return null; }
+}
+
 /** The lowest Dojo this directory will accept for a NEW listing. Set to "" or
  *  "0" to disable the check entirely. Existing listings are never re-judged. */
 export const MIN_DOJO_VERSION = (process.env.MIN_DOJO_VERSION ?? "1.27.0").trim();

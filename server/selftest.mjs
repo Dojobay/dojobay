@@ -255,7 +255,12 @@ H6BZzINZjJQz6LVJIduOpAtXrJUt61dNlnmEf5P6DSmUUOO78YmVOc8bg5biESMFUckk1oAJ/CP9/JLq
   await new Promise((r) => down.listen(19078, "127.0.0.1", () => r(null)));
   const { PROBE_CFG } = await import("./probe.mjs");
   PROBE_CFG.proxyPort = 19078;                 // live object, mutated in place
-  const r = await api("/api/dojo", "POST", { network: "testnet", name: "selftest-node", payload, signed: signedBlock });
+  // mainnet with a fresh name, rather than testnet to dodge the name conflict:
+  // the shared fixture payload is a mainnet endpoint, and listing it as testnet
+  // is now refused by the payload validator before the connection gate is
+  // reached, which would make this test pass for the wrong reason. The signature
+  // covers the payload and not the name, so renaming costs nothing.
+  const r = await api("/api/dojo", "POST", { network: "mainnet", name: "unreachable-node", payload, signed: signedBlock });
   ok(r.status === 422 && /connection gate/.test(r.body.error), "unreachable node rejected by connection gate");
   PROBE_CFG.proxyPort = 19077;                 // restore the up proxy
   down.close();
@@ -1503,6 +1508,44 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   delete loaded.submissions["mainnet-legacy-mute"];
   await rb();
+}
+
+// 35a) a listing's endpoint must be for the network it claims. A Dojo serves
+//      testnet under a `test` path segment and mainnet without one, so the two
+//      are checkable against each other, and a crossed pair is wrong in a way
+//      nothing downstream catches: it answers, reports a height, and probes
+//      green forever. The installer applies the same rule from the same
+//      function; this is the other door into the same store.
+{
+  const { pairingNetwork } = await import("./dojo-version.ts");
+  const onion = "b3krcphqdbrzkblvti2eiuogfrx6b5lynenv5dxjwsw7hq47dlrc4pid";
+  ok(pairingNetwork(`http://${onion}.onion/test/v2`) === "testnet", "a /test/ segment reads as testnet");
+  ok(pairingNetwork(`http://${onion}.onion/v2`) === "mainnet", "and its absence as mainnet");
+  // a whole segment, never a substring: an onion address is base32 and can carry
+  // those four letters by chance, and /v2/testing is not a testnet endpoint
+  ok(pairingNetwork(`http://test${onion.slice(4)}.onion/v2`) === "mainnet",
+     "letters inside the onion address are not a path segment");
+  ok(pairingNetwork(`http://${onion}.onion/v2/testing`) === "mainnet",
+     "nor is a segment that merely begins with them");
+
+  const testnetPayload = { pairing: { type: "dojo.api", version: "1.29.2", apikey: "k",
+    url: `http://${onion}.onion/test/v2` } };
+  const crossed = await api("/api/dojo", "POST",
+    { network: "mainnet", name: "crossed-node", payload: testnetPayload, signed: signedBlock });
+  ok(crossed.status === 400 && /testnet endpoint/.test(crossed.body.error || ""),
+     "a testnet endpoint submitted as mainnet is refused: " + JSON.stringify(crossed.body.error));
+
+  const otherWay = await api("/api/dojo", "POST",
+    { network: "testnet", name: "crossed-node", payload, signed: signedBlock });
+  ok(otherWay.status === 400 && /mainnet endpoint/.test(otherWay.body.error || ""),
+     "and a mainnet endpoint submitted as testnet: " + JSON.stringify(otherWay.body.error));
+  ok(/test\/v2/.test(otherWay.body.error || ""),
+     "with the shape the operator should be looking for, not just a refusal");
+
+  const { store: st35a } = await import("./store.ts");
+  ok(!(await st35a.getSubmission("mainnet-crossed-node"))
+     && !(await st35a.getSubmission("testnet-crossed-node")),
+     "and neither attempt leaves a record behind");
 }
 
 // 35b) the archive download must ask for a media type the endpoint will serve.

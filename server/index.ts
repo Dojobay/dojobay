@@ -23,7 +23,7 @@ import { store } from "./store.ts";
 import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock, canonicalPairing } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
-import { judgeVersion, MIN_DOJO_VERSION } from "./dojo-version.ts";
+import { judgeVersion, MIN_DOJO_VERSION, pairingNetwork } from "./dojo-version.ts";
 import {
   normaliseDomain, txtName, txtHost, txtValue, signingText, verifyClaim,
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
@@ -195,12 +195,27 @@ function extractIndexer(payload) {
   return { type: "indexer", kind: cand.kind || null, url: cand.url };
 }
 
-function validatePayload(payload) {
+function validatePayload(payload, network = null) {
   if (!payload || typeof payload !== "object") return "missing pairing payload";
   const p = payload.pairing;
   if (!p || p.type !== "dojo.api" || !p.url) return "pairing.type must be dojo.api with a url";
   if (!isPlainOnionUrl(p.url)) return "pairing.url must be an http .onion address";
   if (payload.explorer && !isPlainOnionUrl(payload.explorer.url)) return "explorer.url must be an http .onion address";
+  // The endpoint must be for the network the listing claims. See pairingNetwork
+  // for why a crossed pair is worth refusing: it probes green forever and the
+  // only symptom is a block height nobody reads as an error. Network omitted,
+  // the URL is not judged, which keeps this usable where the network is not yet
+  // known.
+  if (network) {
+    const looks = pairingNetwork(p.url);
+    if (looks && looks !== network) {
+      return network === "testnet"
+        ? "this is a mainnet endpoint: a testnet Dojo serves http://<onion>/test/v2. "
+          + "Either paste your testnet pairing payload or list it as mainnet."
+        : "this is a testnet endpoint: a mainnet Dojo serves http://<onion>/v2. "
+          + "Either paste your mainnet pairing payload or list it as testnet.";
+    }
+  }
   return null;
 }
 
@@ -378,7 +393,7 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   const conflict = await nameConflict(network, slug, s.paymentCode);
   if (conflict) return json(res, 409, { error: `name "${name}" is taken on ${network}: ${conflict}` });
 
-  const payloadErr = validatePayload(body.payload);
+  const payloadErr = validatePayload(body.payload, network);
   if (payloadErr) return json(res, 400, { error: payloadErr });
 
   body.signed = cleanSigned(body.signed);
@@ -568,7 +583,11 @@ route("POST", /^\/api\/dojo\/pairing$/, async (req, res) => {
   const rec = await store.getSubmission(body.id);
   if (!rec || !owns(rec, s.paymentCode)) return json(res, 404, { error: "not found" });
 
-  const payloadErr = validatePayload(body.payload);
+  // Taken from the RECORD, not from the request: an edit cannot change which
+  // network a listing is on, so the new endpoint is judged against the network
+  // the listing already has.
+  const network = rec.network === "testnet" ? "testnet" : "mainnet";
+  const payloadErr = validatePayload(body.payload, network);
   if (payloadErr) return json(res, 400, { error: payloadErr });
 
   body.signed = cleanSigned(body.signed);
@@ -594,7 +613,6 @@ route("POST", /^\/api\/dojo\/pairing$/, async (req, res) => {
     if (!sig.ok) return json(res, 400, { error: "signature gate: " + sig.error });
   }
 
-  const network = rec.network === "testnet" ? "testnet" : "mainnet";
   const check = await probe(body.payload.pairing.url, {
     ...PROBE_CFG, apikey: body.payload.pairing.apikey, network,
   });

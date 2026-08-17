@@ -581,6 +581,48 @@ await check("the launcher finds node itself and refuses an old one clearly", asy
   }
 });
 
+// The timer must schedule from the clock, not from the last successful run.
+// OnUnitActiveSec counts from the service's last ACTIVE state, and a service
+// that fails never becomes active, so a run of failures leaves the timer with
+// nothing to count from and it silently stops scheduling. An instance lost
+// seventeen hours that way, and fixing the cause did not restart it: the timer
+// only recovered when the service was started by hand.
+await check("the update timer schedules from the clock, so failures cannot strand it", async () => {
+  const unit = readFileSync(new URL("./dojobay-update.timer", import.meta.url).pathname, "utf8");
+  assert.ok(/^OnCalendar=/m.test(unit), "it has a calendar schedule");
+  assert.ok(!/^OnUnitActiveSec=/m.test(unit),
+    "and nothing that hangs the next run off how the last one ended");
+  assert.ok(/^Persistent=true$/m.test(unit),
+    "Persistent is meaningful with OnCalendar and does nothing without it: a machine "
+    + "that was off runs once on the way up rather than waiting for the next boundary");
+  assert.ok(/^RandomizedDelaySec=/m.test(unit),
+    "with jitter, so every instance in the federation does not probe the same nodes "
+    + "on the same wall-clock minute");
+  assert.ok(/^OnBootSec=/m.test(unit), "and still one run shortly after boot");
+});
+
+// Enabling a timer is not the same as it being scheduled, and the difference is
+// invisible: the site serves its list either way. The installer proves it.
+await check("the installer clears failed units and checks the timer is armed", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const at = (n) => { const i = src.indexOf(n); assert.notEqual(i, -1, `missing: ${n}`); return i; };
+
+  // reset-failed before enabling: reinstalling over a broken install otherwise
+  // leaves the old units failed, and a failed oneshot does not re-arm its timer.
+  assert.ok(at('"reset-failed"') < at('["enable", "--now"'),
+    "failed state is cleared before the units are enabled");
+
+  // and the check comes after the first probe cycle, since a timer may have
+  // nothing to schedule from until one run has happened
+  assert.ok(at('"NextElapseUSecRealtime"') > at('scripts", "update.mjs"'),
+    "the timer is checked after the first cycle, not before it");
+  const block = src.slice(at('"NextElapseUSecRealtime"'), at("await ui.finish("));
+  assert.ok(/timerUnarmed = true/.test(block) && /reset-failed/.test(block),
+    "an unarmed timer is recorded and the operator is told the two commands that fix it");
+  assert.ok(/timerUnarmed/.test(src.slice(at("await ui.finish("))),
+    "and it is repeated in the closing summary, which is the part an operator actually reads");
+});
+
 // An instance that serves its node list and never polls is the worst failure
 // this installer can produce, because everything looks finished: nginx serves
 // the directory as static files whether or not anything behind it is alive, so

@@ -305,6 +305,7 @@ async function main() {
   }
 
   // ---- 7. bootstrap import -----------------------------------------------------------
+  let timerUnarmed = false;
   await ui.step(7, TOTAL, "Bootstrap from a trusted Dojo Bay (optional)");
   let bootstrap = null;
   if (await ui.confirm("Import nodes + history from an existing instance you trust?", false)) {
@@ -420,6 +421,11 @@ async function main() {
         + `no avatars. Fix the ownership (chown -R ${SERVICE_USER}:${SERVICE_USER} ${webRoot}) and re-run.`);
     }
     log(`${SERVICE_USER} can write everywhere the updater needs to`);
+    // Clear any failed state first. Reinstalling over a broken install leaves
+    // the old units in `failed`, and a failed oneshot does not re-arm its timer,
+    // so a corrected install could still never poll.
+    await run("systemctl", ["reset-failed", "dojobay-server.service",
+      "dojobay-update.service", "dojobay-update.timer"]).catch(() => {});
     await run("systemctl", ["enable", "--now", "nginx", "dojobay-server.service", "dojobay-update.timer"]);
     await run("systemctl", ["restart", "nginx", "dojobay-server.service"]);
     log("services enabled and started");
@@ -453,9 +459,32 @@ async function main() {
       log("  and the timer will retry within ten minutes. To run it by hand:");
       log(`  sudo -u ${SERVICE_USER} node ${path.join(webRoot, "scripts", "update.mjs")}`);
     }
+
+    // Prove the timer is actually scheduled, the same way the ownership check
+    // proves the chown took. An enabled timer with no next elapse is exactly the
+    // failure this install is meant to rule out: the site serves its list, looks
+    // finished, and never updates again. Checked after the first probe cycle
+    // because a schedule relative to the last run has nothing to work from until
+    // one has happened.
+    const next = await run("systemctl", ["show", "dojobay-update.timer",
+      "-p", "NextElapseUSecRealtime", "--value"]).then((r) => String(r.stdout || "").trim(), () => "");
+    if (!next || next === "0" || /^n\/a$/i.test(next)) {
+      timerUnarmed = true;
+      log("✗ the update timer is enabled but has no next run scheduled");
+      log("  your directory would serve its list and never refresh it. To fix:");
+      log("  sudo systemctl reset-failed dojobay-update.service dojobay-update.timer");
+      log("  sudo systemctl start dojobay-update.service");
+      log("  systemctl list-timers dojobay-update.timer");
+    } else {
+      log(`update timer armed; next run ${next}`);
+    }
   });
 
   await ui.finish([
+    ...(timerUnarmed
+      ? ["!! the update timer has no next run scheduled — see the note above, or this",
+         "   instance will serve its list and never refresh it"]
+      : []),
     `Your Dojo Bay is live at http://${onionHost}/`,
     "· sign in at /admin with your PayNym (Auth47) to moderate",
     "· the ten-minute timer keeps statuses, history and avatars current",

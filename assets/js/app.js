@@ -1258,8 +1258,16 @@ async function loadJSON(url){
         ? ' · running release <b>'+esc(u.current_release)+'</b>'
         : ' · latest release '+esc(u.latest_release);
     const behindAny = u.commits_behind>0 || (u.releases_behind||0)>0;
+    // Disabled when there is nothing to fetch. Reinstalling the code you are
+    // already running is not a useful thing to offer as the primary green
+    // button, and on a path this consequential an idle click that restarts the
+    // service for no gain is a real cost. The peer button stays live, because
+    // pulling from a peer is a different question from being behind GitHub: a
+    // federated instance may want another operator's build at the same commit.
     const controls = '<div class="upd-controls">'
-      + '<button class="abtn ok" data-adm="update-github">Update from GitHub</button>'
+      + '<button class="abtn ok" data-adm="update-github"' + (behindAny ? '' : ' disabled')
+        + ' title="' + (behindAny ? 'Fetch and apply the newer code from GitHub'
+            : 'Already on the latest commit; nothing to fetch') + '">Update from GitHub</button>'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button>'
       + '</div>';
     // Marked experimental in the panel itself rather than only in the docs,
@@ -1273,7 +1281,8 @@ async function loadJSON(url){
       + 'Updating by deploy or by hand remains the supported path.</p>';
     return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel
       + '<span class="upd-exp" title="Never yet run to completion on real hardware">experimental</span></p>'
-      + (behindAny? controls : '<div class="upd-controls">'+controls+'<span style="font-size:11px;color:var(--faint)">(you can still reinstall the current code)</span></div>')
+      + controls
+      + (behindAny ? '' : '<p class="upd-none">Up to date. There is nothing to fetch from GitHub.</p>')
       + note
       + '</div>';
   }
@@ -1335,7 +1344,14 @@ async function loadJSON(url){
     const b=evEl(e)?.closest("[data-adm]"); if(!b) return;
     const act=b.getAttribute("data-adm"), id=b.getAttribute("data-id");
     if(act==="logout"){ await api.call("/logout","POST",{}); ME={authenticated:false}; ADM_EDIT_ID=null; renderAdminPanel(); return; }
-    if(act==="update-github"){ if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
+    if(act==="update-github"){
+      // The button is disabled when there is nothing to fetch, but a disabled
+      // attribute is a hint to a person rather than a guarantee: check the state
+      // that matters rather than trusting the markup.
+      if(!(ADMIN_UPDATES && (ADMIN_UPDATES.commits_behind>0 || (ADMIN_UPDATES.releases_behind||0)>0))){
+        alert("This instance is already on the latest commit. There is nothing to fetch."); return;
+      }
+      if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
     if(act==="update-peer"){
       const onion=prompt("Trusted peer .onion to update from:"); if(!onion) return;
       const code=prompt("That operator's BIP47 payment code (verifies who you're trusting):")||"";

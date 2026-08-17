@@ -8,8 +8,6 @@ We cannot control when a node goes down, as only its operator can restart it. We
 
 We are not affiliated with [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/), [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/) or Ronin Dojo, though we appreciate their efforts and contributions to the community.
 
-## #FreeSamourai
-
 > **Get listed**
 >
 > If you would like your Dojo listed, there is no email and nothing to wait for: open **Manage my Dojo** in the header and sign in with your PayNym over Auth47. Signing the challenge in [Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) or [Ashigaru](http://ashigaruprvm4u263aoj6wxnipc4jrhb2avjll4nnk255jkdmj2obqqd.onion/) proves you control the payment code without revealing any key, and you can then submit, edit or remove your listing yourself. Every submission must pass a live Tor connection check, a signature check over your pairing payload, and a maintainer review before it is published.

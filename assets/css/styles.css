@@ -73,7 +73,13 @@
     font-family:'JetBrains Mono',monospace;color:var(--warn,#e0a020);
     border:1px solid rgba(224,160,32,.45);background:rgba(224,160,32,.10);
     border-radius:5px;padding:1px 6px;margin-left:8px;vertical-align:1px}
-  .upd-exp-note{font-size:11.5px;color:var(--faint);line-height:1.55;margin:6px 0 0;max-width:62ch}
+  /* Full width. It was capped at 62ch, which is right for prose a reader is
+     settling into and wrong for a warning beside the control it warns about:
+     it left the paragraph as a narrow column against a wide panel, and the
+     ragged right edge read as a layout fault rather than as deliberate
+     measure. */
+  .upd-exp-note{font-size:11.5px;color:var(--faint);line-height:1.55;margin:8px 0 0;width:100%}
+  .upd-none{font-size:11.5px;color:var(--faint);margin:6px 0 0}
   .upd-controls{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
   .upd-bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden;margin:8px 0}
   .upd-bar-fill{height:100%;transition:width .4s ease;border-radius:6px}

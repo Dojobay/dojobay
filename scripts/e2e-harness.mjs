@@ -813,7 +813,42 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the Auth47 copy button sits below the challenge at every width");
 }
 
-console.log("\nall 33 front-end checks passed");
+// The update panel offers an action that would do nothing, or it does not.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const fn = app.slice(app.indexOf("const behindAny ="), app.indexOf("function updateProgress"));
+  assert.ok(/behindAny \? '' : ' disabled'/.test(fn),
+    "the GitHub button is disabled when there is nothing to fetch");
+  assert.ok(/nothing to fetch/.test(fn), "and says so, rather than being inertly grey");
+  assert.ok(!/data-adm="update-peer"[^>]*disabled/.test(fn),
+    "the peer button stays live: pulling from a peer is a different question "
+    + "from being behind GitHub, and a federated instance may want another build at the same commit");
+
+  // A disabled attribute is a hint to a person, not a guarantee, so the handler
+  // checks the state that matters rather than trusting the markup.
+  const handler = app.slice(app.indexOf('if(act==="update-github")'), app.indexOf('if(act==="update-peer")'));
+  assert.ok(/commits_behind>0/.test(handler) && /releases_behind/.test(handler),
+    "and the click handler refuses independently of the button's state");
+
+  // the note runs the width of the panel rather than sitting in a narrow column
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  const rule = css.slice(css.indexOf(".upd-exp-note{"), css.indexOf("}", css.indexOf(".upd-exp-note{")));
+  assert.ok(/width:100%/.test(rule) && !/max-width/.test(rule),
+    "the experimental note is full width: " + rule);
+  console.log("  ok - the update panel does not offer an action that would do nothing");
+}
+
+// The banner has moved to the clearnet site, so it is not here twice.
+{
+  const about = readFileSync(REPO + "/content/about.md", "utf8");
+  assert.ok(!/FreeSamourai/i.test(about), "the FreeSamourai heading is gone from About");
+  // and its removal has not left a stray blank or a broken block quote
+  assert.ok(!/\n\n\n/.test(about), "with no doubled blank line where it stood");
+  assert.ok(/^> \*\*Get listed\*\*$/m.test(about), "and Get listed still opens its own block quote");
+  console.log("  ok - the FreeSamourai banner is gone and About still reads cleanly");
+}
+
+console.log("\nall 35 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

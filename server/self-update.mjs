@@ -120,13 +120,32 @@ export function unzip(buf) {
 }
 
 function stripTopLevel(files) {
-  // pack-source writes everything under "dojobay/"; strip exactly one segment.
+  // Everything sits under one top-level folder: "dojobay/" from pack-source,
+  // "<owner>-<repo>-<sha>/" from a GitHub zipball. Strip exactly one segment.
+  //
+  // DIRECTORY ENTRIES ARE SKIPPED, and that is the whole reason this function
+  // has a comment. A zip may carry an entry for each directory: zero bytes, a
+  // name ending in a slash. GitHub's zipball has thirteen of them and the very
+  // first entry in the archive is the bare top-level folder itself, which
+  // strips to an empty relative path. The empty check below used to reject that
+  // as an unsafe path, so a self-update from GitHub failed on entry one with a
+  // message about a path traversal that was not happening.
+  //
+  // Every test passed throughout, because the fixtures are built by
+  // pack-source, which writes no directory entries at all. The extractor was
+  // only ever fed archives of its own shape. Nothing is lost by dropping them:
+  // the writer calls mkdir with recursive:true for each file's parent, so the
+  // directories are created as the files land, and git does not track empty
+  // directories anyway.
   const out = [];
   for (const f of files) {
     const slash = f.name.indexOf("/");
-    if (slash < 0) continue;                       // skip a bare top-level entry
+    if (slash < 0) continue;                       // a bare top-level entry
     const rel = f.name.slice(slash + 1);
-    if (!rel || rel.includes("..") || rel.startsWith("/")) throw new Error("unsafe path in archive: " + f.name);
+    // Traversal is refused for directory entries as well as files: a hostile
+    // archive should not get a free pass by putting the slash on the end.
+    if (rel.includes("..") || rel.startsWith("/")) throw new Error("unsafe path in archive: " + f.name);
+    if (!rel || rel.endsWith("/")) continue;       // the folder itself, or one inside it
     out.push({ rel, data: f.data });
   }
   return out;

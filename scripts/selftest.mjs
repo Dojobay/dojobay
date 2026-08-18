@@ -10,7 +10,7 @@
 import net from "node:net";
 import { deflateRawSync } from "node:zlib";
 import tlsMod from "node:tls";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert";
 import { probe, fetchAvatar, parseDojoVersion, normaliseVersion, parseIndexerUrl, normaliseIndexerUrl, probeCfg, httpOverTor, MAX_RESPONSE_BYTES } from "./update.mjs";
@@ -1102,6 +1102,53 @@ await check("source zip round-trips through self-update; staging works; zip-slip
     const evil = makeMiniZip("dojobay/../evil.txt", Buffer.from("x"));
     await assert.rejects(applyUpdate({ bytes: evil, webRoot: "/tmp", spawnHelper: false, log: () => {} }), /unsafe path|does not look like/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+// GitHub's zipball carries an entry for each DIRECTORY: zero bytes, a name
+// ending in a slash, and the very first entry in the archive is the bare
+// top-level folder. Stripping one segment from that leaves an empty relative
+// path, which the traversal guard rejected, so a self-update from GitHub failed
+// on its first entry with a message about an unsafe path. Every test passed
+// while it did, because the fixtures are built the way pack-source builds
+// archives, and pack-source writes no directory entries at all: the extractor
+// was only ever shown archives of its own shape. This fixture has GitHub's.
+await check("an archive with directory entries unpacks, GitHub's shape included", async () => {
+  const { applyUpdate } = await import("../server/self-update.mjs");
+  const dir = mkdtempSync("/tmp/dojobay-ghzip-");
+  try {
+    const zip = concatZip([
+      ["Dojobay-dojobay-abc1234/", Buffer.alloc(0)],            // the folder itself
+      ["Dojobay-dojobay-abc1234/server/", Buffer.alloc(0)],
+      ["Dojobay-dojobay-abc1234/server/index.mjs", Buffer.from("// new")],
+      ["Dojobay-dojobay-abc1234/assets/js/", Buffer.alloc(0)],
+      ["Dojobay-dojobay-abc1234/assets/js/app.js", Buffer.from("// new")],
+    ]);
+    mkdirSync(dir + "/server", { recursive: true });
+    mkdirSync(dir + "/assets", { recursive: true });
+    writeFileSync(dir + "/server/index.mjs", "// current");
+    writeFileSync(dir + "/assets/app.js", "// current");
+
+    const res = await applyUpdate({ bytes: zip, webRoot: dir, spawnHelper: false, log: () => {} });
+    assert.equal(res.entries, 2, "only the two real files are staged, not the three folders");
+    assert.ok(existsSync(res.staging + "/server/index.mjs"), "and the nested file is written");
+    assert.ok(existsSync(res.staging + "/assets/js/app.js"),
+      "including one whose parent directory only ever existed as a zip entry, "
+      + "because the writer creates parents as it goes");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Traversal is still refused, and a slash on the end is not a way around it.
+await check("a directory entry cannot smuggle a path traversal", async () => {
+  const { applyUpdate } = await import("../server/self-update.mjs");
+  for (const name of ["dojobay/../evil/", "dojobay/../evil.txt"]) {
+    const zip = concatZip([
+      [name, Buffer.alloc(0)],
+      ["dojobay/server/index.mjs", Buffer.from("x")],
+      ["dojobay/assets/js/app.js", Buffer.from("x")],
+    ]);
+    await assert.rejects(applyUpdate({ bytes: zip, webRoot: "/tmp", spawnHelper: false, log: () => {} }),
+      /unsafe path/, `${name} is refused whether or not it ends in a slash`);
+  }
 });
 
 // A decompression bomb. MAX_SOURCE_ZIP_BYTES bounds what arrives; this is about

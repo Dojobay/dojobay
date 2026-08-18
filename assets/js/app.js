@@ -367,6 +367,35 @@ async function loadJSON(url){
   //
   // Most of a listing is operator-signed and independently checkable, but the
   // Electrum endpoint and the running version are OUR prober's word — we read
+  // The Tor SOCKS port a reader is running on. Two presets because there are two
+  // answers in practice: a standalone tor daemon listens on 9050 and Tor Browser
+  // on 9150.
+  //
+  // It is a variable rather than prose telling you to edit the commands, which
+  // is what this used to be. The page stated 9050, added a sentence saying to
+  // change it if you were on Tor Browser, and then handed over five commands
+  // containing 9050 and a copy button beside each. Knowing you were on the other
+  // port still left you editing every block, or editing the text on screen and
+  // then copying the unedited original, which is the worse failure because it
+  // looks like it worked.
+  //
+  // Deliberately not persisted. The site keeps nothing in localStorage, and a
+  // remembered preference is a small stored fact about a reader that buys very
+  // little; for the length of a visit is enough.
+  let TOR_PORT = 9150;
+  const socksArg = () => `--socks5-hostname 127.0.0.1:${TOR_PORT}`;
+
+  // Rendered at the top of both command popups. Re-renders whichever popup is
+  // open, so the visible commands and the text behind every copy button change
+  // together: a control that updated only what you can see would be worse than
+  // no control at all.
+  const portPicker = () =>
+    `<div class="portpick"><span class="k">Tor SOCKS port</span>`
+    + [[9050, "standalone tor"], [9150, "Tor Browser"]].map(([p, what]) =>
+        `<button class="pbtn${TOR_PORT === p ? " on" : ""}" data-act="torport" data-v="${p}"`
+        + ` aria-pressed="${TOR_PORT === p}">${p}<span class="w">${what}</span></button>`).join("")
+    + `</div>`;
+
   // them and publish them. These commands run the same two requests against the
   // node, so a reader can compare and never has to take our display on trust.
   // The apikey and onion are already on the card, so nothing new is disclosed.
@@ -376,7 +405,7 @@ async function loadJSON(url){
     let base;
     try{ const u = new URL(pr.url); base = u.origin + (u.pathname||"/v2").replace(/\/+$/,""); }
     catch(e){ return "<p>This node's pairing URL could not be parsed.</p>"; }
-    const S = "--socks5-hostname 127.0.0.1:9050";
+    const S = socksArg();
     const blk = (label, body) =>
       `<div class="proofblk"><div class="k">${esc(label)}</div>`
       + `<pre class="mono">${esc(body)}</pre>`
@@ -387,9 +416,14 @@ async function loadJSON(url){
         These are not: ${ours.slice(0,-1).join(", ")} and ${ours[ours.length-1]} are values our checker read from
         the node and republished. The commands below ask the node the same questions over Tor, so you can compare
         its answers with ours.</p>
-      <p class="dnote">You need a Tor SOCKS proxy. A standalone <span class="mono">tor</span> daemon listens on
-        <span class="mono">9050</span>; Tor Browser uses <span class="mono">9150</span>, so change the port below
-        if that is what you are running. The API key and onion address here are already published on this card.</p>
+      <p class="dnote">You need a Tor SOCKS proxy. Pick the port you are running on and every command below,
+        including what the copy buttons put on your clipboard, changes to match. The API key and onion address
+        here are already published on this card.</p>
+      ${portPicker()}
+      <p class="dnote">If a command answers
+        <span class="mono">Failed to connect to 127.0.0.1 port ${TOR_PORT}: Connection refused</span>,
+        nothing is listening there: try the other port. If neither works, Tor is not running, or is on a port
+        of its own, which some packaged builds choose.</p>
 
       <h3>1. Log in, and read the version header</h3>
       <p class="dnote">Every Dojo response carries <span class="mono">X-Dojo-Version</span>, so <span class="mono">-i</span>
@@ -438,7 +472,7 @@ async function loadJSON(url){
     let base;
     try{ const u = new URL(pr.url); base = u.origin + (u.pathname||"/v2").replace(/\/+$/,""); }
     catch(e){ return "<p>This node's pairing URL could not be parsed.</p>"; }
-    const S = "--socks5-hostname 127.0.0.1:9050";
+    const S = socksArg();
     const blk = (label, body) =>
       `<div class="proofblk"><div class="k">${esc(label)}</div>`
       + `<pre class="mono">${esc(body)}</pre>`
@@ -457,6 +491,12 @@ async function loadJSON(url){
       <p class="dnote">Two things follow from that. Your XPUB does go to <b>this operator's node</b>, which
         is inherent to using someone else's Dojo rather than a new exposure — it is the same thing pairing
         does. And a rescan is real work for their machine, so it is not something to run repeatedly.</p>
+
+      ${portPicker()}
+      <p class="dnote">Pick the port your Tor is listening on and every command below changes to match,
+        including what the copy buttons put on your clipboard. A standalone <span class="mono">tor</span>
+        daemon uses <span class="mono">9050</span> and Tor Browser uses <span class="mono">9150</span>;
+        <span class="mono">Connection refused</span> means nothing is listening on the one you chose.</p>
 
       <h3>1. Log in</h3>
       ${blk("token", `TOKEN=$(curl -s ${S} -d "apikey=${pr.apikey}" ${base}/auth/login | jq -r .authorizations.access_token)`)}
@@ -482,15 +522,22 @@ async function loadJSON(url){
         here is recorded by this directory.</p>`;
   }
 
+  // The two popups that carry shell commands record how to rebuild themselves,
+  // because changing the Tor port has to redraw the one that is open. Cleared on
+  // close so a stale closure cannot repaint a dialog nobody is looking at.
+  let MODAL_REOPEN = null;
+
   function openRescan(n){
     document.getElementById("ov-title").textContent = (n.name||n.id) + " · rescan an XPUB";
-    document.getElementById("ov-body").innerHTML = rescanHTML(n);
+    MODAL_REOPEN = () => { document.getElementById("ov-body").innerHTML = rescanHTML(n); };
+    MODAL_REOPEN();
     showOverlay();
   }
 
   function openCheckSelf(n){
     document.getElementById("ov-title").textContent = (n.name||n.id) + " · check it yourself";
-    document.getElementById("ov-body").innerHTML = checkSelfHTML(n);
+    MODAL_REOPEN = () => { document.getElementById("ov-body").innerHTML = checkSelfHTML(n); };
+    MODAL_REOPEN();
     showOverlay();
   }
 
@@ -559,16 +606,8 @@ async function loadJSON(url){
     const active=list.filter(n=>n.status==="active").length;
     const gen=(DOJOS.generated_at||"").replace("T"," ").slice(0,16)+" UTC";
     const FRESH=freshness(DOJOS);
-    const dismissed=(()=>{try{return localStorage.getItem("db_banner")==="off"}catch(e){return false}})();
 
     document.getElementById("root").innerHTML = `
-    ${dismissed?"":`<div class="banner"><div class="wrap">
-      <span class="txt">Support Bill &amp; Keonne against the unjust prosecution of Samourai Wallet's developers.</span>
-      <a href="https://billandkeonne.org/" target="_blank" rel="noopener">Learn more</a>
-      <span class="sep">·</span>
-      <a href="https://www.change.org/p/stand-up-for-freedom-pardon-the-innocent-coders-jailed-for-building-privacy-tools" target="_blank" rel="noopener">Sign the petition</a>
-      <button class="close" data-act="dismiss" aria-label="Dismiss">✕</button>
-    </div></div>`}
 
     <header><div class="wrap">
       <button class="burger" data-act="burger" aria-label="Menu" aria-expanded="${menuOpen}">
@@ -674,6 +713,7 @@ async function loadJSON(url){
   }
 
   function closeModal(){
+    MODAL_REOPEN = null;
     const o=document.getElementById("ov"); if(o)o.classList.remove("show");
     // A refresh that arrived while this dialog was open deferred its redraw so
     // as not to pull the content out from under the reader. Apply it now.
@@ -761,7 +801,16 @@ async function loadJSON(url){
     if(!act){ if(evEl(e)?.id==="ov") closeModal(); return; }
     const a=act.getAttribute("data-act");
     if(a==="burger"){menuOpen=!menuOpen;render();return;}
-    if(a==="dismiss"){try{localStorage.setItem("db_banner","off")}catch(e){}render();return;}
+    if(a==="torport"){
+      TOR_PORT = Number(act.getAttribute("data-v"));
+      // Re-render the popup that is open, so the commands on screen and the
+      // text behind every copy button move together. Re-opening rather than
+      // patching the port in place because the port appears in several blocks
+      // and in the connection-refused hint, and a partial update here is the
+      // exact failure the control exists to remove.
+      if(MODAL_REOPEN) MODAL_REOPEN();
+      return;
+    }
     if(a==="closemodal"){closeModal();return;}
     if(a==="verify"){ openVerify(); return; }
     if(a==="copyverify"){ if(OPERATOR) copy(OPERATOR.verifySigned).then(()=>flash(act,"Copied ✓")); return; }

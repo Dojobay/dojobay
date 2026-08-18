@@ -396,7 +396,9 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   btn.dispatchEvent(new window.Event("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
   const body = doc.getElementById("ov-body").textContent;
-  assert.ok(/socks5-hostname 127\.0\.0\.1:9050/.test(body), "the commands route over Tor");
+  // Port-agnostic: which one is the default is a judgement that lives in one
+  // place, and the picker's own checks below cover both values.
+  assert.ok(/socks5-hostname 127\.0\.0\.1:(9050|9150)/.test(body), "the commands route over Tor");
   assert.ok(/9150/.test(body), "and mention Tor Browser's port too");
   assert.ok(/auth\/login/.test(body) && /support\/services/.test(body),
     "it shows both requests: the login and the services lookup");
@@ -848,7 +850,77 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the FreeSamourai banner is gone and About still reads cleanly");
 }
 
-console.log("\nall 35 front-end checks passed");
+// Choosing the Tor port must change the commands AND what the copy buttons put
+// on the clipboard. A control that updated only what you can see would be worse
+// than the prose it replaced, because copying the unedited original looks like
+// it worked.
+{
+  const card = doc.querySelector('.card[data-id="mainnet-91xtx93-yellow"]');
+  card.querySelector('[data-act="rescan"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 40));
+  const body = () => doc.getElementById("ov-body");
+
+  const picker = body().querySelector(".portpick");
+  assert.ok(picker, "the rescan popup offers a port picker");
+  const btns = [...picker.querySelectorAll(".pbtn")].map((b) => b.getAttribute("data-v"));
+  assert.deepEqual(btns, ["9050", "9150"], "two presets, standalone tor and Tor Browser");
+
+  const cmds = () => [...body().querySelectorAll("pre.mono")].map((p) => p.textContent).join("\n");
+  const clip = () => [...body().querySelectorAll("button[data-act=copyurl]")]
+    .map((b) => b.getAttribute("data-v")).join("\n");
+
+  // Re-query each time: the popup rebuilds itself on every choice, so a handle
+  // taken before the click is detached by the time the next one is needed.
+  const pick = async (port) => {
+    const b = body().querySelector(`[data-act="torport"][data-v="${port}"]`);
+    assert.ok(b, `a preset for ${port} is present after the redraw`);
+    b.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 40));
+  };
+
+  await pick(9050);
+  assert.ok(/127\.0\.0\.1:9050/.test(cmds()) && !/9150/.test(cmds()),
+    "picking 9050 rewrites every visible command");
+  assert.ok(/127\.0\.0\.1:9050/.test(clip()) && !/9150/.test(clip()),
+    "and every copy button, which is the half that matters");
+  assert.ok(body().querySelector('.pbtn[data-v="9050"]').classList.contains("on"),
+    "and the chosen preset is marked, not left to guesswork");
+
+  await pick(9150);
+  assert.ok(/127\.0\.0\.1:9150/.test(cmds()) && /127\.0\.0\.1:9150/.test(clip()) && !/9050/.test(clip()),
+    "and it switches back the same way");
+
+  // the choice carries to the other command popup, so it is answered once
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  card.querySelector('[data-act="checkself"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(/127\.0\.0\.1:9150/.test(clip()),
+    "the check-it-yourself popup honours the port already chosen");
+  assert.ok(/Connection refused/.test(body().textContent),
+    "and says what a wrong port looks like, since the error is precise and opaque");
+  doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  console.log("  ok - the Tor port is chosen once and every command follows, clipboard included");
+}
+
+// The support banner is gone, and with it the only thing this site stored in
+// the browser.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  assert.ok(!/billandkeonne|change\.org/i.test(app), "the support banner markup is gone");
+  assert.ok(!/data-act="dismiss"/.test(app), "as is the control that dismissed it");
+  // Calls, not mentions: a comment explaining that the site stores nothing is
+  // exactly the sort of thing a bare word match trips over, as this one did.
+  assert.ok(!/\b(local|session)Storage\s*(\.|\[)/.test(app),
+    "and the site now keeps nothing in the browser at all, which for an onion site is worth holding to");
+  assert.ok(!/^\s*\.banner\{/m.test(css), "and its styles");
+  assert.ok(/\.stale-banner\{/.test(css), "while the staleness banner, a different thing, stays");
+  console.log("  ok - the support banner and the last of the browser storage are gone");
+}
+
+console.log("\nall 37 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

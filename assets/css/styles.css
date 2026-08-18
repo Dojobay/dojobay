@@ -34,13 +34,6 @@
   .eyebrow{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 
-  .banner{background:#180b0a;border-bottom:1px solid #2c1513}
-  .banner .wrap{display:flex;align-items:center;gap:14px;padding:9px 22px;font-size:13px}
-  .banner .txt{color:#e9d6d2}
-  .banner a{color:var(--accent);font-weight:600}
-  .banner .sep{color:#5c3330}
-  .banner .close{margin-left:auto;color:#9a7a76;font-size:18px;line-height:1;padding:2px 6px;border-radius:5px}
-  .banner .close:hover{background:#241210;color:var(--accent-2)}
 
   header{border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:rgba(11,11,12,.86);backdrop-filter:blur(8px);z-index:20}
   header .wrap{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 22px}
@@ -146,6 +139,19 @@
     color:var(--muted);font-size:14px;line-height:1.65;margin:0 0 18px}
   .empty b{color:var(--text)}
   .empty-cta{margin-top:8px;font-size:13px;color:var(--faint)}
+  /* The Tor port picker. Two presets, because there are two answers in practice
+     and a free-text field would invite typos into the one value that has to be
+     right for any of the commands below it to work. */
+  .portpick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 14px}
+  .portpick .k{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--faint)}
+  .pbtn{font:inherit;font-family:'JetBrains Mono',monospace;font-size:13px;padding:6px 11px;
+    border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer}
+  .pbtn .w{display:block;font-family:'Hanken Grotesk',sans-serif;font-size:10.5px;color:var(--faint);
+    letter-spacing:0;text-transform:none;margin-top:1px}
+  .pbtn:hover{border-color:var(--line-soft);color:var(--text)}
+  .pbtn.on{border-color:var(--accent);color:var(--accent-2);background:rgba(181,48,42,.10)}
+  .pbtn.on .w{color:var(--accent-2)}
   .stale-banner{margin:0 0 18px;padding:12px 14px;border-radius:8px;font-size:13.5px;line-height:1.6;
     color:var(--text);background:rgba(214,88,79,.10);border:1px solid rgba(214,88,79,.35)}
   .stale-banner b{color:var(--down)}

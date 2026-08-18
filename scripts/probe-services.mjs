@@ -27,7 +27,14 @@ const RAW = process.argv.includes("--raw");
 const ONLY = (() => { const i = process.argv.indexOf("--only"); return i > -1 ? process.argv[i + 1] : null; })();
 
 // Candidate endpoints, tried in order. We dump whatever each returns.
-const ENDPOINTS = ["/support/services", "/support/info", "/status"];
+// /fees/estimator is here to answer a capability question rather than to read a
+// number: it is served by the $1 Fee Estimator, a separate component a Dojo may
+// or may not run, and returns 503 when it is absent or bitcoind's mempool has
+// not finished loading. Before putting a fee figure on every card it is worth
+// knowing how many nodes can actually supply one, since a column that reads
+// "—" for fifteen of sixteen listings is a different feature from the one that
+// was asked for.
+const ENDPOINTS = ["/support/services", "/support/info", "/status", "/fees/estimator"];
 
 // A thin adapter over the shared reader in update.mjs rather than a second copy
 // of it. This file used to carry its own, which is how it kept an unbounded
@@ -130,29 +137,49 @@ const results = await pool(nodes, CFG.concurrency, async (n) => {
       } catch (e) { found[ep] = { status: 0, error: e.message }; }
     }
     const svc = found["/support/services"];
+    const fee = found["/fees/estimator"];
     return {
       id: n.id,
       version: n.version || null,
       apiVersion: findVersion(svc?.json) || findVersion(found["/support/info"]?.json) || null,
       indexer: findIndexer(svc?.json),
       svcStatus: svc?.status ?? 0,
+      feeStatus: fee?.status ?? 0,
+      // The 99.9% figure: the rate the estimator says gives that chance of
+      // being mined in the next block. Read as a string key because the reply
+      // is a plain object keyed by probability.
+      fee999: (fee?.json && typeof fee.json["0.999"] === "number") ? fee.json["0.999"] : null,
       note: null,
     };
   } catch (e) {
-    return { id: n.id, version: n.version || null, apiVersion: null, indexer: null, svcStatus: 0, note: e.message };
+    return { id: n.id, version: n.version || null, apiVersion: null, indexer: null,
+      svcStatus: 0, feeStatus: 0, fee999: null, note: e.message };
   }
 });
 
-console.log("id".padEnd(30) + "listed".padEnd(9) + "api ver".padEnd(10) + "svc".padEnd(6) + "indexer / note");
-console.log("-".repeat(110));
+console.log("id".padEnd(30) + "listed".padEnd(9) + "api ver".padEnd(10) + "svc".padEnd(6)
+  + "fee".padEnd(6) + "sat/vB".padEnd(8) + "indexer / note");
+console.log("-".repeat(124));
 for (const r of results) {
   console.log(
     r.id.padEnd(30) +
     String(r.version || "-").padEnd(9) +
     String(r.apiVersion || "-").padEnd(10) +
     String(r.svcStatus || "-").padEnd(6) +
+    String(r.feeStatus || "-").padEnd(6) +
+    String(r.fee999 ?? "-").padEnd(8) +
     (r.indexer || (r.note ? "! " + r.note : "(none)"))
   );
 }
 const withIdx = results.filter((r) => r.indexer).length;
+const withFee = results.filter((r) => r.fee999 != null).length;
 console.log(`\n${withIdx}/${results.length} node(s) expose an indexer endpoint.`);
+console.log(`${withFee}/${results.length} node(s) answer /fees/estimator with a 99.9% rate.`);
+// The spread matters as much as the count. Every Dojo reads the same mempool,
+// so if the answers agree the figure describes Bitcoin rather than the node,
+// and putting it on a card is a capability flag with a number attached.
+const rates = results.map((r) => r.fee999).filter((v) => v != null);
+if (rates.length > 1) {
+  console.log(`rates seen: ${[...new Set(rates)].sort((a, b) => a - b).join(", ")} sat/vB`
+    + `  (min ${Math.min(...rates)}, max ${Math.max(...rates)})`);
+}

@@ -256,11 +256,24 @@ export const TORII = [
   "  111111        111111        111111        111111        111111",
 ];
 
-export function banner(width = (process.stdout.columns || 80)) {
+/**
+ * @param {number} [width]
+ * @param {string|null} [commit] the build this tree is, from data/version.json.
+ *   Passed in rather than read here: this module states that it does no I/O,
+ *   which is what lets the suite exercise every helper without a filesystem.
+ *   An operator who has to say what they installed should not have to guess, and
+ *   after an install the answer is otherwise only in the admin console.
+ */
+export function banner(width = (process.stdout.columns || 80), commit = null) {
+  const build = commit ? ` \u00b7 ${commit}` : "";
   const art = TORII[0].length;
   // Nothing is gained by drawing two thirds of a gate: below the full width it
-  // wraps into rubble, so the name alone is the better answer.
-  if (!process.stdout.isTTY || width < art + 2) return bold("THE DOJO BAY \u2014 installer\n");
+  // wraps into rubble, so the name alone is the better answer. The build still
+  // goes in, because it is the line most worth having in a bug report.
+  if (!process.stdout.isTTY || width < art + 2) {
+    return bold("THE DOJO BAY \u2014 installer") + dim(build) + "\n";
+  }
   return TORII.map((l) => red(l)).join("\n")
-    + "\n\n" + bold("  THE DOJO BAY") + dim("  \u00b7  onion-only Dojo directory \u00b7 guided install\n");
+    + "\n\n" + bold("  THE DOJO BAY")
+    + dim(`  \u00b7  onion-only Dojo directory \u00b7 guided install${build}\n`);
 }

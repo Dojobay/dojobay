@@ -2,6 +2,7 @@
 // talks only to this adapter, so the full-screen TUI and the plain sequential
 // flow (kept for dumb terminals, tiny windows, and --plain) stay behaviourally
 // identical. Node builtins only.
+import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { red, dim, bold, ok as okc, bad, banner, collectPasteFrom } from "./installer-lib.mjs";
 import { makeScreen } from "./tui.mjs";
@@ -35,6 +36,19 @@ import { makeScreen } from "./tui.mjs";
 // `--plain` is accepted and ignored, so anyone who learned to pass it, or has
 // it in a script, is not met with an error about an option that used to be the
 // only way to get the working path.
+// Which commit this tree is. data/version.json is written by the deploy and
+// shipped inside the source archive, so it describes the code that was actually
+// unpacked here rather than whatever GitHub happens to be serving now, which is
+// the distinction that matters when somebody is reporting what they installed.
+// Absent on a git clone, and "dev" is not a build, so both give nothing rather
+// than something misleading.
+function buildCommit() {
+  try {
+    const v = JSON.parse(readFileSync(new URL("../data/version.json", import.meta.url), "utf8"));
+    return typeof v.commit === "string" && v.commit && v.commit !== "dev" ? v.commit : null;
+  } catch { return null; }
+}
+
 export function chooseUI(_argv = process.argv) {
   return sequentialUI();
 }
@@ -44,7 +58,7 @@ export function sequentialUI() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const say = (s = "") => process.stdout.write(s + "\n");
   let stepLabel = "";
-  say("\n" + banner());
+  say("\n" + banner(undefined, buildCommit()));
   async function askOne(f, all) {
     for (;;) {
       if (f.type === "toggle") {

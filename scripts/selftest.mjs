@@ -839,6 +839,32 @@ await check("the torii is symmetrical, whole, and drawn in ones and zeroes", asy
   assert.deepEqual(HEADER, [],
     "the frame header draws no gate: it is redrawn per keystroke and the art is 34 rows");
 
+  // The build the tree is, after "guided install". Somebody reporting a problem
+  // should not have to go and look it up, and after an install the only other
+  // place it appears is the admin console.
+  const real0 = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+  try {
+    const withBuild = banner(120, "3362dc1");
+    assert.ok(/guided install \u00b7 3362dc1/.test(withBuild.replace(/\x1b\[[0-9;]*m/g, "")),
+      "the commit follows 'guided install'");
+    assert.ok(!/guided install \u00b7 /.test(banner(120, null).replace(/\x1b\[[0-9;]*m/g, "")),
+      "and nothing dangles when there is no build to state, as on a git clone");
+    assert.ok(!/undefined|null/.test(banner(120, null)), "least of all the word null");
+  } finally {
+    if (real0) Object.defineProperty(process.stdout, "isTTY", real0);
+    else delete process.stdout.isTTY;
+  }
+  // and it survives the fallback, where it is the line most worth having
+  assert.ok(/3362dc1/.test(banner(40, "3362dc1")),
+    "a terminal too narrow for the gate still says which build this is");
+
+  // installer-lib does no I/O by design, which is what lets the suite exercise
+  // every helper without a filesystem. The commit is therefore passed in.
+  const libSrc = readFileSync(new URL("./installer-lib.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(!/readFileSync|readFile\(/.test(libSrc),
+    "installer-lib still reads nothing: the build is an argument, not a lookup");
+
   // The fallback, which is where a banner usually breaks. This suite runs with
   // its output piped, so isTTY is false and the plain path is what a naive
   // check would exercise: worth asserting outright before faking a TTY.

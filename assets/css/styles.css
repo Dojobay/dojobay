@@ -297,6 +297,19 @@
   .modal-body .loading{color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:13px}
   @media (max-width:560px){
     .meta{grid-template-columns:1fr}
+    /* The network toggle and the freshness line sit at opposite ends of one row
+       on a wide screen, which is what space-between is for. On a narrow one they
+       wrap onto separate lines, and space-between then puts a lone item at the
+       start of its line, so both ended up hard against the left edge under a
+       centred header. Centre them instead: the toggle is the page's primary
+       control and reads as a control rather than a stray pair of words when it
+       is centred under the title.
+       .fresh is itself a flex container whose own content wraps, so it needs
+       centring too, or its second line ("re-checks every 10 min") hangs left
+       under a centred first line, which looks like a mistake rather than a
+       wrap. text-align covers any inline content that is not a flex item. */
+    .controls{justify-content:center;gap:12px;padding:22px 18px 14px}
+    .fresh{justify-content:center;text-align:center}
     header .wrap{padding:14px 18px;position:relative;justify-content:flex-start}
     .burger{display:block;z-index:2}
     /* Centre the title while the hamburger is in use. Only then: taking .brand

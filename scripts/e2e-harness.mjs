@@ -920,7 +920,31 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the support banner and the last of the browser storage are gone");
 }
 
-console.log("\nall 37 front-end checks passed");
+// The controls row is space-between on a wide screen, which is right there and
+// wrong once it wraps: a lone item on a wrapped line goes to the start, so the
+// toggle and the freshness line both sat hard left under a centred header.
+{
+  const css = readFileSync(REPO + "/assets/css/styles.css", "utf8");
+  const wide = css.slice(0, css.indexOf("@media (max-width:560px)"));
+  const mobile = css.slice(css.indexOf("@media (max-width:560px)"),
+    css.indexOf("@media (prefers-reduced-motion"));
+
+  assert.ok(/\.controls\{[^}]*justify-content:space-between/.test(wide),
+    "a wide screen still puts the toggle and the status at opposite ends");
+  assert.ok(/\.controls\{[^}]*justify-content:center/.test(mobile),
+    "and a narrow one centres them");
+  assert.ok(/\.fresh\{[^}]*justify-content:center/.test(mobile),
+    ".fresh is a flex container of its own, so its wrapped second line needs centring too");
+  assert.ok(/\.fresh\{[^}]*text-align:center/.test(mobile),
+    "with text-align for any inline content that is not a flex item");
+  // the toggle must stay a single row: wrapping mainnet and testnet onto two
+  // lines would make it read as two buttons rather than one control
+  assert.ok(!/\.seg\{[^}]*flex-wrap:wrap/.test(mobile + wide),
+    "the network toggle itself never wraps");
+  console.log("  ok - the toggle and the freshness line centre on a narrow screen");
+}
+
+console.log("\nall 38 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

@@ -14,6 +14,69 @@
 // the declared one only when the node did not report a header at all.
 // =============================================================================
 
+// A country code inferred from whatever an operator wrote about where they are,
+// or nothing at all.
+//
+// The point is flags where we can manage them and no obligation anywhere else.
+// An operator is asked one free-text question and may answer "Finland", "FI",
+// "Central America", "Europe" or "Ancapistan"; the first two get a flag and the
+// rest do not, and none of them is an error. Nothing is enforced and nothing is
+// refused, because a directory of onion services has no business insisting that
+// somebody name a state.
+//
+// The names come from the runtime rather than a table in this repository.
+// Intl.DisplayNames knows 280 region codes and their English names, so the
+// lookup is current with the platform's ICU data instead of decaying in a file
+// nobody revisits. That also means an unassigned pair like XX yields nothing:
+// the runtime does not recognise it, so it cannot be a flag, and letterboxes on
+// a card read as a broken listing rather than a missing flag.
+const REGION_NAMES = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** lowercased name -> code, built once from whatever the runtime knows. */
+const NAME_TO_CODE: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (let a = 65; a < 91; a++) {
+    for (let b = 65; b < 91; b++) {
+      const cc = String.fromCharCode(a, b);
+      let name: string | undefined;
+      try { name = REGION_NAMES.of(cc); } catch { continue; }
+      if (name && name !== cc) m.set(name.toLowerCase(), cc);
+    }
+  }
+  // The handful the runtime will not answer to, because people do not write
+  // country names the way the standard does. UK is the one that matters: it is
+  // not a code, and typed as one it renders as two letterboxes.
+  for (const [alias, cc] of [
+    ["uk", "GB"], ["united kingdom", "GB"], ["great britain", "GB"], ["britain", "GB"],
+    ["england", "GB"], ["scotland", "GB"], ["wales", "GB"], ["northern ireland", "GB"],
+    ["usa", "US"], ["u.s.a.", "US"], ["u.s.", "US"], ["america", "US"],
+    ["holland", "NL"], ["czech republic", "CZ"], ["south korea", "KR"], ["north korea", "KP"],
+    ["russia", "RU"], ["uae", "AE"], ["eu", "EU"], ["european union", "EU"],
+  ]) m.set(alias, cc);
+  return m;
+})();
+
+export function countryFor(text: unknown): string | null {
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+  // Segments, so "Helsinki, Finland" and "Europe (Finland)" both find something.
+  // Longest first: "United States" should win over a stray "US" elsewhere in
+  // the same answer.
+  const parts = raw.split(/[,;/()\u2013\u2014|]+/).map((x) => x.trim()).filter(Boolean);
+  for (const part of [raw, ...parts].sort((a, b) => b.length - a.length)) {
+    const key = part.toLowerCase().replace(/\.$/, "");
+    const named = NAME_TO_CODE.get(key);
+    if (named) return named;
+    if (/^[a-z]{2}$/i.test(part)) {
+      const cc = part.toUpperCase();
+      // Only if the runtime recognises it: an unassigned pair has no flag, and
+      // two letterboxes look like a fault rather than an absence.
+      try { if (REGION_NAMES.of(cc) !== cc) return cc; } catch { /* not a region */ }
+    }
+  }
+  return null;
+}
+
 // Which network a pairing URL is for, read from the URL itself.
 //
 // A Dojo serves its testnet API under a `test` path segment and its mainnet API

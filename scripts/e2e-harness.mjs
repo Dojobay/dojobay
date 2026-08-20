@@ -944,7 +944,22 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the toggle and the freshness line centre on a narrow screen");
 }
 
-console.log("\nall 38 front-end checks passed");
+// One question about location, no separate code field, nothing enforced.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  assert.ok(!/m-cc/.test(app), "the separate country-code input is gone");
+  assert.ok(!/Country code must be two letters/.test(app),
+    "and so is the validation that went with it: nothing about a flag should "
+    + "stop somebody listing their node");
+  const form = app.slice(app.indexOf('id="m-jur"') - 200, app.indexOf('id="m-jur"') + 200);
+  assert.ok(/optional/i.test(form) && /flag/i.test(form),
+    "the one field left is optional and says what naming a country buys: " + form.slice(0, 90));
+  // the card still renders a flag from the stored code, which the server infers
+  assert.ok(/function flag\(cc\)/.test(app), "the card still draws a flag when there is a code");
+  console.log("  ok - one location field, no code to get wrong, flags where possible");
+}
+
+console.log("\nall 39 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

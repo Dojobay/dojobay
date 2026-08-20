@@ -1510,6 +1510,36 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await rb();
 }
 
+// 34b) the flag on a card is inferred from the one free-text answer an operator
+//      gives about where they are, and nothing is enforced. There used to be a
+//      separate code field, sliced to two characters and upper-cased, which
+//      rejected nothing: "FIN" silently became "FI" and was published as
+//      whichever country those letters name, while a single letter or half a
+//      pasted flag emoji were stored as given and rendered as letterboxes.
+{
+  const { countryFor } = await import("./dojo-version.ts");
+  ok(countryFor("Finland") === "FI" && countryFor("Helsinki, Finland") === "FI",
+     "a country is recognised, in a sentence or on its own");
+  ok(countryFor("UK") === "GB", "including the one that is not a code");
+  ok(countryFor("Europe") === null && countryFor("Ancapistan") === null,
+     "and a generic or invented answer is allowed, with no flag and no complaint");
+  ok(countryFor("XX") === null, "an unassigned pair is not a flag");
+
+  const idx = await fsp.readFile(new URL("./index.ts", import.meta.url), "utf8");
+  ok(/country: countryFor\(body\.jurisdiction\)/.test(idx),
+     "the gate infers from the location answer rather than asking separately");
+  ok(!/slice\(0, 2\)\.toUpperCase\(\)/.test(idx), "the old truncation is gone");
+
+  await api("/api/dojo", "POST", { network: "mainnet", name: "cc-node",
+    jurisdiction: "Ancapistan", payload, signed: signedBlock });
+  const { store: st34b } = await import("./store.ts");
+  const rec = await st34b.getSubmission("mainnet-cc-node");
+  ok(!rec || rec.country === null,
+     "a location that names nowhere stores no code: " + JSON.stringify(rec && rec.country));
+  ok(!rec || rec.jurisdiction === "Ancapistan",
+     "while the answer itself is kept exactly as written");
+}
+
 // 35a) a listing's endpoint must be for the network it claims. A Dojo serves
 //      testnet under a `test` path segment and mainnet without one, so the two
 //      are checkable against each other, and a crossed pair is wrong in a way

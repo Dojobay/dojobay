@@ -23,7 +23,7 @@ import { store } from "./store.ts";
 import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock, canonicalPairing } from "./crypto.ts";
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
-import { judgeVersion, MIN_DOJO_VERSION, pairingNetwork } from "./dojo-version.ts";
+import { judgeVersion, MIN_DOJO_VERSION, pairingNetwork, countryFor } from "./dojo-version.ts";
 import {
   normaliseDomain, txtName, txtHost, txtValue, signingText, verifyClaim,
   recheckClaim, applyRecheck, isDue, urlOnDomain, GRACE_DAYS,
@@ -483,7 +483,17 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     paymentCodes: [...new Set([...(existing?.paymentCodes || []), s.paymentCode])],
     paynym: resolvedNym || (existing && existing.paynym) || null,
     jurisdiction: (body.jurisdiction || "").toString().slice(0, 64) || null,
-    country: (body.country || "").toString().slice(0, 2).toUpperCase() || null,
+    // Inferred from what the operator wrote about where they are, never asked
+    // for separately. It used to be its own field, sliced to two characters and
+    // upper-cased, which rejected nothing: "FIN" silently became "FI" and was
+    // published as whichever country those letters name, while a single letter
+    // or half a pasted flag emoji were stored as given and rendered on a card
+    // as letterboxes. Now there is one question, no validation, and a flag when
+    // the answer happens to name somewhere.
+    //
+    // An existing code survives an edit that no longer implies one, so nobody
+    // loses a flag they already had by rewording their location.
+    country: countryFor(body.jurisdiction) || (existing && existing.country) || null,
     hardware: (body.hardware || "").toString().slice(0, 120) || null,
     payload: (() => {
       const base = { pairing: body.payload.pairing, explorer: body.payload.explorer };

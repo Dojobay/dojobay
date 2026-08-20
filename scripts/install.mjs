@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import {
   isPaymentCode, isOnionHost, onionHostOf, isNodeName, parsePairing,
   operatorMessage, mergeTorrc, renderServerUnit, renderUpdateUnit, renderNginx, SERVICE_USER,
-  anchorSeed, operatorDoc,
+  anchorSeed, operatorDoc, countryFor,
 } from "./installer-lib.mjs";
 import { chooseUI } from "./installer-ui.mjs";
 
@@ -178,7 +178,13 @@ async function main() {
     { key: "network", label: "Network", type: "toggle", options: ["mainnet", "testnet"], value: 0 },
     { key: "name", label: "Node name", type: "text",
       validate: (v) => isNodeName(v) || "letters/digits (≤40 chars)" },
-    { key: "jurisdiction", label: "Jurisdiction (optional)", type: "text", hint: "e.g. Europe" },
+    { key: "jurisdiction", label: "Where is it? (optional)", type: "text",
+      // One free-text question, and a flag appears on the card if what you wrote
+      // names somewhere the runtime recognises. Nothing is enforced: "Europe" or
+      // "Ancapistan" are perfectly good answers that simply get no flag. There
+      // is no separate code field because asking twice for one fact, and
+      // validating the second, was more ceremony than a flag is worth.
+      hint: "e.g. Finland, Helsinki FI, Europe \u2014 a country gets you a flag" },
     { key: "hardware", label: "Hardware (optional)", type: "text", hint: "e.g. N100 16GB" },
   ], { note: "Running a Dojo Bay requires running a Dojo. This node seeds your directory." });
   let payload;
@@ -343,7 +349,8 @@ async function main() {
     await mkdir(dataDir, { recursive: true });
     await writeFile(path.join(dataDir, "seed.json"), JSON.stringify(anchorSeed({
       network: anchor.network, name: anchor.name, paymentCode, paynym: paynym || null,
-      payload, signed: anchorSigned, jurisdiction: anchor.jurisdiction, hardware: anchor.hardware,
+      payload, signed: anchorSigned, jurisdiction: anchor.jurisdiction,
+      country: countryFor(anchor.jurisdiction), hardware: anchor.hardware,
     }), null, 2) + "\n");
     await writeFile(path.join(dataDir, "operator.json"), JSON.stringify(opDoc, null, 2) + "\n");
     log("seed.json (anchor) + operator.json written");

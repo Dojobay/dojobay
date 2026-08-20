@@ -761,6 +761,50 @@ await check("installer paste collector keeps every line of a one-chunk paste", a
   assert.equal(got.split("\n").length, 10, "all ten lines captured");
 });
 
+// Flags where we can manage them, and no obligation anywhere else. An operator
+// answers one free-text question about where they are; a country gets a flag
+// and "Europe" or "Ancapistan" do not, and neither is an error.
+await check("a country is inferred from free text, and nothing is enforced", async () => {
+  const { countryFor, anchorSeed } = await import("./installer-lib.mjs");
+  for (const [text, cc] of [
+    ["Finland", "FI"], ["fi", "FI"], ["Switzerland", "CH"], ["Helsinki, Finland", "FI"],
+    ["United Kingdom", "GB"], ["UK", "GB"], ["England", "GB"], ["USA", "US"],
+    ["Holland", "NL"], ["Europe (Finland)", "FI"], ["Canada / Quebec", "CA"],
+  ]) assert.equal(countryFor(text), cc, `${text} names ${cc}`);
+
+  // The whole point: these are good answers that simply get no flag.
+  for (const text of ["Europe", "Central America", "Ancapistan", "somewhere warm", "", null])
+    assert.equal(countryFor(text), null, `${JSON.stringify(text)} is allowed and gets no flag`);
+
+  // An unassigned pair yields nothing rather than two letterboxes, which read
+  // as a broken card rather than a missing flag.
+  assert.equal(countryFor("XX"), null, "an unassigned pair is not a flag");
+
+  // Names come from the runtime's own region data rather than a table here, so
+  // the lookup cannot decay in a file nobody revisits.
+  const libSrc = readFileSync(new URL("../server/dojo-version.ts", import.meta.url).pathname, "utf8");
+  assert.ok(/Intl\.DisplayNames/.test(libSrc), "the names come from ICU, not from a list in this repo");
+
+  const base = { network: "mainnet", name: "n", paymentCode: "PM8Tabc",
+    payload: { pairing: { type: "dojo.api", url: "http://x.onion/v2" } },
+    signed: "-----BEGIN BITCOIN SIGNED MESSAGE-----\nx\n-----BEGIN BITCOIN SIGNATURE-----\nAA==\n-----END BITCOIN SIGNATURE-----" };
+  assert.equal(anchorSeed({ ...base, jurisdiction: "Finland" }).nodes[0].country, "FI",
+    "the anchor takes its flag from the same answer");
+  assert.equal(anchorSeed({ ...base, jurisdiction: "Ancapistan" }).nodes[0].country, null,
+    "and stores nothing when there is nothing to store");
+});
+
+// The installer asks once, not twice.
+await check("the installer asks one question about location, and enforces nothing", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(!/key: "country"/.test(src), "there is no separate country-code field to get wrong");
+  const field = src.slice(src.indexOf('key: "jurisdiction"'), src.indexOf('key: "hardware"'));
+  assert.ok(/optional/i.test(field), "the one that remains is optional");
+  assert.ok(!/validate:/.test(field), "and unvalidated: a directory of onion services does not "
+    + "insist that anybody name a state");
+  assert.ok(/flag/i.test(field), "while saying what naming a country buys you");
+});
+
 // The anchor an installer produces is a listing, and a listing without a signed
 // pairing block is withheld by the rebuild. Before this, anchorSeed did not
 // carry one, so a fresh install came up with an empty directory and no

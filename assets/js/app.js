@@ -1040,8 +1040,7 @@ async function loadJSON(url){
         <label>Network
           <select id="m-net"><option value="mainnet">mainnet</option><option value="testnet">testnet</option></select></label>
         <label>Node name (unique per network; shown on the card next to your PayNym) <input id="m-name" maxlength="40" placeholder="e.g. yellow"></label>
-        <label>Jurisdiction <input id="m-jur" maxlength="64" placeholder="e.g. Europe, Canada"></label>
-        <label>Country code (optional, 2 letters for a flag) <input id="m-cc" maxlength="2" placeholder="FI"></label>
+        <label>Where is it? (optional \u2014 name a country and your card gets a flag) <input id="m-jur" maxlength="64" placeholder="e.g. Finland, Europe, Ancapistan"></label>
         <label>Hardware <input id="m-hw" maxlength="120" placeholder="e.g. N100 16GB"></label>
         <label>Link (optional; the card title links here) <input id="m-url" maxlength="200" placeholder="https://…"></label>
         <label>Pairing code (JSON) <textarea id="m-payload" rows="6" placeholder='{"pairing":{"type":"dojo.api",...},"explorer":{...}}'></textarea></label>
@@ -1181,7 +1180,6 @@ async function loadJSON(url){
         network: /** @type {HTMLInputElement} */ (document.getElementById("m-net")).value,
         name,
         jurisdiction: /** @type {HTMLInputElement} */ (document.getElementById("m-jur")).value,
-        country: /** @type {HTMLInputElement} */ (document.getElementById("m-cc")).value,
         hardware: /** @type {HTMLInputElement} */ (document.getElementById("m-hw")).value,
         name_url: /** @type {HTMLInputElement} */ (document.getElementById("m-url")).value,
         payload,

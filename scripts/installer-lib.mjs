@@ -121,12 +121,19 @@ export function renderNginx(template, { webRoot }) {
 // it withholds any other unsigned listing, so an anchor built without one
 // produces an instance whose directory is empty and which says nothing about
 // why. It was optional once, and that is precisely what happened.
+// The country normaliser lives in server/dojo-version.ts, with the network
+// check, because the submission gate applies the same rule and a rule with two
+// definitions is a rule waiting to disagree with itself. Re-exported so the
+// installer has one import for its validation.
+import { countryFor } from "../server/dojo-version.ts";
+export { countryFor };
+
 /**
  * @param {{ network: string, name: string, paymentCode: string, signed: string,
  *   paynym?: string|null, payload: any, jurisdiction?: string|null,
- *   hardware?: string|null, name_url?: string|null }} n
+ *   country?: string|null, hardware?: string|null, name_url?: string|null }} n
  */
-export function anchorSeed({ network, name, paymentCode, paynym, payload, signed, jurisdiction, hardware, name_url }) {
+export function anchorSeed({ network, name, paymentCode, paynym, payload, signed, jurisdiction, country, hardware, name_url }) {
   if (!signed || typeof signed !== "string" || !signed.includes("BEGIN BITCOIN SIGNATURE")) {
     throw new Error("anchorSeed: a signed pairing block is required, or the anchor will be withheld from the published directory");
   }
@@ -134,7 +141,8 @@ export function anchorSeed({ network, name, paymentCode, paynym, payload, signed
   return { nodes: [{
     id: `${network}-${slug}`, network, name: String(name).trim(),
     paynym: paynym || null, paymentCode,
-    jurisdiction: jurisdiction || null, hardware: hardware || null,
+    jurisdiction: jurisdiction || null, country: country || countryFor(jurisdiction),
+    hardware: hardware || null,
     name_url: name_url || null, payload, signed,
   }] };
 }

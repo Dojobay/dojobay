@@ -27,9 +27,26 @@ async function main() {
   // Give the backend a moment to flush its "restarting" response.
   await new Promise((r) => setTimeout(r, 1500));
   try {
-    // Overlay staged code onto the web root (data/ is not in staging, so
-    // instance state is untouched).
+    // Overlay staged code onto the web root. Nothing under data/ is ever staged
+    // (stripTopLevel drops it), so this cannot touch instance state. That used
+    // to be an assumption about the archive rather than a guarantee, and it was
+    // false for a GitHub zipball, which carries the repository's own copies of
+    // dojos.json, the history files, the seed anchor and the operator binding.
     await cp(staging, webRoot, { recursive: true, force: true });
+
+    // The version marker is written here rather than taken from the archive.
+    // pack-source ships a version.json describing the instance that built it,
+    // and a GitHub zipball ships the repository's, which says "dev"; neither
+    // describes what has just been installed. The commit that was fetched is
+    // known to this process and to nothing else, so this is the only place the
+    // right answer exists. Getting it wrong is not cosmetic: the update check
+    // refuses to run without a real commit, so an instance that overwrote this
+    // with "dev" stopped being able to tell whether it was up to date.
+    if (version) {
+      await mkdir(path.join(webRoot, "data"), { recursive: true }).catch(() => {});
+      await writeFile(path.join(webRoot, "data", "version.json"),
+        JSON.stringify({ commit: version, built: new Date().toISOString() }, null, 2) + "\n");
+    }
     // Reinstall backend deps in case package-lock changed; tolerate offline.
     try { await run("npm", ["ci", "--omit=dev"], { cwd: path.join(webRoot, "server") }); } catch (e) { /* keep going: existing node_modules */ }
     // Rebuild public list + source archive from the new code.

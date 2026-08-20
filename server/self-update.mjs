@@ -146,6 +146,27 @@ function stripTopLevel(files) {
     // archive should not get a free pass by putting the slash on the end.
     if (rel.includes("..") || rel.startsWith("/")) throw new Error("unsafe path in archive: " + f.name);
     if (!rel || rel.endsWith("/")) continue;       // the folder itself, or one inside it
+    // NOTHING under data/ is ever staged, whatever the archive contains.
+    //
+    // apply-update used to carry the comment "data/ is not in staging, so
+    // instance state is untouched". That was true of an archive built by
+    // pack-source, which excludes instance data by design, and false the moment
+    // a GitHub zipball became a source: a zipball is the whole repository, and
+    // seven files under data/ are committed to it. A self-update therefore
+    // overwrote the instance's published list with the empty scaffold, its
+    // reliability history with the repository's, its seed anchor, its operator
+    // binding, and its version marker with "dev", which then made the update
+    // check throw and report nothing useful. None of it was recoverable from
+    // the backup either, because the backup excludes data/ for the same reason
+    // this now does.
+    //
+    // Enforced here rather than in the caller, and by path rather than by a
+    // list of filenames, because the assumption that broke was a caller's
+    // assumption about what an archive contains. This holds for any archive
+    // from any source, including ones nobody has thought of yet, and it is why
+    // version.json is written afterwards from the commit that was fetched
+    // instead of being taken from the tree.
+    if (rel === "data" || rel.startsWith("data/")) continue;
     out.push({ rel, data: f.data });
   }
   return out;

@@ -1163,6 +1163,57 @@ await check("an archive with directory entries unpacks, GitHub's shape included"
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// NOTHING under data/ is staged, whatever the archive holds. A GitHub zipball
+// is the whole repository and seven files under data/ are committed to it, so a
+// self-update overwrote the instance's published list with the empty scaffold,
+// its history with the repository's, its seed anchor, its operator binding and
+// its version marker with "dev". The backup could not help: it excludes data/
+// for the same reason this now does.
+await check("an archive cannot overwrite instance data, whatever it contains", async () => {
+  const { applyUpdate } = await import("../server/self-update.mjs");
+  const dir = mkdtempSync("/tmp/dojobay-instdata-");
+  try {
+    // Exactly the files a zipball of this repository carries under data/.
+    const zip = concatZip([
+      ["dojobay/server/index.mjs", Buffer.from("// new")],
+      ["dojobay/assets/js/app.js", Buffer.from("// new")],
+      ["dojobay/data/dojos.json", Buffer.from('{"nodes":[]}')],
+      ["dojobay/data/history.json", Buffer.from("{}")],
+      ["dojobay/data/history-daily.json", Buffer.from("{}")],
+      ["dojobay/data/seed.json", Buffer.from('"THEIRS"')],
+      ["dojobay/data/operator.json", Buffer.from('"THEIRS"')],
+      ["dojobay/data/paynym-codes.json", Buffer.from("{}")],
+      ["dojobay/data/version.json", Buffer.from('{"commit":"dev"}')],
+    ]);
+    mkdirSync(dir + "/server", { recursive: true });
+    mkdirSync(dir + "/assets", { recursive: true });
+    writeFileSync(dir + "/server/index.mjs", "// current");
+    writeFileSync(dir + "/assets/app.js", "// current");
+
+    const res = await applyUpdate({ bytes: zip, webRoot: dir, spawnHelper: false, log: () => {} });
+    assert.equal(res.entries, 2, "only the two code files are staged, none of the seven data files");
+    assert.ok(!existsSync(res.staging + "/data"),
+      "and no data directory is created in staging at all, so the swap cannot reach one");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// The version marker states what was installed, which only the updater knows.
+await check("the swap writes the version it fetched, not the one in the archive", async () => {
+  const src = readFileSync(new URL("./apply-update.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/writeFile\(path\.join\(webRoot, "data", "version\.json"\)/.test(src),
+    "apply-update writes data/version.json itself");
+  assert.ok(/commit: version/.test(src), "from the commit passed to it");
+  // Order matters: written after the overlay, or the overlay would clobber it
+  // if a future archive ever carried one again.
+  assert.ok(src.indexOf("cp(staging, webRoot") < src.indexOf('"version.json"'),
+    "after the overlay rather than before it");
+  // pack-source ships a version.json describing the machine that built the
+  // archive, and a zipball ships the repository's; neither describes what has
+  // just been installed, which is why this cannot be taken from the tree.
+  assert.ok(/pack-source|zipball|repository/i.test(src.slice(src.indexOf("version marker"), src.indexOf('"version.json"'))),
+    "and the comment says why the archive's copy is not the answer");
+});
+
 // Traversal is still refused, and a slash on the end is not a way around it.
 await check("a directory entry cannot smuggle a path traversal", async () => {
   const { applyUpdate } = await import("../server/self-update.mjs");

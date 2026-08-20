@@ -21,6 +21,10 @@ type Handler = (req: IncomingMessage, res: ServerResponse) => unknown | Promise<
 import { randomBytes } from "node:crypto";
 import { store } from "./store.ts";
 import { makeAuth47, notificationAddresses, verifySignedPayload, repairSignedBlock, canonicalPairing } from "./crypto.ts";
+import osMod from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileP = promisify(execFile);
 import { probe, PROBE_CFG } from "./probe.mjs";
 import { checkUpdates } from "./updates.mjs";
 import { judgeVersion, MIN_DOJO_VERSION, pairingNetwork, countryFor } from "./dojo-version.ts";
@@ -715,13 +719,39 @@ route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
 });
 
 let UPDATES_CACHE = null;
+// Can this process restart its own service?
+//
+// The last step of a self-update is `systemctl restart dojobay-server.service`,
+// run as the service account, and nothing in the installer grants that account
+// permission to do it. Without the privilege an update applies perfectly and
+// then stops on its final line: new code on disk, old process still serving it,
+// which looks exactly like an update that did nothing.
+//
+// Asked BEFORE the update rather than reported after, because a precondition
+// that is invisible until the moment it matters is the shape of failure this
+// project keeps producing: the timer that was enabled but not scheduled, the
+// chown that had already happened, the account that did not exist. --dry-run
+// asks systemd whether the transaction would be permitted and changes nothing.
+async function canRestartService(): Promise<boolean> {
+  try {
+    await execFileP("systemctl", ["restart", "--dry-run", "dojobay-server.service"],
+      { timeout: 5000 });
+    return true;
+  } catch { return false; }
+}
+
 route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   if (UPDATES_CACHE && Date.now() - UPDATES_CACHE.at < 6 * 3600 * 1000) {
     return json(res, 200, UPDATES_CACHE.result);
   }
   try {
-    const result = { available: true, ...(await checkUpdates({ cfg: { proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort } })) };
+    // The account this process runs as, so the panel can print a command that
+    // works rather than a placeholder. The two machines differ: one built by the
+    // installer runs as dojobay, one set up by hand may not.
+    const result = { available: true, canRestart: await canRestartService(),
+      serviceUser: (() => { try { return osMod.userInfo().username; } catch { return null; } })(),
+      ...(await checkUpdates({ cfg: { proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort } })) };
     UPDATES_CACHE = { at: Date.now(), result };
     json(res, 200, result);
   } catch (e) {

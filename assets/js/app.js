@@ -1255,6 +1255,13 @@ async function loadJSON(url){
     if(!ADMIN_UPDATES && !ADMIN_UPDATES_LOADING){
       ADMIN_UPDATES_LOADING = true;
       api.call("/admin/updates").then(r=>{ ADMIN_UPDATES = r.body || {available:false,error:"HTTP "+r.status}; renderAdminPanel(); }).catch(()=>{ ADMIN_UPDATES={available:false,error:"request failed"}; renderAdminPanel(); });
+      // The outcome of the LAST update, which until now was written to disk and
+      // read by nobody: the panel only polled this endpoint while an update was
+      // running, so a reload discarded it. An update whose restart failed leaves
+      // the new code on disk and the old process serving it, which looks exactly
+      // like an update that did nothing, and the note explaining it sat in a
+      // file the operator had no reason to open.
+      api.call("/admin/update/status").then(r=>{ ADMIN_LAST = (r.body||{}).lastResult||null; renderAdminPanel(); }).catch(()=>{});
     }
     adminShell('<p class="loading">Loading submissions\u2026</p>');
     const r = await api.call("/admin/submissions");
@@ -1276,7 +1283,7 @@ async function loadJSON(url){
     );
   }
   let ADMIN_NOTICE = null;
-  let ADMIN_UPDATES = null, ADMIN_UPDATES_LOADING = false;
+  let ADMIN_UPDATES = null, ADMIN_UPDATES_LOADING = false, ADMIN_LAST = null;
   let UPDATE_RUN = null;   // {phase, log[], done, ok, error, needsRefresh}
   let UPDATE_POLL = null;
   const UPDATE_PHASES = ["starting","fetching","applying","restarting"];
@@ -1321,6 +1328,27 @@ async function loadJSON(url){
     // because the person about to click is not reading the docs. This stays
     // until a self-update has completed on real hardware; when it goes, the
     // note in README goes with it.
+    // Surfaced whenever the last attempt did not finish cleanly, and only then:
+    // a banner after every successful update would be noise, and noise is what
+    // this one needs to stand out from.
+    const stale = ADMIN_LAST && (ADMIN_LAST.ok === false || ADMIN_LAST.restarting === false)
+      ? '<p class="upd-warn"><b>The last update did not finish.</b> '
+        + esc(ADMIN_LAST.error || ADMIN_LAST.note || "no reason recorded")
+        + ' Until the service restarts, this page is being served by the old code, '
+        + 'so it will keep reporting whatever it knew before the update.</p>'
+      : "";
+    // Said before the click, not after the failure. Without the privilege an
+    // update applies and then stops on its last line, leaving new code on disk
+    // and the old process serving it, which is indistinguishable from nothing
+    // having happened.
+    const cannotRestart = u.canRestart === false
+      ? '<p class="upd-warn"><b>This instance cannot restart its own service.</b> '
+        + 'An update will install the new code and then stop, leaving the old process running it. '
+        + 'Grant the permission first, on the box:<br>'
+        + '<code class="mono">echo \'' + esc(u.serviceUser || "<your service user>") + ' ALL=(root) NOPASSWD: /usr/bin/systemctl restart dojobay-server.service\' '
+        + '| sudo tee /etc/sudoers.d/dojobay-restart &amp;&amp; sudo chmod 0440 /etc/sudoers.d/dojobay-restart</code>'
+        + '<br>Or update by hand, and restart the service yourself afterwards.</p>'
+      : "";
     const note = '<p class="upd-exp-note">Self-update has not yet completed a run on production hardware. '
       + 'It fetches over Tor, verifies what it fetched, keeps a full copy of the current code under '
       + '<code>data/backups/</code> and restarts the service. If the restart does not come back you will need '
@@ -1328,6 +1356,8 @@ async function loadJSON(url){
       + 'Updating by deploy or by hand remains the supported path.</p>';
     return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel
       + '<span class="upd-exp" title="Never yet run to completion on real hardware">experimental</span></p>'
+      + stale
+      + cannotRestart
       + controls
       + (behindAny ? '' : '<p class="upd-none">Up to date. There is nothing to fetch from GitHub.</p>')
       + note

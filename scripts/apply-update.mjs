@@ -44,8 +44,12 @@ async function main() {
     // with "dev" stopped being able to tell whether it was up to date.
     if (version) {
       await mkdir(path.join(webRoot, "data"), { recursive: true }).catch(() => {});
+      // Short, because the deploy writes `cut -c1-7` and everything that reads
+      // this expects that shape: the footer prints the value verbatim, so a
+      // forty-character SHA there is not a longer answer, it is a different one
+      // from the same file depending on how the code arrived.
       await writeFile(path.join(webRoot, "data", "version.json"),
-        JSON.stringify({ commit: version, built: new Date().toISOString() }, null, 2) + "\n");
+        JSON.stringify({ commit: String(version).slice(0, 7), built: new Date().toISOString() }, null, 2) + "\n");
     }
     // Reinstall backend deps in case package-lock changed; tolerate offline.
     try { await run("npm", ["ci", "--omit=dev"], { cwd: path.join(webRoot, "server") }); } catch (e) { /* keep going: existing node_modules */ }

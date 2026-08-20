@@ -959,7 +959,51 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - one location field, no code to get wrong, flags where possible");
 }
 
-console.log("\nall 39 front-end checks passed");
+// An update whose restart failed leaves the new code on disk and the old
+// process serving it, which is indistinguishable from an update that did
+// nothing. The helper records the reason; until now the panel only read that
+// while an update was in flight, so a reload threw it away.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  assert.ok(/ADMIN_LAST/.test(app), "the panel keeps the last update result");
+  assert.ok(/\/admin\/update\/status.*ADMIN_LAST/s.test(app.slice(app.indexOf("ADMIN_UPDATES_LOADING = true"))),
+    "and fetches it on render rather than only while polling a running update");
+  const block = app.slice(app.indexOf("const stale ="), app.indexOf("const note ="));
+  assert.ok(/ok === false \|\| ADMIN_LAST\.restarting === false/.test(block),
+    "shown when the update failed OR when it applied but did not restart");
+  assert.ok(/old code/.test(block), "and says why the page may be lying about its own state");
+  assert.ok(/ADMIN_LAST\.error \|\| ADMIN_LAST\.note/.test(block),
+    "quoting the reason the helper recorded rather than a generic message");
+
+  const au = readFileSync(REPO + "/scripts/apply-update.mjs", "utf8");
+  assert.ok(/String\(version\)\.slice\(0, 7\)/.test(au),
+    "a self-update stamps a short commit, as the deploy does, so the footer reads the "
+    + "same way however the code arrived");
+  console.log("  ok - an update that did not finish says so, and the build stamp matches the deploy");
+}
+
+// The privilege the last step needs is checked before the click, not reported
+// after the failure. Without it an update applies and stops on its final line,
+// which looks exactly like an update that did nothing.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const block = app.slice(app.indexOf("const cannotRestart ="), app.indexOf("const note ="));
+  assert.ok(/u\.canRestart === false/.test(block),
+    "the panel warns only when the server has actually established it cannot restart");
+  assert.ok(/sudoers\.d\/dojobay-restart/.test(block), "and gives the command that grants it");
+  assert.ok(/u\.serviceUser/.test(block),
+    "naming the account this instance really runs as, since the two machines differ");
+  assert.ok(/update by hand/.test(block), "with the alternative for anyone who would rather not");
+
+  const idx = readFileSync(REPO + "/server/index.ts", "utf8");
+  assert.ok(/"restart", "--dry-run", "dojobay-server\.service"/.test(idx),
+    "the server asks systemd whether the restart would be permitted");
+  assert.ok(/--dry-run/.test(idx) && !/\["restart", "dojobay-server\.service"\]/.test(idx),
+    "and only ever as a dry run from the check: nothing here restarts anything");
+  console.log("  ok - the panel says the restart is impossible before you ask for one");
+}
+
+console.log("\nall 41 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

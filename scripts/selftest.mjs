@@ -1246,7 +1246,9 @@ await check("the swap writes the version it fetched, not the one in the archive"
   const src = readFileSync(new URL("./apply-update.mjs", import.meta.url).pathname, "utf8");
   assert.ok(/writeFile\(path\.join\(webRoot, "data", "version\.json"\)/.test(src),
     "apply-update writes data/version.json itself");
-  assert.ok(/commit: version/.test(src), "from the commit passed to it");
+  assert.ok(/commit: String\(version\)\.slice\(0, 7\)/.test(src),
+    "from the commit passed to it, shortened to the seven characters the deploy writes "
+    + "so the footer reads the same however the code arrived");
   // Order matters: written after the overlay, or the overlay would clobber it
   // if a future archive ever carried one again.
   assert.ok(src.indexOf("cp(staging, webRoot") < src.indexOf('"version.json"'),

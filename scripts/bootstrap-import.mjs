@@ -114,7 +114,7 @@ export async function bootstrapImport({
       paymentCodes: codes, paynym: n.paynym || null,
       jurisdiction: n.jurisdiction || null, country: n.country || null,
       hardware: n.hardware || null, payload: n.payload,
-      signed: n.signed || null, name_url: n.name_url || null,
+      signed: n.signed || null,
       status: "approved", source: `bootstrap-import:${onionHost}`,
       created_at: now, updated_at: now,
     });

@@ -504,10 +504,13 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "display code prefers the non-segwit variant, falls back to the first, null when none");
 }
 
-// 16) intake hygiene and card link: pasted CRLF/zero-width bytes are stripped
-//     from signed blocks before verification; name_url is operator-settable
-//     via edit (blank clears), rejected unless http(s); export endpoint merges
-//     both history windows.
+// 16) intake hygiene: pasted CRLF/zero-width bytes are stripped from signed
+//     blocks before verification; export endpoint merges both history windows.
+//
+//     The card link is gone. It let an operator point the card title anywhere
+//     they had proven they controlled, which meant one listing could carry two
+//     claims of identity: the verified domain badge and a title link. One is
+//     enough, and it is the one with a TXT record behind it.
 {
   // signed cleaning: resubmit the check-3 record with a clipboard-mangled
   // signed block (CRLF + zero-width space); it must still pass the signature
@@ -521,32 +524,26 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   // restore approved status (resubmission re-enters moderation)
   await api("/api/admin/approve", "POST", { id: "mainnet-selftest-node", paynym: "+testoperator" });
 
-  // name_url now requires a verified domain and must sit on it: this is what
-  // replaces a freeform link that could carry an unverifiable social profile.
-  const noDomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
-  ok(noDomain.status === 400 && /verify a domain first/.test(noDomain.body.error),
-     "a card link is refused until the operator has a verified domain");
-
-  // grant a verified domain directly in the store (the API path needs DNS)
+  // A verified domain is still granted here, because the checks below and the
+  // published badge depend on one. Granted directly in the store, since the API
+  // path needs DNS.
   const { store: st } = await import("./store.ts");
   await st.putDomain({ paymentCode, domain: "example.org", signed: "(test)",
     verified: true, verified_at: new Date().toISOString(), last_check: new Date().toISOString(),
     last_result: "ok", fail_since: null, created_at: new Date().toISOString() });
 
-  const setUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
-  const pubbed = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
+  // The card link is not merely unused, it is unreachable: a request carrying
+  // one is accepted and the field ignored, rather than silently stored where a
+  // future rebuild might publish it again.
+  const withUrl = await api("/api/dojo/edit", "POST",
+    { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://example.org/mynode" });
+  const after = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
+  const pub16 = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
     .nodes.find((n) => n.id === "mainnet-selftest-node");
-  const offDomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://x.com/someone" });
-  const subdomain = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "https://nodes.example.org/mine" });
-  const badUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "javascript:alert(1)" });
-  const clearUrl = await api("/api/dojo/edit", "POST", { id: "mainnet-selftest-node", name: "selftest-node", name_url: "" });
-  const cleared = await api("/api/me").then((r) => r.body.submissions.find((x) => x.id === "mainnet-selftest-node"));
-  ok(setUrl.status === 200 && pubbed.name_url === "https://example.org/mynode"
-     && pubbed.operator_domain === "example.org"
-     && offDomain.status === 400 && /must be on example\.org/.test(offDomain.body.error)
-     && subdomain.status === 200
-     && badUrl.status === 400 && clearUrl.status === 200 && cleared.name_url === null,
-     "card link accepted on the verified domain and its subdomains, refused off it, blank clears, non-http(s) rejected");
+  ok(withUrl.status === 200 && !after.name_url,
+     "an edit carrying a card link succeeds and stores nothing for it");
+  ok(!("name_url" in pub16) && pub16.operator_domain === "example.org",
+     "and the published node has no link field at all, only the verified domain");
 
   // export endpoint: both windows merged, per-node filter, 404 on unknown
   const all = await api("/api/history/export");
@@ -1038,8 +1035,9 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const node = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/dojos.json", "utf8"))
     .nodes.find((n) => n.id === "mainnet-selftest-node");
   ok(revoked.status === 200 && after.verified === false && after.revoked === true
-     && node.operator_domain === null && node.name_url === null,
-     "admin revocation drops the badge and withholds the card link on the next rebuild");
+     && node.operator_domain === null && !("name_url" in node),
+     "admin revocation drops the badge on the next rebuild, and there is no card link "
+     + "left to withhold: the domain badge is the only claim a card carries");
 }
 
 // 25) the launcher: server/index.mjs must keep existing and must refuse an old

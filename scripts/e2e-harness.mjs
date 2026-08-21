@@ -266,14 +266,16 @@ assert.ok(!doc.querySelector("#ov-body .medit .e-ver"), "no version input in the
 assert.ok(/read live from the node/i.test(doc.querySelector("#ov-body .medit").textContent), "editor notes the version is read from the node");
 doc.querySelector("#ov-body .medit .e-name").value = "crimson";
 doc.querySelector("#ov-body .medit .e-hw").value = "N100 32GB";
-doc.querySelector("#ov-body .medit .e-url").value = "https://example.org/red";
 doc.querySelector('#ov-body [data-mact="editsave"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 40));
 assert.strictEqual(window.__editPosts.length, 1, "one edit POST sent");
 assert.deepStrictEqual(
-  { name: window.__editPosts[0].name, hardware: window.__editPosts[0].hardware, name_url: window.__editPosts[0].name_url },
-  { name: "crimson", hardware: "N100 32GB", name_url: "https://example.org/red" }, "edit POST carries the fields");
+  { name: window.__editPosts[0].name, hardware: window.__editPosts[0].hardware },
+  { name: "crimson", hardware: "N100 32GB" }, "edit POST carries the fields");
 assert.ok(!("version" in window.__editPosts[0]), "edit POST never carries a version key");
+assert.ok(!("name_url" in window.__editPosts[0]),
+  "nor a card link: the editor has no field for one and the gate would ignore it");
+assert.ok(!doc.querySelector("#ov-body .medit .e-url"), "and the editor offers no link input");
 assert.ok(!doc.querySelector("#ov-body .medit"), "editor closes after save");
 console.log("  ok - inline edit: single-open, versionless form, fields posted, editor closes on save");
 
@@ -1003,7 +1005,29 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - the panel says the restart is impossible before you ask for one");
 }
 
-console.log("\nall 41 front-end checks passed");
+// The card title is text, never a link. An operator's one claim of identity on
+// a card is the verified domain, which has a TXT record behind it; a freeform
+// title link was a second claim with nothing behind it but a URL bar.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  assert.ok(!/name_url/.test(app), "nothing in the front end reads or sends a card link");
+  assert.ok(!/e-url|m-url/.test(app), "and neither form offers a field for one");
+  assert.ok(/<span class="cname"/.test(app) && !/<a class="cname"/.test(app),
+    "the card title is a span, so it cannot carry a link at all");
+
+  // every card in the fixture renders, and none of their titles is an anchor
+  const titles = [...doc.querySelectorAll(".cname")];
+  assert.ok(titles.length > 0, "cards still have titles");
+  assert.ok(titles.every((t) => t.tagName === "SPAN"),
+    "and every one of them is plain text: " + titles.map((t) => t.tagName).join(","));
+  // the verified-domain link is untouched, since it is the claim that survives
+  assert.ok(/class="vdomain"/.test(app) && /data-act="domproof"/.test(app),
+    "the verified domain link and its verify button are untouched: that is the claim "
+    + "with a TXT record behind it, and the one a card should carry");
+  console.log("  ok - a card title is text, and the verified domain is the only claim on it");
+}
+
+console.log("\nall 42 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

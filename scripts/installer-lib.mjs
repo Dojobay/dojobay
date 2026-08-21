@@ -131,9 +131,9 @@ export { countryFor };
 /**
  * @param {{ network: string, name: string, paymentCode: string, signed: string,
  *   paynym?: string|null, payload: any, jurisdiction?: string|null,
- *   country?: string|null, hardware?: string|null, name_url?: string|null }} n
+ *   country?: string|null, hardware?: string|null }} n
  */
-export function anchorSeed({ network, name, paymentCode, paynym, payload, signed, jurisdiction, country, hardware, name_url }) {
+export function anchorSeed({ network, name, paymentCode, paynym, payload, signed, jurisdiction, country, hardware }) {
   if (!signed || typeof signed !== "string" || !signed.includes("BEGIN BITCOIN SIGNATURE")) {
     throw new Error("anchorSeed: a signed pairing block is required, or the anchor will be withheld from the published directory");
   }
@@ -143,7 +143,7 @@ export function anchorSeed({ network, name, paymentCode, paynym, payload, signed
     paynym: paynym || null, paymentCode,
     jurisdiction: jurisdiction || null, country: country || countryFor(jurisdiction),
     hardware: hardware || null,
-    name_url: name_url || null, payload, signed,
+    payload, signed,
   }] };
 }
 // paynym is optional and carries no security weight: the binding that matters

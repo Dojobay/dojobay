@@ -266,9 +266,7 @@ async function loadJSON(url){
     return `<div class="card ${n.status}" data-id="${esc(n.id)}" data-pc="${esc(n.paymentCode||"")}">
       <div class="ctop">
         <span class="sd ${n.status}"></span>
-        ${n.name_url
-          ? `<a class="cname" href="${esc(n.name_url)}" target="_blank" rel="noopener" title="${esc(title)}">${esc(title)} <span class="ext">↗</span></a>`
-          : `<span class="cname" title="${esc(title)}">${esc(title)}</span>`}
+        <span class="cname" title="${esc(title)}">${esc(title)}</span>
         <span class="cbadge ${n.status}">${n.status==="active"?"Active":"Inactive"}</span>
       </div>
       <div class="csub">${pn}${jur?'<span style="color:var(--faint)">·</span>'+jur:""}</div>
@@ -987,7 +985,6 @@ async function loadJSON(url){
       <label>Name <input class="e-name" maxlength="40" value="${esc(r.name||"")}"></label>
       <label>Hardware <input class="e-hw" maxlength="120" value="${esc(r.hardware||"")}"></label>
       <div class="e-ver-note" style="font-size:12px;color:var(--muted)">Dojo version is read live from the node (${esc(ver?("v"+ver):"detected on next probe")}) and can't be edited here.</div>
-      <label>Link (optional; the card title links here) <input class="e-url" maxlength="200" value="${esc(r.name_url||"")}" placeholder="https://…"></label>
       <div class="medit-actions">
         <button class="copybtn" data-${actPrefix}="editsave" data-id="${esc(r.id)}">Save</button>
         <button class="copybtn" data-${actPrefix}="editcancel">Cancel</button>
@@ -1042,7 +1039,6 @@ async function loadJSON(url){
         <label>Node name (unique per network; shown on the card next to your PayNym) <input id="m-name" maxlength="40" placeholder="e.g. yellow"></label>
         <label>Where is it? (optional \u2014 name a country and your card gets a flag) <input id="m-jur" maxlength="64" placeholder="e.g. Finland, Europe, Ancapistan"></label>
         <label>Hardware <input id="m-hw" maxlength="120" placeholder="e.g. N100 16GB"></label>
-        <label>Link (optional; the card title links here) <input id="m-url" maxlength="200" placeholder="https://…"></label>
         <label>Pairing code (JSON) <textarea id="m-payload" rows="6" placeholder='{"pairing":{"type":"dojo.api",...},"explorer":{...}}'></textarea></label>
         <label>Signed pairing message (required) <textarea id="m-signed" rows="5" placeholder="-----BEGIN BITCOIN SIGNED MESSAGE-----&#10;...&#10;-----END BITCOIN SIGNATURE-----"></textarea></label>
         <button class="reveal" data-mact="submit" style="margin-top:4px">Check connection &amp; submit</button>
@@ -1157,7 +1153,6 @@ async function loadJSON(url){
         id:m.getAttribute("data-id"),
         name:/** @type {HTMLInputElement} */ (box.querySelector(".e-name")).value,
         hardware:/** @type {HTMLInputElement} */ (box.querySelector(".e-hw")).value,
-        name_url:/** @type {HTMLInputElement} */ (box.querySelector(".e-url")).value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       EDIT_ID=null; await refreshMe(); renderManage(); return;
@@ -1181,7 +1176,6 @@ async function loadJSON(url){
         name,
         jurisdiction: /** @type {HTMLInputElement} */ (document.getElementById("m-jur")).value,
         hardware: /** @type {HTMLInputElement} */ (document.getElementById("m-hw")).value,
-        name_url: /** @type {HTMLInputElement} */ (document.getElementById("m-url")).value,
         payload,
         signed: /** @type {HTMLInputElement} */ (document.getElementById("m-signed")).value.trim() || null,
       });
@@ -1444,7 +1438,6 @@ async function loadJSON(url){
         id:b.getAttribute("data-id"),
         name:/** @type {HTMLInputElement} */ (box.querySelector(".e-name")).value,
         hardware:/** @type {HTMLInputElement} */ (box.querySelector(".e-hw")).value,
-        name_url:/** @type {HTMLInputElement} */ (box.querySelector(".e-url")).value,
       });
       if(r.status!==200){ const em=box.querySelector(".edit-msg"); if(em) em.textContent=(r.body&&r.body.error)||("HTTP "+r.status); return; }
       ADM_EDIT_ID=null; renderAdminPanel(); return;

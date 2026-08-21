@@ -100,7 +100,7 @@ export function declaredIndexer(payload: Partial<PairingPayload> | null | undefi
 // should be a decision somebody makes, not a consequence of editing a record
 // shape somewhere else.
 export const PUBLIC_NODE_KEYS = Object.freeze([
-  "id", "network", "name", "name_url", "status", "paynym", "paymentCode",
+  "id", "network", "name", "status", "paynym", "paymentCode",
   "jurisdiction", "country", "hardware", "version", "detected_version",
   "detected_indexer", "operator_domain", "operator_domain_proof",
   "block_height", "indexer_url", "checked_at", "payload", "signed",
@@ -127,7 +127,6 @@ function toPublicNode(sub: StoreRecord, paymentCode: string | null): PublicNode 
     id: sub.id,
     network: sub.network,
     name: sub.name || sub.paynym || sub.id,
-    name_url: sub.name_url || null,
     status: "inactive",
     paynym: sub.paynym || null,
     paymentCode: paymentCode || null,
@@ -318,7 +317,6 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
       signed: claim.signed,
       verified_at: claim.verified_at,
     } : null;
-    if (n.name_url && !urlOnDomain(n.name_url, domain)) n.name_url = null;
   }
 
   for (const n of nodes) {

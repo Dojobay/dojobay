@@ -14,7 +14,6 @@ export interface PublicNode {
   id: string;
   network: "mainnet" | "testnet";
   name: string;
-  name_url: string | null;
   status: "active" | "inactive";
   paynym: string | null;
   paymentCode: string | null;
@@ -73,6 +72,7 @@ export interface StoreRecord {
   // Everything below is genuinely optional: records written by different paths
   // (submission, migration, bootstrap import) carry different subsets, and an
   // absent field and an explicit null both occur in the live store.
+  /** Removed from the UI and never published. Older records may still carry it. */
   name_url?: string | null;
   paynym?: string | null;
   jurisdiction?: string | null;

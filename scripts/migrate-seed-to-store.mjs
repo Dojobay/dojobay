@@ -74,7 +74,6 @@ function toRecord(n, name, codes, now) {
     hardware: n.hardware || null,
     payload: n.payload,
     signed: n.signed || null,
-    name_url: n.name_url || null,
     status: "approved",
     source: "seed-migration",
     created_at: now, updated_at: now,

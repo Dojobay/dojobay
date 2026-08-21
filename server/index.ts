@@ -130,15 +130,6 @@ const cleanSigned = (v) => {
   return t || null;
 };
 
-// Operator-set card link (name_url). http(s) only, so no javascript: or data:
-// schemes can reach an href. Returns null for empty, undefined for invalid.
-const cleanUrl = (v) => {
-  const t = String(v || "").trim();
-  if (!t) return null;
-  if (t.length > 200 || !/^https?:\/\/[^\s"'<>]+$/i.test(t)) return undefined;
-  return t;
-};
-
 const slugify = (name) => String(name || "")
   .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
@@ -401,13 +392,6 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
   if (payloadErr) return json(res, 400, { error: payloadErr });
 
   body.signed = cleanSigned(body.signed);
-  const nameUrl = cleanUrl(body.name_url);
-  if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
-  if (nameUrl) {
-    const nu = await checkNameUrl(s.paymentCode, nameUrl);
-    if (!nu.ok) return json(res, 400, { error: nu.error });
-  }
-
   // signature gate. The signed block is REQUIRED: it is the only part of a
   // listing a visitor can check without trusting this site, so a listing
   // without one asks for trust we have no way to earn. Refused here rather than
@@ -507,7 +491,6 @@ route("POST", /^\/api\/dojo$/, async (req, res) => {
     signed: body.signed || null,
     // A link supplied here is set; left blank, any existing link is kept (the
     // Edit panel, where the field is prefilled, is the place to clear it).
-    name_url: nameUrl !== null ? nameUrl : ((existing && existing.name_url) || null),
     status: "pending",                         // moderation state: pending | approved | rejected
     last_probe: check,
     created_at: existing ? existing.created_at : now,
@@ -544,17 +527,7 @@ async function applyEdit(rec, body, res) {
   if (!slug) return json(res, 400, { error: "name is required (letters, digits and hyphens)" });
   const taken = await slugTakenByOther(rec.network, slug, rec.id);
   if (taken) return json(res, 409, { error: `name "${name}" is taken on ${rec.network}: ${taken}` });
-  const nameUrl = cleanUrl(body.name_url);
-  if (nameUrl === undefined) return json(res, 400, { error: "link must be an http(s) URL under 200 characters" });
-  if (nameUrl) {
-    // Checked against the RECORD's operator, so an admin editing someone else's
-    // listing is held to that operator's verified domain, not their own.
-    const owner = (rec.paymentCodes || [])[0];
-    const nu = await checkNameUrl(owner, nameUrl);
-    if (!nu.ok) return json(res, 400, { error: nu.error });
-  }
   rec.name = name;
-  rec.name_url = nameUrl;                           // prefilled in the form, so blank is a deliberate clear
   rec.hardware = String(body.hardware || "").trim().slice(0, 120) || null;
   rec.updated_at = new Date().toISOString();
   await store.putSubmission(rec);
@@ -802,17 +775,6 @@ route("POST", /^\/api\/dojo\/delete$/, async (req, res) => {
 // A card link is only publishable on the operator's verified domain. This is the
 // constraint that replaces a freeform URL field: "link to my own site" survives,
 // an unverifiable social profile does not.
-async function checkNameUrl(paymentCode, url) {
-  if (url === null || url === undefined) return { ok: true };
-  const claim = await store.getDomain(paymentCode);
-  if (!claim || !claim.verified) {
-    return { ok: false, error: "verify a domain first: the card link must point at a domain you have proven you control" };
-  }
-  if (!urlOnDomain(url, claim.domain)) {
-    return { ok: false, error: `the card link must be on ${claim.domain} (or a subdomain of it), which is the domain you have verified` };
-  }
-  return { ok: true };
-}
 
 // ---- verified operator domains ---------------------------------------------
 // An operator proves control of one clearnet domain: the domain names their

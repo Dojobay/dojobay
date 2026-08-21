@@ -1343,13 +1343,12 @@ async function loadJSON(url){
         + '| sudo tee /etc/sudoers.d/dojobay-restart &amp;&amp; sudo chmod 0440 /etc/sudoers.d/dojobay-restart</code>'
         + '<br>Or update by hand, and restart the service yourself afterwards.</p>'
       : "";
-    const note = '<p class="upd-exp-note">Self-update has not yet completed a run on production hardware. '
-      + 'It fetches over Tor, verifies what it fetched, keeps a full copy of the current code under '
-      + '<code>data/backups/</code> and restarts the service. If the restart does not come back you will need '
-      + 'shell access to the box to recover, so do not run it where you cannot reach a terminal. '
-      + 'Updating by deploy or by hand remains the supported path.</p>';
+    const note = '<p class="upd-exp-note">This fetches over Tor, verifies what it fetched, keeps a full copy '
+      + 'of the current code under <code>data/backups/</code>, and restarts the service. If the restart does '
+      + 'not come back you will need shell access to the box to recover, so do not run it where you cannot '
+      + 'reach a terminal. Updating by deploy or by hand remains the supported path.</p>';
     return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel
-      + '<span class="upd-exp" title="Never yet run to completion on real hardware">experimental</span></p>'
+      + '<span class="upd-exp" title="Replaces running code in place: recoverable, but only from a terminal">experimental</span></p>'
       + stale
       + cannotRestart
       + controls
@@ -1422,11 +1421,11 @@ async function loadJSON(url){
       if(!(ADMIN_UPDATES && (ADMIN_UPDATES.commits_behind>0 || (ADMIN_UPDATES.releases_behind||0)>0))){
         alert("This instance is already on the latest commit. There is nothing to fetch."); return;
       }
-      if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
+      if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
     if(act==="update-peer"){
       const onion=prompt("Trusted peer .onion to update from:"); if(!onion) return;
       const code=prompt("That operator's BIP47 payment code (verifies who you're trusting):")||"";
-      if(confirm("Update this instance from "+onion+" over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL and has not yet completed a run on production hardware. You are also trusting that peer's copy of the code. The service will restart; if it does not come back you will need shell access to the box.")) startUpdate("peer",{onion,code});
+      if(confirm("Update this instance from "+onion+" over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL. You are also trusting that peer's copy of the code. The service will restart; if it does not come back you will need shell access to the box.")) startUpdate("peer",{onion,code});
       return;
     }
     if(act==="update-dismiss"){ UPDATE_RUN=null; clearInterval(UPDATE_POLL); ADMIN_UPDATES=null; renderAdminPanel(); return; }

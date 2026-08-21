@@ -15,7 +15,7 @@ daily history, and the pairing payload as a scannable QR with copyable
 endpoints (Dojo API, explorer, and Electrum server where one is exposed).
 Cards are ordered by measured uptime. Node operators list and manage their
 own Dojos by signing in with their PayNym over **Auth47**: no accounts, no
-email, no passwords — signing a challenge in the wallet proves control of the
+email, no passwords: signing a challenge in the wallet proves control of the
 payment code, and submissions pass a live Tor connection check, a signature
 check over the pairing payload, and a moderation review before publication.
 
@@ -24,7 +24,7 @@ the web server binds to localhost, only the Tor daemon reaches it, and the
 site's outbound probes and PayNym lookups travel over Tor.
 
 This repository is the complete, self-hostable software: anyone with a Debian
-or Ubuntu box — including the one already running their node — can operate
+or Ubuntu box, including the one already running their node, can operate
 their own Dojo Bay.
 
 ## How it works
@@ -41,7 +41,7 @@ directory also runs a node. Every other listing lives in a server-side store,
 created and managed by its operator over Auth47, and `server/build-public.mjs`
 merges the anchor with every approved submission into the public
 `data/dojos.json`, preserving live statuses. Every listed node carries a
-BIP47 payment code and a signed pairing block — the code is what ownership,
+BIP47 payment code and a signed pairing block. The code is what ownership,
 sign-in and the card's payment-code chip all key on, and a listing without one
 cannot be owned, edited, verified or recognised; the signature is the only part
 of a listing a visitor can check without trusting this site at all. Both are
@@ -59,7 +59,7 @@ dependency-light Node service on
 localhost, proxied by nginx as `/api/`) handles Auth47 challenges and
 sessions, operator submissions and edits, and the moderation console at
 `/admin`. Admin rights belong to whichever payment codes the instance
-operator sets in the service environment — the same Auth47 sign-in, no
+operator sets in the service environment, using the same Auth47 sign-in, no
 separate credentials.
 
 ## Run your own Dojo Bay
@@ -76,7 +76,7 @@ unpack during a self-update, neither of which lasts. 1 GB can work, but leaves
 nothing spare for those spikes.
 
 Do not guess from that: `server/check-resources.ts` measures what an instance
-actually uses — service memory current and peak, the disk each part occupies,
+actually uses: service memory current and peak, the disk each part occupies,
 the probe workload, and whether there is any evidence of strain such as swap in
 use or an out-of-memory kill. Run it on your own box, ideally just after a
 deploy, and size from that rather than from this paragraph.
@@ -110,7 +110,7 @@ node --version    # expect v24 or newer
 The installer checks this before doing anything and prints these commands if
 your Node is missing or too old, so there is no need to memorise them.
 
-The easiest path is the guided installer — download the source (any instance's
+The easiest path is the guided installer. Download the source (any instance's
 footer serves it, or GitHub), extract, and run:
 
 ```
@@ -124,9 +124,9 @@ when something goes wrong on a server you are configuring once. There is no
 double-click launcher and no full-screen mode; the same is true of the
 uninstaller. The wizard checks prerequisites (offering to
 install `tor` and `nginx`), takes your BIP47 payment code, creates the hidden
-service — or **imports your existing .onion key** if you have a vanity
+service, or **imports your existing .onion key** if you have a vanity
 address (point it at your `hs_ed25519_secret_key`; generating vanity keys is
-outside its scope) — walks you through the **required** operator signature,
+outside its scope), walks you through the **required** operator signature,
 live-probes your Dojo's pairing payload over Tor before accepting it, can
 **bootstrap your directory from a trusted existing instance** (nodes and
 their reliability histories import after that instance's operator signature
@@ -156,12 +156,12 @@ The manual steps below do the same by hand, and assume the site lives at
 
 3. **Configure nginx** from `deploy/nginx-onion.conf.example`. It binds to
    `127.0.0.1:8080` (never a public interface), proxies `/api/` to the
-   backend, and returns 404 for everything under `/server/` — that block is
+   backend, and returns 404 for everything under `/server/`. That block is
    security-critical, because the submission store (which contains Dojo API
    keys) lives inside the web root.
 
 4. **Install the systemd units** from `scripts/`:
-   `dojobay-server.service` (the Auth47 backend — set `BASE_URL` to your
+   `dojobay-server.service` (the Auth47 backend: set `BASE_URL` to your
    onion address, since Auth47 challenges embed it and wallets sign exactly
    that string, and set `ADMIN_PAYMENT_CODES` to your own payment code to
    make yourself the moderator), and `dojobay-update.service` plus
@@ -169,7 +169,7 @@ The manual steps below do the same by hand, and assume the site lives at
    service.
 
 5. **Seed your anchor and build the list.** Running a Dojo Bay requires
-   running a Dojo: put your own node — mainnet or testnet — into
+   running a Dojo: put your own node, mainnet or testnet, into
    `data/seed.json` as its single entry, with your PayNym and BIP47 payment
    code (the same code you set in `ADMIN_PAYMENT_CODES`). Then generate the
    public list:
@@ -186,9 +186,9 @@ The manual steps below do the same by hand, and assume the site lives at
 
 6. **Prove you operate the site** (required). Sign this exact text with your
    wallet under **PayNym → Sign message**, which signs with your PayNym's
-   notification address (Tools → Sign message will not verify) — your onion
+   notification address (Tools → Sign message will not verify). Your onion
    URL, a blank line, then
-   `BIP47: <your payment code>` — and place the result in
+   `BIP47: <your payment code>`, and place the result in
    `data/operator.json` as `{ "onion", "paymentCode", "verifySigned" }`. The
    footer's **Verify** popup lets visitors check the signature against your
    PayNym's notification address, other instances refuse to bootstrap from
@@ -197,7 +197,7 @@ The manual steps below do the same by hand, and assume the site lives at
 
 The deploy pipeline in `.github/workflows/deploy.yml` shows how the reference
 instance ships updates (rsync over SSH, excluding the VPS-owned data files
-and the store, then a rebuild and backend restart); adapt or ignore it — a
+and the store, then a rebuild and backend restart); adapt or ignore it. A
 `git pull` followed by `node server/build-public.mjs` and a service restart
 does the same by hand.
 
@@ -215,7 +215,7 @@ sudo ./uninstall.sh --apply --purge-data --purge-onion  # …and the onion key
 
 By default it stops and disables the backend and the updater timer, removes the
 three systemd units and the nginx site, and takes its own block out of
-`/etc/tor/torrc` — surgically, so any other hidden service in that file survives,
+`/etc/tor/torrc`, surgically, so any other hidden service in that file survives,
 with the original kept alongside as `torrc.dojobay-bak`. It leaves the tor and
 nginx **packages** installed, since they were probably there first and are
 probably serving something else.
@@ -241,10 +241,10 @@ later reuses the same onion address and the same listings.
 
 All directory data is plain JSON, fetchable from any instance:
 
-- `data/dojos.json` — the current list (also the **JSON ↓** pill in the header)
-- `data/history.json` — the rolling 24-hour check series per node
-- `data/history-daily.json` — 90 days of daily uptime and closing heights
-- `/api/history/export` — both windows merged per node; `?id=<node-id>`
+- `data/dojos.json`: the current list (also the **JSON ↓** pill in the header)
+- `data/history.json`: the rolling 24-hour check series per node
+- `data/history-daily.json`: 90 days of daily uptime and closing heights
+- `/api/history/export`: both windows merged per node; `?id=<node-id>`
   filters to one node
 
 For example, over Tor:
@@ -278,7 +278,7 @@ of date while the node itself is current, so judging on it would refuse working
 nodes and admit old ones.
 
 It applies to **registration only**. An operator updating a listing they already
-hold — a moved onion, a rotated API key — is not re-judged, because a rule
+hold, whether a moved onion or a rotated API key, is not re-judged, because a rule
 introduced after they joined should not punish them for maintaining their node.
 An instance operator can change the threshold with `MIN_DOJO_VERSION`, or
 disable the check by setting it empty.
@@ -355,7 +355,7 @@ domain that changes hands therefore stops being claimable by its previous owner.
 The proof travels. `data/dojos.json` publishes the TXT record and the signed
 statement alongside the badge, and the signed statement names only the domain and
 the payment code, never the instance that checked it. So another Dojo Bay
-bootstrapping from this one carries the claim across — but re-verifies the
+bootstrapping from this one carries the claim across, but re-verifies the
 signature itself and re-checks the DNS with its own resolvers before showing a
 badge. A directory never inherits another's tick, which is what stops one
 compromised instance minting verified domains across a federation.
@@ -377,13 +377,13 @@ or with **Tools → Verify message** in the wallet.
 Every Dojo Bay serves its own source code: the branch icon in the footer
 downloads `data/dojobay-src.zip`, an archive of exactly the code that
 instance is running (regenerated automatically after each deploy, and never
-containing instance data — no submission store, no API keys, no seed, no
+containing instance data: no submission store, no API keys, no seed, no
 histories). That makes any instance an upgrade source for any other, with no
 reliance on GitHub being reachable.
 
 To upgrade a hand-managed instance, fetch the archive from the reference
 instance over Tor (or from any instance you trust, or from GitHub), then
-extract it over the web root — the archive contains only code, so your seed,
+extract it over the web root. The archive contains only code, so your seed,
 operator binding, submission store and histories are untouched:
 
 ```
@@ -433,7 +433,7 @@ files the deploy cannot manage.
 cd /var/www/dojobay/server
 ```
 
-**`audit-signed.mjs`** — read-only. Re-checks every stored signed block with the
+**`audit-signed.mjs`**, read-only. Re-checks every stored signed block with the
 same gate the submission endpoint uses, and sorts each record into VERIFIED,
 FAILED, UNSIGNED or ERROR. Exits non-zero if anything failed, so it can back a
 cron check. UNSIGNED is not a failure: it is a record that never carried a
@@ -443,7 +443,7 @@ signature, for a per-record decision.
 sudo -u deploy node audit-signed.mjs
 ```
 
-**`diagnose-signed.mjs`** — read-only. Explains *why* a block fails: whether the
+**`diagnose-signed.mjs`**, read-only. Explains *why* a block fails: whether the
 signature is genuine and its payment code binds to the signing address, and if
 so exactly where the stored payload diverges from the signed text. Use it when
 `audit-signed.mjs` reports FAILED and the reason is not obvious.
@@ -452,7 +452,7 @@ so exactly where the stored payload diverges from the signed text. Use it when
 sudo -u deploy node diagnose-signed.mjs
 ```
 
-**`apply-signed-payload.ts`** — applies pairing payloads an operator has signed
+**`apply-signed-payload.ts`** applies pairing payloads an operator has signed
 and sent out of band. It performs the same checks as the submission gate, finds
 the listing by the payment code inside the signed text, and writes only the
 payload and the signature, so ids and reliability history survive. A block whose
@@ -466,7 +466,7 @@ sudo -u deploy node apply-signed-payload.ts --apply /tmp/blocks/*.txt
 
 Add `--id <record-id>` when one payment code owns more than one listing.
 
-**`fix-payload-version.mjs`** — restores a `pairing.version` that drifted after
+**`fix-payload-version.mjs`** restores a `pairing.version` that drifted after
 signing, and only where the signed block and the stored payload are otherwise
 identical. Rarely needed now that operators can update their own pairing
 details.
@@ -475,7 +475,7 @@ details.
 sudo -u deploy node fix-payload-version.mjs      # dry run
 ```
 
-**`remove-listing.ts`** — deletes one or more listings **and purges their
+**`remove-listing.ts`** deletes one or more listings **and purges their
 reliability history**. Deleting through the API leaves history stamped `retired`
 for the grace period so a node that returns resurrects its uptime; that is right
 for a node coming back and wrong for one being removed deliberately. Takes
@@ -486,7 +486,7 @@ sudo -u deploy node remove-listing.ts mainnet-example testnet-example   # dry ru
 sudo -u deploy node remove-listing.ts --apply mainnet-example testnet-example
 ```
 
-**`check-resources.ts`** — read-only. Measures memory, disk and workload on this
+**`check-resources.ts`**, read-only. Measures memory, disk and workload on this
 instance, and reports any sign that the machine is short of something. Use it to
 size a VPS from evidence rather than from a recommendation.
 
@@ -494,7 +494,7 @@ size a VPS from evidence rather than from a recommendation.
 sudo -u deploy node check-resources.ts
 ```
 
-**`check-versions.ts`** — read-only. Reports the Dojo version of every listing,
+**`check-versions.ts`**, read-only. Reports the Dojo version of every listing,
 both detected and declared, against a minimum, and prints the spread of versions
 actually in use so a threshold can be chosen against real numbers.
 
@@ -502,7 +502,7 @@ actually in use so a threshold can be chosen against real numbers.
 sudo -u deploy node check-versions.ts 1.27.0
 ```
 
-**`build-public.mjs`** — republishes `data/dojos.json` immediately rather than
+**`build-public.mjs`** republishes `data/dojos.json` immediately rather than
 waiting for the next ten-minute cycle. Run it after any of the writing scripts.
 
 ```
@@ -518,7 +518,7 @@ to confirm the result.
 The whole codebase is type-checked (`npm run typecheck`), and the parts where a
 wrong shape is expensive are written in TypeScript: the store, the crypto, the
 DNS and domain layers, the request layer and the public-list rebuild. Node 24
-runs `.ts` directly, so there is **no build step** — the deploy is a plain rsync
+runs `.ts` directly, so there is **no build step**: the deploy is a plain rsync
 and nothing is compiled or bundled.
 
 Some things are deliberately left as checked JavaScript, and a contributor
@@ -544,6 +544,6 @@ The full policy, including when converting *is* worthwhile, is in
 
 Development setup, project structure, the test suites and coding conventions
 are in [CONTRIBUTING.md](CONTRIBUTING.md). The code is MIT-licensed
-([LICENSE](LICENSE)). Listings are not added through pull requests — they go
+([LICENSE](LICENSE)). Listings are not added through pull requests. They go
 through the Auth47 flow above. Security problems go through
 [SECURITY.md](SECURITY.md) rather than a public issue.

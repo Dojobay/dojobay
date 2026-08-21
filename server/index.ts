@@ -229,6 +229,11 @@ route("POST", /^\/api\/auth47\/challenge$/, async (req, res) => {
 });
 
 // 2) wallet callback: verify proof, bind nonce -> payment code
+// The update check's answer, cached in the process. Declared here rather than
+// beside the route that fills it, because the login below clears it and a const
+// used before its declaration is a trap waiting for someone to reorder a file.
+let UPDATES_CACHE = null;
+
 route("POST", /^\/api\/auth47\/callback$/, async (req, res) => {
   let proof;
   try { proof = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: "invalid JSON" }); }
@@ -243,6 +248,14 @@ route("POST", /^\/api\/auth47\/callback$/, async (req, res) => {
   if (!rec) return json(res, 401, { error: "unknown or expired nonce" });
   if (rec.expires < Date.now()) return json(res, 401, { error: "challenge expired" });
   const sid = await store.putSession({ paymentCode: v.paymentCode, expires: Date.now() + SESSION_TTL });
+  // Signing in is the moment somebody is about to look at the console, so it is
+  // the moment to stop answering from a six-hour-old cache. Without this an
+  // operator who pushed a commit twenty minutes ago is told they are up to date
+  // and has no way to say otherwise: signing out and back in did not help,
+  // because the cache lives in the process rather than the session, and only a
+  // service restart cleared it. Discarding it here costs one request over Tor
+  // per login and removes the whole confusion.
+  UPDATES_CACHE = null;
   // stash the sid against the nonce value so the browser poll can pick it up
   await store.putNonce("claimed:" + nonce, { expires: Date.now() + NONCE_TTL, sid });
   json(res, 200, { ok: true });
@@ -691,7 +704,6 @@ route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
   json(res, 200, { job: UPDATE_JOB, lastResult });
 });
 
-let UPDATES_CACHE = null;
 // Can this process restart its own service?
 //
 // The last step of a self-update is `systemctl restart dojobay-server.service`,
@@ -715,6 +727,9 @@ async function canRestartService(): Promise<boolean> {
 
 route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
+  // Six hours is right for an unattended check over Tor, where GitHub rate
+  // limits shared exit nodes. It is wrong for somebody who has just signed in
+  // to look, which is why the login discards it.
   if (UPDATES_CACHE && Date.now() - UPDATES_CACHE.at < 6 * 3600 * 1000) {
     return json(res, 200, UPDATES_CACHE.result);
   }

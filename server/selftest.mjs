@@ -1508,6 +1508,24 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await rb();
 }
 
+// 34a) signing in discards the cached update check. The cache lives in the
+//      process, not the session, so signing out and back in did not clear it
+//      and only a service restart would: an operator who had just pushed was
+//      told they were up to date with no way to say otherwise.
+{
+  const idx = await fsp.readFile(new URL("./index.ts", import.meta.url), "utf8");
+  const cb = idx.slice(idx.indexOf('/api\\/auth47\\/callback'), idx.indexOf("/api\\/auth47\\/poll"));
+  ok(/UPDATES_CACHE = null/.test(cb),
+     "the Auth47 callback clears it, which is the moment somebody is about to look");
+  // and the declaration precedes the use, so reordering the file cannot turn
+  // this into a dead-zone error at runtime
+  ok(idx.indexOf("let UPDATES_CACHE = null;") < idx.indexOf("UPDATES_CACHE = null;",
+     idx.indexOf("let UPDATES_CACHE = null;") + 10),
+     "and is declared above the code that clears it");
+  ok(/6 \* 3600 \* 1000/.test(idx),
+     "the unattended TTL is unchanged: six hours is right for a background check over Tor");
+}
+
 // 34b) the flag on a card is inferred from the one free-text answer an operator
 //      gives about where they are, and nothing is enforced. There used to be a
 //      separate code field, sliced to two characters and upper-cased, which

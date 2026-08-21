@@ -1241,6 +1241,31 @@ await check("an archive cannot overwrite instance data, whatever it contains", a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// Dependencies are installed before the swap, not after it.
+//
+// `npm ci` deletes node_modules and then installs. Running it after the overlay
+// meant a failure left none at all and the backend could not resolve its own
+// imports; one instance restarted a hundred and three times. The failure itself
+// was npm having nowhere to write its cache, because the service account is
+// created with --no-create-home and $HOME/.npm cannot be made.
+await check("a failed dependency install leaves the old code running", async () => {
+  const src = readFileSync(new URL("./apply-update.mjs", import.meta.url).pathname, "utf8");
+  const install = src.indexOf('"ci", "--omit=dev"');
+  const overlay = src.indexOf("cp(staging, webRoot");
+  assert.ok(install !== -1 && install < overlay,
+    "dependencies are installed into staging before anything is overlaid");
+  assert.ok(/cwd: path\.join\(staging, "server"\)/.test(src),
+    "in the staging tree, so the running instance keeps its own until the swap");
+
+  const block = src.slice(install - 400, overlay);
+  assert.ok(/process\.exit\(1\)/.test(block) && /nothing was changed/.test(block),
+    "and a failure aborts and says so, rather than being swallowed");
+  assert.ok(/HOME: npmHome/.test(src) && /"--cache", npmHome/.test(src),
+    "npm gets a cache and a HOME it can write: the service account has no home directory");
+  assert.ok(!/keep going: existing node_modules/.test(src),
+    "the belief that a failure was survivable is gone, since npm ci removes them first");
+});
+
 // The version marker states what was installed, which only the updater knows.
 await check("the swap writes the version it fetched, not the one in the archive", async () => {
   const src = readFileSync(new URL("./apply-update.mjs", import.meta.url).pathname, "utf8");

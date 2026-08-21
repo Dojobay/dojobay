@@ -435,7 +435,15 @@ async function main() {
     // so a corrected install could still never poll.
     await run("systemctl", ["reset-failed", "dojobay-server.service",
       "dojobay-update.service", "dojobay-update.timer"]).catch(() => {});
-    await run("systemctl", ["enable", "--now", "nginx", "dojobay-server.service", "dojobay-update.timer"]);
+    // The TIMER is deliberately not started yet. Enabling it with --now fires a
+    // catch-up run at once, because its schedule is a calendar one with
+    // Persistent=true, and that ran headlong into the installer's own first
+    // probe cycle below: two updaters writing the same file, one of them
+    // failing, and an install ending with warnings about a directory that was
+    // already perfectly up to date. Enabled for boot here, started after the
+    // first cycle has finished.
+    await run("systemctl", ["enable", "dojobay-update.timer"]);
+    await run("systemctl", ["enable", "--now", "nginx", "dojobay-server.service"]);
     await run("systemctl", ["restart", "nginx", "dojobay-server.service"]);
     log("services enabled and started");
 
@@ -468,6 +476,10 @@ async function main() {
       log("  and the timer will retry within ten minutes. To run it by hand:");
       log(`  sudo -u ${SERVICE_USER} node ${path.join(webRoot, "scripts", "update.mjs")}`);
     }
+
+    // Now the timer, with the first cycle out of the way and nothing for its
+    // catch-up run to collide with.
+    await run("systemctl", ["start", "dojobay-update.timer"]);
 
     // Prove the timer is actually scheduled, the same way the ownership check
     // proves the chown took. An enabled timer with no next elapse is exactly the

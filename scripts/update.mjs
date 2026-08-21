@@ -322,8 +322,9 @@ export async function fetchAvatar(paymentCode, { proxyHost, proxyPort, destDir, 
     if (bytes.length < 8 || !bytes.subarray(0, 4).equals(PNG_MAGIC)) throw new Error("not a PNG");
     await fsMkdir(destDir, { recursive: true });
     const dest = path.join(destDir, `${paymentCode}.png`);
-    await writeFile(dest + ".tmp", bytes);
-    await rename(dest + ".tmp", dest);
+    const atmp = tmpName(dest);
+    await writeFile(atmp, bytes);
+    await rename(atmp, dest);
     return dest;
   }
   throw new Error("too many redirects");
@@ -541,9 +542,28 @@ async function readJSON(file, fallback) {
   catch (e) { if (e.code === "ENOENT" && fallback !== undefined) return fallback; throw e; }
 }
 
+// A temporary name no other writer can take.
+//
+// Every atomic write here was `<file>.tmp`, which is not atomic between
+// processes: two writers produce the same path, the first rename consumes it,
+// and the second fails with ENOENT on a file it had just written. That is not
+// hypothetical. The installer enables the update timer and then runs its own
+// first probe cycle, and once the timer gained a calendar schedule with
+// Persistent=true, enabling it fired a catch-up run immediately rather than
+// after two minutes. Two updaters wrote data/dojos.json.tmp at once and the
+// install ended by announcing failures on a directory that was already
+// updating.
+//
+// The pid and a counter are enough: the collision is between processes on one
+// machine, and the rename is what makes the swap atomic for readers.
+function tmpName(file) {
+  return `${file}.${process.pid}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
+}
+let tmpSeq = 0;
+
 // Write atomically: a reader (the website) never sees a half-written file.
 async function writeJSONAtomic(file, obj) {
-  const tmp = file + ".tmp";
+  const tmp = tmpName(file);
   await writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
   await rename(tmp, file);
 }

@@ -1241,6 +1241,44 @@ await check("an archive cannot overwrite instance data, whatever it contains", a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// `<file>.tmp` is not atomic between processes. Two writers produce the same
+// path, the first rename consumes it, and the second fails with ENOENT on a
+// file it had itself just written. An install did exactly that: enabling the
+// timer fired a catch-up run at once, because the schedule is a calendar one
+// with Persistent=true, and it collided with the installer's own first probe
+// cycle over data/dojos.json.tmp.
+await check("no two writers can take the same temporary file", async () => {
+  for (const f of ["./update.mjs", "../server/build-public.ts", "../server/store.ts"]) {
+    const src = readFileSync(new URL(f, import.meta.url).pathname, "utf8");
+    assert.ok(!/["'`]\s*\+\s*["']\.tmp["']|\+ "\.tmp"/.test(src),
+      `${f} no longer builds a temporary name by appending .tmp to the target`);
+    assert.ok(/process\.pid/.test(src),
+      `${f} includes the pid, so two processes cannot collide`);
+  }
+
+  // and the names really are distinct within a process as well, since one run
+  // writes several files in quick succession
+  const upd = readFileSync(new URL("./update.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/tmpSeq = \(tmpSeq \+ 1\)/.test(upd),
+    "a counter as well as the pid, so successive writes in one process differ");
+});
+
+// The installer starts the timer AFTER its own first cycle. Enabling it with
+// --now fires a catch-up run immediately, which is the collision above.
+await check("the installer does not race its own first probe cycle", async () => {
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  const enable = src.indexOf('["enable", "dojobay-update.timer"]');
+  const cycle = src.indexOf('await run("sudo", ["-u", SERVICE_USER, "node"');
+  const start = src.indexOf('["start", "dojobay-update.timer"]');
+  assert.ok(enable !== -1 && start !== -1, "the timer is enabled and started separately");
+  assert.ok(enable < cycle && cycle < start,
+    "enabled for boot, then the first cycle runs, then the timer starts");
+  assert.ok(!/"enable", "--now"[^\]]*dojobay-update\.timer/.test(src),
+    "and it is never enabled with --now, which would fire a run at once");
+  assert.ok(start < src.indexOf("NextElapseUSecRealtime"),
+    "the armed check still comes last, or it would read a timer that had not started");
+});
+
 // Dependencies are installed before the swap, not after it.
 //
 // `npm ci` deletes node_modules and then installs. Running it after the overlay

@@ -32,9 +32,14 @@ async function readJSON<T>(p: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(p, "utf8")); }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return fallback; throw e; }
 }
+// A temporary name no other writer can take. `<file>.tmp` is not atomic
+// between processes: two writers produce the same path, the first rename
+// consumes it, and the second fails with ENOENT on a file it had just written.
+// See scripts/update.mjs for the install that did exactly that.
+let tmpSeq = 0;
 async function writeAtomic(p, obj) {
   await mkdir(path.dirname(p), { recursive: true });
-  const tmp = p + ".tmp";
+  const tmp = `${p}.${process.pid}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
   await writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
   await rename(tmp, p);
 }

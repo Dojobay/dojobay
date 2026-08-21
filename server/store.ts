@@ -70,8 +70,12 @@ async function load(): Promise<StoreShape> {
   return cache;
 }
 
+// A temporary name no other writer can take; see build-public.ts. The store has
+// a single writer by design, but the backend and a maintenance script can both
+// be pointed at it, and that is precisely when a shared temporary name bites.
+let tmpSeq = 0;
 async function persist() {
-  const tmp = FILE + ".tmp";
+  const tmp = `${FILE}.${process.pid}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
   await writeFile(tmp, JSON.stringify(cache, null, 2) + "\n");
   await rename(tmp, FILE);
 }

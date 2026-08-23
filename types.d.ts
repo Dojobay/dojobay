@@ -113,6 +113,8 @@ export interface ProbeCfg {
   proxyHost: string;
   proxyPort: number;
   timeoutMs: number;
+  /** Simultaneous Tor circuits. Only the cycle runner reads it; a single probe ignores it. */
+  concurrency?: number;
   apikey?: string;
   network?: string;
   connectOnly?: boolean;

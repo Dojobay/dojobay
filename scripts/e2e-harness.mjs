@@ -1027,7 +1027,28 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - a card title is text, and the verified domain is the only claim on it");
 }
 
-console.log("\nall 42 front-end checks passed");
+// A cycle that reached nothing says so on the page, because the statuses shown
+// are then older than the timestamp beside them suggests.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  assert.ok(/DOJOS\.probe_fault/.test(app), "the page reads the fault the updater publishes");
+  // The message wraps across several source lines, so slice to the end of the
+  // banner rather than to the next template expression.
+  const block = app.slice(app.indexOf("DOJOS.probe_fault?"),
+    app.indexOf("FRESH.stale?", app.indexOf("DOJOS.probe_fault?")));
+  assert.ok(/fault here rather/.test(block),
+    "and says the cause is probably local, since every node failing at once is not about them");
+  assert.ok(/last check that/.test(block),
+    "and that the statuses below are older than they look");
+  // Compared against the staleness BANNER rather than the first mention of
+  // FRESH.stale, which appears earlier for an unrelated reason and made this
+  // assertion meaningless when it was written that way.
+  assert.ok(app.indexOf("DOJOS.probe_fault?") < app.indexOf('FRESH.stale?`<div class="stale-banner"'),
+    "shown above the staleness banner: a fault now is more urgent than data ageing");
+  console.log("  ok - an instance that could reach nothing says so rather than blaming the nodes");
+}
+
+console.log("\nall 43 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

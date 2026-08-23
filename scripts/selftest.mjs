@@ -1241,6 +1241,40 @@ await check("an archive cannot overwrite instance data, whatever it contains", a
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// A cycle in which every node fails is evidence about this machine, not about
+// the operators. Fifteen independently run nodes on different continents do not
+// fail in the same ten minutes; Tor rebuilding circuits after a suspend does
+// exactly this, and recording it writes a DOWN check against everybody.
+await check("a cycle that reaches nothing at all is not recorded", async () => {
+  const src = readFileSync(new URL("./update.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/const allFailed = dojos\.nodes\.length > 0 && results\.every\(\(r\) => !r\.up\)/.test(src),
+    "a clean sweep is detected, and an empty directory is not one");
+
+  const block = src.slice(src.indexOf("if (allFailed) {"), src.indexOf("dojos.generated_at = ts.isoSec;"));
+  assert.ok(/probe_fault/.test(block), "the fault is published so the page can say so");
+  assert.ok(/return;/.test(block), "and the cycle stops before writing history");
+  assert.ok(!/generated_at = ts\.isoSec/.test(block),
+    "generated_at is not advanced, so the staleness banner keeps measuring real data age");
+
+  // history is written after that return, so a withheld cycle cannot reach it
+  assert.ok(src.indexOf("if (allFailed) {") < src.indexOf("writeJSONAtomic(historyPath"),
+    "the history write is downstream of the guard");
+  assert.ok(/delete dojos\.probe_fault/.test(src),
+    "and a cycle that reaches something clears the fault rather than leaving it up");
+});
+
+// Defaults that suit a home connection as well as a VPS, since the timer unit
+// lives in /etc and an operator should not have to edit it.
+await check("the probe defaults are gentle enough for a domestic line", async () => {
+  const { probeCfg } = await import("./update.mjs");
+  const cfg = probeCfg({});
+  assert.equal(cfg.timeoutMs, 45000,
+    "45s: nodes answering at 23s were recorded as down against a 30s ceiling");
+  assert.equal(cfg.concurrency, 3,
+    "three circuits at once: six through one Tor client on a home line makes every "
+    + "probe slow together, which reads as every node being down");
+});
+
 // `<file>.tmp` is not atomic between processes. Two writers produce the same
 // path, the first rename consumes it, and the second fails with ENOENT on a
 // file it had itself just written. An install did exactly that: enabling the

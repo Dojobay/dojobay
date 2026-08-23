@@ -634,6 +634,12 @@ async function loadJSON(url){
     </div>
 
     <main class="wrap">
+      ${DOJOS.probe_fault?`<div class="stale-banner" role="status">
+        <b>This directory could not reach any node at ${esc(String(DOJOS.probe_fault.at).replace("T"," ").replace("Z"," UTC"))}.</b>
+        All ${Number(DOJOS.probe_fault.nodes)||0} of them failing together is almost certainly a fault here rather
+        than every operator at once, so nothing was recorded and the statuses below are from the last check that
+        reached something. They may be out of date. This resolves itself when the fault does.
+      </div>`:""}
       ${FRESH.stale?`<div class="stale-banner" role="status">
         <b>These statuses are out of date.</b>
         This directory last refreshed ${esc(humanAge(FRESH.ageMin))} ago${FRESH.unknown?"":`, and should refresh every ${FRESH.intervalMin} minutes`}.

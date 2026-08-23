@@ -35,8 +35,8 @@
 //   TOR_SOCKS_HOST   default 127.0.0.1
 //   TOR_SOCKS_PORT   default 9050
 //   DATA_DIR         default <repo>/data
-//   TIMEOUT_MS       default 30000   per-node Tor timeout
-//   CONCURRENCY      default 6        simultaneous Tor circuits
+//   TIMEOUT_MS       default 45000   per-node Tor timeout
+//   CONCURRENCY      default 3        simultaneous Tor circuits
 //   WINDOW_CHECKS    default 144      history length kept per node (24h @ 10min)
 //   RETENTION_DAYS   default 90       daily-rollup days kept per node (~3 months)
 //   CONNECT_ONLY     default 0        "1" = treat a successful Tor connect as up
@@ -53,12 +53,20 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Chosen for a home connection as much as a VPS, because the unit that would
+// override them lives in /etc and no update can reach it. A node answering at
+// 23 seconds was being recorded as down against a 30 second ceiling, and six
+// circuits at once through one Tor client on a domestic line makes every probe
+// slow together, which reads as every node being down.
+export const DEFAULT_TIMEOUT_MS = 45000;
+export const DEFAULT_CONCURRENCY = 3;
+
 const CFG = {
   proxyHost: process.env.TOR_SOCKS_HOST || "127.0.0.1",
   proxyPort: +(process.env.TOR_SOCKS_PORT || 9050),
   dataDir: process.env.DATA_DIR || path.resolve(__dirname, "..", "data"),
-  timeoutMs: +(process.env.TIMEOUT_MS || 30000),
-  concurrency: +(process.env.CONCURRENCY || 6),
+  timeoutMs: +(process.env.TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+  concurrency: +(process.env.CONCURRENCY || DEFAULT_CONCURRENCY),
   windowChecks: +(process.env.WINDOW_CHECKS || 144),
   retentionDays: +(process.env.RETENTION_DAYS || 90),
   connectOnly: process.env.CONNECT_ONLY === "1",
@@ -442,7 +450,12 @@ export function probeCfg(cfg = {}) {
     ...cfg,
     proxyHost: cfg.proxyHost ?? (process.env.TOR_SOCKS_HOST || "127.0.0.1"),
     proxyPort: cfg.proxyPort ?? +(process.env.TOR_SOCKS_PORT || 9050),
-    timeoutMs: cfg.timeoutMs ?? +(process.env.TIMEOUT_MS || 30000),
+    // Same default as CFG below, from one place. These were separate literals
+    // and had already diverged: the cron path waited 45 seconds while anything
+    // going through this helper waited 30, so the same node could be up for one
+    // caller and down for the other.
+    timeoutMs: cfg.timeoutMs ?? +(process.env.TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+    concurrency: cfg.concurrency ?? +(process.env.CONCURRENCY || DEFAULT_CONCURRENCY),
   };
 }
 
@@ -627,6 +640,24 @@ async function main() {
     return probe(url, { ...CFG, apikey: n?.payload?.pairing?.apikey, network: n.network });
   });
 
+  // ---- did this cycle learn anything? ----
+  //
+  // Fifteen independently operated nodes on different continents do not fail in
+  // the same ten-minute window. When every one of them fails, the cause is here:
+  // Tor rebuilding circuits after a suspend, a home connection renegotiating,
+  // the daemon restarted underneath us. Recording that would write a DOWN check
+  // against every operator in the directory and pull down reliability figures
+  // this instance publishes about other people's machines, for a fault of its
+  // own. So it is not recorded.
+  //
+  // The threshold is zero rather than a proportion. A cycle where some nodes
+  // answer proves the local path works, and the ones that did not answer really
+  // did not; only a clean sweep is evidence about this machine instead of about
+  // them. A directory with one listing would trip this on a genuine outage, and
+  // that is the right trade: withholding one node's bad cycle costs far less
+  // than publishing a false one against everybody.
+  const allFailed = dojos.nodes.length > 0 && results.every((r) => !r.up);
+
   // ---- update current snapshot ----
   let up = 0;
   dojos.nodes.forEach((n, i) => {
@@ -652,8 +683,26 @@ async function main() {
     if (r.detectedIndexer) n.detected_indexer = r.detectedIndexer;
     else if (!("detected_indexer" in n)) n.detected_indexer = null;
   });
-  dojos.generated_at = ts.isoSec;
   dojos.interval_minutes = dojos.interval_minutes || 10;
+
+  if (allFailed) {
+    // Publish the fault and nothing else. Statuses, heights and checked_at stay
+    // as the last cycle that actually reached something left them, and
+    // generated_at is deliberately not advanced, so the staleness banner keeps
+    // measuring the age of real data rather than the age of a failure.
+    const fresh = await readJSON(dojosPath, null);
+    if (fresh) {
+      fresh.probe_fault = { at: ts.isoSec, nodes: dojos.nodes.length };
+      await writeJSONAtomic(dojosPath, fresh);
+    }
+    console.error(`[${ts.isoSec}] every one of ${dojos.nodes.length} nodes failed, which is`
+      + " almost certainly a fault here rather than all of them at once.");
+    console.error("  Nothing was recorded: no statuses changed and no history written.");
+    console.error("  Check Tor on this machine (systemctl status tor@default), and the clock.");
+    return;
+  }
+  dojos.generated_at = ts.isoSec;
+  delete dojos.probe_fault;
 
   // ---- update rolling history (append + trim, retire stale ids) ----
   const listed = new Set(dojos.nodes.map((n) => n.id));

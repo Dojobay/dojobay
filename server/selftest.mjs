@@ -741,6 +741,48 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(!(await store.getSubmission("mainnet-hearsay")),
      "an unsigned node published by the remote instance is refused rather than imported");
 
+  // The duplicate an operator actually hits. Bootstrapping a new instance from a
+  // directory that already lists your own node used to create a second record
+  // for it, because each instance derives an id from the name it was given and
+  // the two differ. The anchor is in seed.json rather than the store, so it was
+  // invisible to the existing-id check: the operator's own node was the one
+  // guaranteed to duplicate.
+  {
+    const anchorUrl = "http://" + "d".repeat(56) + ".onion/v2";
+    const seedPath = process.env.PUBLIC_DATA_DIR + "/seed.json";
+    const seedDoc = JSON.parse(await fsp.readFile(seedPath, "utf8"));
+    const keptSeed = JSON.stringify(seedDoc);
+    seedDoc.nodes[0].payload = { pairing: { type: "dojo.api", apikey: "k", url: anchorUrl } };
+    const anchorId = seedDoc.nodes[0].id;
+    await fsp.writeFile(seedPath, JSON.stringify(seedDoc, null, 2) + "\n");
+
+    // the same machine, published by the remote instance under its own id
+    // Cast: the checker infers a literal shape from the fixtures these replace,
+    // and the import reads them as plain documents.
+    remoteDocs["/data/dojos.json"] = /** @type {any} */ ({ nodes: [{
+      id: "mainnet-their-name-for-it", network: "mainnet", name: "their name for it",
+      paynym: "+imp", paymentCode: "PMimpDisplay", signed: signedBlock,
+      payload: { pairing: { type: "dojo.api", apikey: "k", url: anchorUrl.toUpperCase() + "/" } },
+    }] });
+    remoteDocs["/data/history.json"] = /** @type {any} */ ({ nodes: { "mainnet-their-name-for-it": { checks: [{ t: "2026-07-02 00:00", up: true }] } } });
+    remoteDocs["/data/history-daily.json"] = /** @type {any} */ ({ nodes: {} });
+
+    const dup = await bootstrapImport({ onionHost, trustedCode: opCode, fetchDoc, fetchCodes,
+      dataDir: process.env.PUBLIC_DATA_DIR, log: () => {} });
+    ok(dup.imported === 0 && dup.merged === 1,
+       "the operator's own node arrives as a merge rather than a second listing");
+    ok(!(await store.getSubmission("mainnet-their-name-for-it")),
+       "and no record is created for it under the other instance's id");
+    // Upper-cased and with a trailing slash in the fixture, because neither
+    // changes which endpoint is meant and both are the sort of difference that
+    // would defeat a naive string compare.
+    const h = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/history.json", "utf8")).nodes;
+    ok(h[anchorId] && h[anchorId].checks.some((c) => c.t === "2026-07-02 00:00"),
+       "its history is carried onto the id this instance uses, so months of uptime survive");
+
+    await fsp.writeFile(seedPath, keptSeed + "\n");
+  }
+
   // A verified domain travels with the data, because the signed statement names
   // the domain and the code but never the instance that verified it. It must NOT
   // arrive verified: importing a badge on another instance's word would let one

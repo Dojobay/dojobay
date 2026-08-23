@@ -77,12 +77,57 @@ export async function bootstrapImport({
   const daily = await fetchDoc("/data/history-daily.json").catch(() => ({ nodes: {} }));
   const nodes = (dojos.nodes || []).filter((n) => n.payload?.pairing?.url);
 
+  // The pairing URL identifies a physical Dojo; an id does not.
+  //
+  // An operator installing a new instance names their own node in the anchor,
+  // then bootstraps from a directory that already lists it. The two ids differ,
+  // because each instance derives one from the name it was given, so the same
+  // machine arrived twice: once as the anchor and once as an import, with its
+  // reliability history split between them. What is actually the same thing is
+  // the onion address in the signed pairing payload, which is why matching on
+  // it is not a heuristic. Two listings cannot share one, and an operator
+  // cannot claim somebody else's without the signature failing.
+  //
+  // Compared as a whole URL rather than by host alone, because one machine may
+  // legitimately serve mainnet at /v2 and testnet at /test/v2, and those are
+  // two listings. Lower-cased and stripped of a trailing slash, since neither
+  // changes which endpoint is meant.
+  const pairingKey = (n) => {
+    const u = n?.payload?.pairing?.url;
+    if (typeof u !== "string" || !u) return null;
+    return u.trim().toLowerCase().replace(/\/+$/, "");
+  };
+
+  // Everything this instance already lists, from the store AND from the seed
+  // anchor. The anchor is not a store record, which is exactly why it was
+  // invisible to this check and why the operator's own node was the one node
+  // guaranteed to duplicate.
+  const localByUrl = new Map();
+  for (const r of await store.listSubmissions()) {
+    const k = pairingKey(r);
+    if (k) localByUrl.set(k, r.id);
+  }
+  try {
+    const seed = JSON.parse(await readFile(path.join(dataDir, "seed.json"), "utf8"));
+    for (const n of seed.nodes || []) {
+      const k = pairingKey(n);
+      if (k && !localByUrl.has(k)) localByUrl.set(k, n.id);
+    }
+  } catch { /* no anchor yet, which is normal on a bare install */ }
+
   // 3) plan records: skip existing ids; resolve full code sets per PayNym
   const existingIds = new Set((await store.listSubmissions()).map((r) => r.id));
   const plan = [];
   const codeCache = new Map();
   for (const n of nodes) {
     if (existingIds.has(n.id)) { plan.push({ action: "skip", n }); continue; }
+    // Same machine under a different id. The record is not created, because a
+    // second listing for one Dojo is worse than a missing one, but the history
+    // is worth having: it is the same node's record of itself, and dropping it
+    // would restart an operator's reliability figures from nothing on a machine
+    // that has been up for months. Carried onto the id this instance uses.
+    const dupOf = localByUrl.get(pairingKey(n));
+    if (dupOf) { plan.push({ action: "merge", n, dupOf }); continue; }
     // A published node from another instance carries its signed block in
     // dojos.json, so an unsigned one either predates the rule there or was
     // published by an instance that does not enforce it. Either way it cannot
@@ -104,9 +149,18 @@ export async function bootstrapImport({
     log(`  ${action.padEnd(6)} ${n.id.padEnd(28)} ${n.paynym || "(no PayNym)"} (${(codes || []).length} codes)${why ? " — " + why : ""}`);
   }
   const imports = plan.filter((p) => p.action === "import");
+  const merges = plan.filter((p) => p.action === "merge");
   const refused = plan.filter((p) => p.action === "refuse");
+  for (const m of merges) {
+    log(`  merge  ${m.n.id.padEnd(28)} same Dojo as ${m.dupOf}: history only, no second listing`);
+  }
   if (refused.length) log(`refused ${refused.length} node(s) that cannot be listed here: ${refused.map((p) => p.n.id).join(", ")}`);
-  if (dryRun) { log(`dry run: ${imports.length} node(s) would be imported, nothing written.`); return { imported: 0, planned: imports.length }; }
+  if (dryRun) {
+    log(`dry run: ${imports.length} node(s) would be imported`
+      + (merges.length ? `, ${merges.length} recognised as already listed here` : "")
+      + ", nothing written.");
+    return { imported: 0, planned: imports.length, merged: merges.length };
+  }
 
   for (const { n, codes } of imports) {
     await store.putSubmission({
@@ -168,7 +222,30 @@ export async function bootstrapImport({
     local.nodes = local.nodes || {};
     let added = 0;
     for (const [id, entry] of Object.entries(remote.nodes || {})) {
-      if (!local.nodes[id] && imports.some((x) => x.n.id === id)) { local.nodes[id] = entry; added++; }
+      if (!local.nodes[id] && imports.some((x) => x.n.id === id)) { local.nodes[id] = entry; added++; continue; }
+      // A duplicate contributes its history under the id this instance uses.
+      //
+      // The two series are combined rather than one replacing the other. An
+      // anchor installed an hour ago has a handful of checks of its own and the
+      // remote has months: overwriting throws away the local ones, skipping
+      // throws away the months, and neither is what an operator means by
+      // importing history. Combined, de-duplicated on the timestamp, sorted,
+      // and trimmed to the same window the updater keeps.
+      const merged = merges.find((x) => x.n.id === id);
+      if (!merged) continue;
+      const key = entry.checks ? "checks" : "days";
+      const stamp = key === "checks" ? "t" : "d";
+      const mine = (local.nodes[merged.dupOf] || {})[key] || [];
+      const theirs = entry[key] || [];
+      if (!theirs.length) continue;
+      const byStamp = new Map();
+      // Local last, so a period this instance measured itself wins over the
+      // remote's account of the same period.
+      for (const row of [...theirs, ...mine]) if (row && row[stamp]) byStamp.set(row[stamp], row);
+      const all = [...byStamp.values()].sort((x, y) => String(x[stamp]).localeCompare(String(y[stamp])));
+      const cap = key === "checks" ? (remote.window_checks || local.window_checks || 144) : 90;
+      local.nodes[merged.dupOf] = { [key]: all.slice(-cap) };
+      added++;
     }
     if (added) {
       if (remote.interval_minutes && !local.interval_minutes) local.interval_minutes = remote.interval_minutes;
@@ -177,8 +254,10 @@ export async function bootstrapImport({
       log(`  history: ${added} node(s) carried into ${file}`);
     }
   }
-  log(`imported ${imports.length} node(s) from ${onionHost}. Now run: node server/build-public.mjs`);
-  return { imported: imports.length, planned: imports.length,
+  log(`imported ${imports.length} node(s) from ${onionHost}`
+    + (merges.length ? `, and recognised ${merges.length} as node(s) this instance already lists` : "")
+    + ". Now run: node server/build-public.mjs");
+  return { imported: imports.length, planned: imports.length, merged: merges.length,
     domains_imported: domainsImported, domains_refused: domainsRefused };
 }
 

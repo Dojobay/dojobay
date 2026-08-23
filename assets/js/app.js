@@ -843,18 +843,54 @@ async function loadJSON(url){
   /** @param {Event} e @returns {Element|null} */
   const evEl = (e) => (e.target instanceof Element ? e.target : null);
 
+  // A gateway error is retried briefly; everything else is returned at once.
+  //
+  // nginx proxies /api to the backend on localhost and answers 502 when nothing
+  // is listening. The one moment that reliably happens is the few seconds after
+  // a self-update restarts the service, which is a thing this very page asked
+  // for: a moderator clicked update, watched it succeed, and was then shown a
+  // bare "502" with no hint that the restart it had requested was still in
+  // progress. Nothing was wrong, and there was no way to tell that from the
+  // page.
+  //
+  // Only 502, 503 and 504 are retried, since those are the proxy saying it could
+  // not reach anything rather than the backend saying no. A 401 or a 409 is an
+  // answer and must not be repeated: retrying a POST that was refused for a
+  // real reason would be worse than the error it hides.
+  //
+  // Five attempts a second apart is a little over the gap a restart leaves and
+  // far short of the point where a person would rather be told. A request that
+  // is still failing after that is reported normally, which is the honest
+  // outcome when the service has genuinely gone.
+  const GATEWAY_DOWN = new Set([502, 503, 504]);
   const api = {
-    async call(path, method="GET", body){
-      const r = await fetch("/api"+path, {method, headers: body?{"Content-Type":"application/json"}:{}, body: body?JSON.stringify(body):undefined, credentials:"same-origin", cache:"no-store"});
-      let j=null; try{ j=await r.json(); }catch(e){}
-      return {status:r.status, body:j};
+    async call(path, method="GET", body, opts){
+      const tries = (opts && opts.tries) || 5;
+      for(let i=0;i<tries;i++){
+        let r;
+        try{
+          r = await fetch("/api"+path, {method, headers: body?{"Content-Type":"application/json"}:{}, body: body?JSON.stringify(body):undefined, credentials:"same-origin", cache:"no-store"});
+        }catch(e){
+          // A dropped connection mid-restart looks like this rather than a
+          // status. Same treatment: retry, then give up and report it.
+          if(i===tries-1) return {status:0, body:null, gatewayDown:true};
+          await new Promise((z)=>setTimeout(z,1000)); continue;
+        }
+        if(GATEWAY_DOWN.has(r.status) && i<tries-1){ await new Promise((z)=>setTimeout(z,1000)); continue; }
+        let j=null; try{ j=await r.json(); }catch(e){}
+        return {status:r.status, body:j, gatewayDown:GATEWAY_DOWN.has(r.status)};
+      }
     }
   };
   let ME = null;
   let BACKEND = false;
   async function detectBackend(){
     try{
-      const r = await api.call("/me");
+      // One attempt only. This runs on every page load to decide whether to show
+      // Manage my Dojo, and a directory served as static files must render at
+      // once whether or not a backend exists: retrying here would make every
+      // visitor to an instance without one wait five seconds for nothing.
+      const r = await api.call("/me", "GET", undefined, {tries:1});
       if(r.status===200 && r.body){
         ME = r.body;
         BACKEND = true;
@@ -1079,7 +1115,9 @@ async function loadJSON(url){
          <button class="copybtn" data-act="copyurl" data-v="${esc(uri)}">copy challenge</button>
        </div>`;
     pollTimer = setInterval(async ()=>{
-      const p = await api.call("/auth47/poll?nonce="+encodeURIComponent(nonce));
+      // Also one attempt: this is already a poll on its own timer, so a retry
+      // inside it would stack requests on top of each other during a restart.
+      const p = await api.call("/auth47/poll?nonce="+encodeURIComponent(nonce), "GET", undefined, {tries:1});
       if(p.status===200 && p.body && p.body.authenticated){ clearInterval(pollTimer); await refreshMe(); (onAuthSuccess||renderManage)(); }
     }, 2500);
   }
@@ -1266,7 +1304,17 @@ async function loadJSON(url){
     adminShell('<p class="loading">Loading submissions\u2026</p>');
     const r = await api.call("/admin/submissions");
     if(r.status===401){ ME={authenticated:false}; renderAdminPanel(); return; }   // signed out elsewhere (Manage panel / another tab)
-    if(r.status!==200){ adminShell('<p>Could not load submissions ('+r.status+').</p>'); return; }
+    if(r.status!==200){
+      // A number tells a moderator nothing. If the proxy could not reach the
+      // backend at all, say what that means and what to do about it, because
+      // the commonest cause is a restart this page itself set in motion.
+      adminShell(r.gatewayDown
+        ? '<p>The backend is not answering. If you have just updated, it is restarting: '
+          + 'wait a moment and reload. If this persists, the service has stopped and needs '
+          + 'starting on the box.</p>'
+        : '<p>Could not load submissions ('+esc(String(r.status))+').</p>');
+      return;
+    }
     const subs=r.body.submissions||[];
     const pending=subs.filter(s=>s.status==="pending");
     const others=subs.filter(s=>s.status!=="pending");

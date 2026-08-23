@@ -1048,7 +1048,35 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   console.log("  ok - an instance that could reach nothing says so rather than blaming the nodes");
 }
 
-console.log("\nall 43 front-end checks passed");
+// A 502 during the seconds a self-update restarts the service is expected, not
+// exceptional: the page itself asked for that restart. It is retried briefly
+// rather than reported as a bare number.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const helper = app.slice(app.indexOf("const GATEWAY_DOWN"), app.indexOf("let ME = null;"));
+  assert.ok(/new Set\(\[502, 503, 504\]\)/.test(helper),
+    "only the proxy's own failures are retried");
+  assert.ok(!/40[139]|409/.test(helper),
+    "a refusal from the backend is an answer and must never be repeated, least of all a POST");
+  assert.ok(/i<tries-1/.test(helper) && /setTimeout\(z,1000\)/.test(helper),
+    "a second between attempts, and the last attempt reports rather than sleeping");
+  assert.ok(/catch\(e\)\{/.test(helper) && /gatewayDown:true/.test(helper),
+    "a connection dropped mid-restart is treated the same as a 502, since it means the same thing");
+
+  // The capability probe must not retry: a directory is static files and has to
+  // render at once on an instance with no backend at all.
+  assert.ok(/api\.call\("\/me", "GET", undefined, \{tries:1\}\)/.test(app),
+    "detectBackend asks once, so a visitor never waits on a backend that is not there");
+  assert.ok(/auth47\/poll[^\n]*tries:1/.test(app),
+    "and the Auth47 poll asks once, being on a timer of its own already");
+
+  // and the message a moderator sees says what to do
+  assert.ok(/backend is not answering/.test(app) && /it is restarting/.test(app),
+    "a gateway failure is explained rather than shown as a status code");
+  console.log("  ok - a restart mid-update is waited out rather than reported as a number");
+}
+
+console.log("\nall 44 front-end checks passed");
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

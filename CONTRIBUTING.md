@@ -71,7 +71,7 @@ scripts/
   dojobay-server.service, dojobay-update.{service,timer}
 deploy/
   nginx-onion.conf.example # localhost bind, /api/ proxy, /server/ blocked
-.github/workflows/deploy.yml
+.github/workflows/deploy.yml, tests.yml
 ```
 
 `data/dojos.json`, both history files and `server/data/` are owned by the
@@ -147,6 +147,16 @@ sha256sum -c /tmp/before.sha
 ```
 
 — and treat any difference as a bug in the test's isolation, not as noise.
+
+### The same gate, in CI
+
+`.github/workflows/tests.yml` runs everything above on Node 24 for every pull
+request and every push to `main`: both installs, the type check, the three
+suites, jsdom side-installed outside the workspace, and the checksum comparison.
+Nothing here replaces running it locally. The deploy fires on the same push and
+does not wait for this job, so on a direct push to `main` the result arrives
+after the code is on the instance, which is better than never but is not a gate.
+A pull request is the only path on which it runs before anything ships.
 
 ### CodeQL, before pushing rather than after
 

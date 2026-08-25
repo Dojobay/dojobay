@@ -1774,9 +1774,29 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
       .map((m) => m[1])
       .filter((body) => /\bpairing\s*:/.test(body) && /\bexplorer\s*:/.test(body));
 
+  // Comment lines are dropped before any of this runs. The scan is about
+  // bindings and uses in code, and a file is entitled to discuss the canonical
+  // string in prose without being told to import it: build-public.ts explains
+  // in a comment that the signature does not cover the declared indexer, names
+  // canonicalPairing while doing so, and imports nothing. Only whole-line
+  // comments are removed, so a trailing comment can still hide a use from the
+  // scan; that direction is a missed alarm rather than a false one.
+  const codeOnly = (src) => {
+    const out = [];
+    let inBlock = false;
+    for (const line of src.split("\n")) {
+      const t = line.trim();
+      if (inBlock) { if (t.includes("*/")) inBlock = false; continue; }
+      if (t.startsWith("/*")) { if (!t.includes("*/")) inBlock = true; continue; }
+      if (t.startsWith("//") || t.startsWith("*")) continue;
+      out.push(line);
+    }
+    return out.join("\n");
+  };
+
   const defines = [], redeclares = [], missingImport = [];
   for (const f of sources) {
-    const src = await fsp.readFile(new URL(f, dir), "utf8");
+    const src = codeOnly(await fsp.readFile(new URL(f, dir), "utf8"));
     if (stringifyLiterals(src).length) defines.push(f);
     if (!/\bcanonicalPairing\b/.test(src)) continue;
     // A local binding of that name shadows the shared one and defeats the check

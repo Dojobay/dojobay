@@ -79,9 +79,16 @@ export function effectiveVersion(detected: string | null | undefined, pairing: s
 // The Electrum endpoint shown on a card, on the same principle as the version:
 // what the node reports about itself wins. The updater reads it from the Dojo's
 // /support/services each cycle (detected); a URL declared in the submitted
-// pairing payload is the fallback for nodes that have not been probed yet or
-// run a Dojo older than v1.27.0. Null means the card shows N/A, which is a
-// real answer (no exposed indexer) rather than an omission.
+// pairing payload is the fallback, live between approval and the first
+// successful probe, and for listings that predate the version gate.
+//
+// The declared URL is NOT covered by the operator's signature: canonicalPairing
+// covers pairing and explorer only, and index.ts folds indexer into the stored
+// payload beside them. So this fallback is the one place a card can show an
+// endpoint nobody has either signed for or probed.
+//
+// Null means the card shows N/A, which is a real answer (no exposed indexer)
+// rather than an omission.
 export function effectiveIndexer(detected: string | null | undefined, declared: string | null | undefined): string | null {
   return detected || declared || null;
 }

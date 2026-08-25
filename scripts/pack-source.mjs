@@ -25,7 +25,9 @@ const PREFIX = "dojobay/";                       // extraction lands in one fold
 
 const INCLUDE_FILES = [
   "index.html", "manifest.json", "sw.js", "favicon.svg", "og-image.png",
-  "LICENSE", "README.md", "CONTRIBUTING.md", "package.json",
+  // LICENSE travels with THIRD-PARTY-NOTICES.md: the archive is a distributed
+  // copy of the source, and the README it contains links to the notices.
+  "LICENSE", "THIRD-PARTY-NOTICES.md", "README.md", "CONTRIBUTING.md", "package.json",
   "tsconfig.json", "types.d.ts",
   "install.sh", "uninstall.sh",
   "data/version.json",

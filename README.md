@@ -546,6 +546,9 @@ The full policy, including when converting *is* worthwhile, is in
 
 Development setup, project structure, the test suites and coding conventions
 are in [CONTRIBUTING.md](CONTRIBUTING.md). The code is MIT-licensed
-([LICENSE](LICENSE)). Listings are not added through pull requests. They go
+([LICENSE](LICENSE)); the dependencies it installs are not all MIT, and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) names the two LGPL-3.0
+components and the rule that they are never bundled into anything this
+repository distributes. Listings are not added through pull requests. They go
 through the Auth47 flow above. Security problems go through
 [SECURITY.md](SECURITY.md) rather than a public issue.

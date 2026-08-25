@@ -118,12 +118,6 @@ export function notificationAddress(paymentCode: string, network: string = "bitc
   return bip47.fromBase58(paymentCode, net).getNotificationAddress();
 }
 
-// Every address a given payment code could legitimately have signed from.
-// A PayNym is a MAINNET identity: an operator listing a testnet node still
-// signs with their mainnet notification address, because that is the only key
-// their wallet holds for that code. Deriving on testnet yields an "m…" address
-// that can never match, which silently made every testnet listing unverifiable.
-// Both derivations come from the same code, so accepting either is no weaker.
 // The exact text an operator signs to attest to a pairing payload, and the
 // exact text every gate checks a signature against.
 //
@@ -138,6 +132,12 @@ export function canonicalPairing(payload: { pairing?: unknown; explorer?: unknow
   return JSON.stringify({ pairing: payload?.pairing, explorer: payload?.explorer });
 }
 
+// Every address a given payment code could legitimately have signed from.
+// A PayNym is a MAINNET identity: an operator listing a testnet node still
+// signs with their mainnet notification address, because that is the only key
+// their wallet holds for that code. Deriving on testnet yields an "m…" address
+// that can never match, which silently made every testnet listing unverifiable.
+// Both derivations come from the same code, so accepting either is no weaker.
 export function notificationAddresses(paymentCode: string): string[] {
   const out: string[] = [];
   for (const net of ["bitcoin", "testnet"]) {

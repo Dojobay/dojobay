@@ -20,7 +20,10 @@
 // Add --all to include records that already pass.
 // =============================================================================
 import { store } from "./store.ts";
-import { parseSignedBlock, verifySignedPayload, notificationAddresses } from "./crypto.ts";
+// canonicalPairing is imported, never reimplemented: a diagnostic that computes
+// the canonical message its own way can only ever report on itself.
+// server/selftest.mjs enforces the single definition.
+import { parseSignedBlock, verifySignedPayload, notificationAddresses, canonicalPairing } from "./crypto.ts";
 import { bitcoinMessageFactory } from "@dojo-tools/bitcoinjs-message";
 import * as bip47utils from "@dojo-tools/bip47/utils";
 import ecc from "@bitcoinerlab/secp256k1";
@@ -28,7 +31,6 @@ import ecc from "@bitcoinerlab/secp256k1";
 const message = bitcoinMessageFactory(ecc);
 const ALL = process.argv.includes("--all");
 const netOf = (rec) => (rec.network === "testnet" ? "testnet" : "bitcoin");
-const canonicalPairing = (p) => JSON.stringify({ pairing: p?.pairing, explorer: p?.explorer });
 
 // Same data, different serialisation? Compare parsed structures, not strings.
 const deepEq = (a, b) => {

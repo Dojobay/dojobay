@@ -1743,6 +1743,62 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   await rb();
 }
 
+// 37) one definition of the canonical pairing string. crypto.ts owns it, and
+//     every other file under server/ must import it rather than write the
+//     expression again. This has already gone wrong twice: the string lived in
+//     the submission gate and in audit-signed.mjs, the second carrying a comment
+//     warning it MUST mirror the first, and after that consolidation two more
+//     copies appeared in apply-signed-payload.ts and diagnose-signed.mjs. A
+//     canonical message with several definitions eventually disagrees with
+//     itself, and the disagreement is silent in the worst direction: a signature
+//     accepted at submission and reported invalid by a later audit.
+//
+//     Scoped to non-test source under server/. The expression is deliberately
+//     reimplemented twice in this file, so a test does not check the code
+//     against itself, and assets/js/app.js writes its own because it cannot
+//     import server code and is building display text, not a message to verify.
+{
+  const dir = new URL("./", import.meta.url);
+  const sources = (await fsp.readdir(dir))
+    .filter((f) => /\.(ts|mjs)$/.test(f) && f !== "selftest.mjs")
+    .sort();
+  ok(sources.includes("crypto.ts") && sources.length >= 10,
+     `the scan sees the server source: ${sources.length} files`);
+
+  // JSON.stringify over an object literal naming both keys, whatever the
+  // payload is called and whichever order they are in. Matching on the shape
+  // rather than an exact string is the point: a copy that renamed its argument
+  // is still a copy.
+  const stringifyLiterals = (src) =>
+    [...src.matchAll(/JSON\.stringify\(\s*\{([^{}]*)\}/g)]
+      .map((m) => m[1])
+      .filter((body) => /\bpairing\s*:/.test(body) && /\bexplorer\s*:/.test(body));
+
+  const defines = [], redeclares = [], missingImport = [];
+  for (const f of sources) {
+    const src = await fsp.readFile(new URL(f, dir), "utf8");
+    if (stringifyLiterals(src).length) defines.push(f);
+    if (!/\bcanonicalPairing\b/.test(src)) continue;
+    // A local binding of that name shadows the shared one and defeats the check
+    // above the moment it is written any other way.
+    if (f !== "crypto.ts" && /(?:const|let|var|function)\s+canonicalPairing\b/.test(src)) redeclares.push(f);
+    if (f !== "crypto.ts" && !/import\s*\{[^}]*\bcanonicalPairing\b[^}]*\}\s*from\s*["']\.\/crypto\.ts["']/.test(src)) missingImport.push(f);
+  }
+
+  ok(defines.length === 1 && defines[0] === "crypto.ts",
+     `the canonical pairing expression is written once, in crypto.ts (found in: ${defines.join(", ") || "nothing"})`);
+  ok(!redeclares.length,
+     `no file redeclares canonicalPairing locally (offenders: ${redeclares.join(", ") || "none"})`);
+  ok(!missingImport.length,
+     `every user of canonicalPairing imports it from crypto.ts (offenders: ${missingImport.join(", ") || "none"})`);
+
+  // And the shared definition is the one the gate actually verifies against, so
+  // the files above are not merely agreeing with each other about the wrong text.
+  const { canonicalPairing: cp } = await import("./crypto.ts");
+  ok(cp(payload) === JSON.stringify({ pairing: payload.pairing, explorer: payload.explorer }),
+     "crypto.ts's canonicalPairing produces the text this suite signs");
+}
+
 await fsp.rm(process.env.PUBLIC_DATA_DIR, { recursive: true, force: true });
 
 console.log(`\nall ${passed} checks passed`);

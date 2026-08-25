@@ -34,7 +34,10 @@ import { readFile, writeFile, rename, copyFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSignedBlock, verifySignedPayload, notificationAddresses, repairSignedBlock } from "./crypto.ts";
+// canonicalPairing is imported, never reimplemented: this tool must accept
+// exactly what the submission gate accepts, and a second definition of the
+// canonical message would diverge silently. server/selftest.mjs enforces it.
+import { parseSignedBlock, verifySignedPayload, notificationAddresses, repairSignedBlock, canonicalPairing } from "./crypto.ts";
 import type { StoreRecord } from "../types.js";
 
 const argv = process.argv.slice(2);
@@ -48,9 +51,6 @@ const FILES = argv.filter((a, i) =>
 const DIR = process.env.SERVER_DATA_DIR
   || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "data");
 const FILE = path.join(DIR, "store.json");
-
-const canonicalPairing = (payload: any) =>
-  JSON.stringify({ pairing: payload?.pairing, explorer: payload?.explorer });
 
 if (!FILES.length) {
   console.error("Usage: node apply-signed-payload.ts [--apply] [--id <record-id>] <file>…\n" +

@@ -27,12 +27,17 @@ const INCLUDE_FILES = [
   "index.html", "manifest.json", "sw.js", "favicon.svg", "og-image.png",
   // LICENSE travels with THIRD-PARTY-NOTICES.md: the archive is a distributed
   // copy of the source, and the README it contains links to the notices.
-  "LICENSE", "THIRD-PARTY-NOTICES.md", "README.md", "CONTRIBUTING.md", "package.json",
+  // SECURITY.md travels for the same reason: a recipient who finds a
+  // vulnerability in this copy needs to be told where to send it.
+  "LICENSE", "THIRD-PARTY-NOTICES.md", "README.md", "CONTRIBUTING.md", "SECURITY.md", "package.json",
   "tsconfig.json", "types.d.ts",
   "install.sh", "uninstall.sh",
   "data/version.json",
 ];
-const INCLUDE_DIRS = ["assets", "content", "deploy", "scripts", "server", ".github"];
+// docs/ holds the reasoning: why things are shaped as they are and what was
+// tried and rejected. It is the most useful thing in the tree to anyone
+// changing the code, and this archive is how a peer instance receives the code.
+const INCLUDE_DIRS = ["assets", "content", "deploy", "docs", "scripts", "server", ".github"];
 const DENY = [
   "server/data", "server/node_modules", "node_modules", ".git",
   "data/dojos.json", "data/history.json", "data/history-daily.json",

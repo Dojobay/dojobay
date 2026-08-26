@@ -55,6 +55,10 @@ export interface PairingPayload {
     url: string;
   };
   explorer?: { type?: string; url?: string };
+  // A Dojo export may carry these; the gate stores neither, because the
+  // signature covers pairing and explorer only. Present here so a parsed export
+  // types cleanly, not because anything reads them. See build-public.ts on why
+  // the Electrum endpoint is probed rather than declared.
   indexer?: { type?: string; url?: string };
   services?: Array<{ type?: string; kind?: string; url?: string }>;
 }

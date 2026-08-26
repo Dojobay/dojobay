@@ -76,34 +76,19 @@ export function effectiveVersion(detected: string | null | undefined, pairing: s
   return detected || pairing || null;
 }
 
-// The Electrum endpoint shown on a card, on the same principle as the version:
-// what the node reports about itself wins. The updater reads it from the Dojo's
-// /support/services each cycle (detected); a URL declared in the submitted
-// pairing payload is the fallback, live between approval and the first
-// successful probe, and for listings that predate the version gate.
+// The Electrum endpoint shown on a card. Only what the node reported about
+// itself: the updater reads it from the Dojo's /support/services each cycle,
+// over the API onion the operator's signature fixes.
 //
-// The declared URL is NOT covered by the operator's signature: canonicalPairing
-// covers pairing and explorer only, and index.ts folds indexer into the stored
-// payload beside them. So this fallback is the one place a card can show an
-// endpoint nobody has either signed for or probed.
+// A URL declared in a submitted payload is NOT a fallback and must not become
+// one: nothing signs it, and a node that is healthy but exposes no indexer
+// never acquires a detected value, so a declared URL would be published for
+// good. Decision 106 has the reasoning.
 //
 // Null means the card shows N/A, which is a real answer (no exposed indexer)
-// rather than an omission.
-export function effectiveIndexer(detected: string | null | undefined, declared: string | null | undefined): string | null {
-  return detected || declared || null;
-}
-
-// The indexer URL a submission declares in its payload, if any: either a
-// flattened payload.indexer or an entry in a services[] array, matching what
-// the card accepted before endpoints were probed automatically.
-/** Reads only the indexer entry, in either payload shape, so a caller need not
- *  supply a whole pairing payload to ask. */
-export function declaredIndexer(payload: Partial<PairingPayload> | null | undefined): string | null {
-  const p: Partial<PairingPayload> = payload || {};
-  let c = p.indexer;
-  if ((!c || !c.url) && Array.isArray(p.services)) c = p.services.find((s) => s && s.type === "indexer");
-  const u = typeof c === "string" ? c : c && c.url;
-  return (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}$/i.test(u.trim())) ? u.trim() : null;
+// rather than an omission, and is now reachable for every node.
+export function effectiveIndexer(detected: string | null | undefined): string | null {
+  return detected || null;
 }
 
 // Every key the published dojos.json may contain for a node. Exported so the
@@ -153,7 +138,7 @@ function toPublicNode(sub: StoreRecord, paymentCode: string | null): PublicNode 
     operator_domain: null,
     operator_domain_proof: null,
     block_height: null,
-    indexer_url: declaredIndexer(sub.payload),
+    indexer_url: null,
     checked_at: null,
     payload: sub.payload,
     signed: sub.signed || null,
@@ -289,11 +274,6 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
   for (const n of seedNodes) ownerCodesById.set(n.id, [n.paymentCode]);
   for (const sub of approvedSubs) ownerCodesById.set(sub.id, sub.paymentCodes || []);
 
-  // Indexer URL declared in the payload, the fallback until a probe reads one.
-  const declaredIdxById = new Map();
-  for (const n of seedNodes) declaredIdxById.set(n.id, declaredIndexer(n.payload));
-  for (const s of approvedSubs) declaredIdxById.set(s.id, declaredIndexer(s.payload));
-
   // Carry over the live status the updater last wrote, so a rebuild does not
   // blank a node for a probe cycle.
   const prior = await readJSON(OUT, { nodes: [] });
@@ -354,7 +334,7 @@ export async function rebuild(): Promise<{ nodes: number; approved: number; msg:
     // publish it as indexer_url, which the card renders (N/A when null).
     const detectedIdx = (p && p.detected_indexer) || (pr && pr.detected_indexer) || null;
     n.detected_indexer = detectedIdx;
-    n.indexer_url = effectiveIndexer(detectedIdx, declaredIdxById.get(n.id));
+    n.indexer_url = effectiveIndexer(detectedIdx);
   }
 
   await writeAtomic(OUT, {

@@ -892,26 +892,39 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 }
 
 // 21) live-detected Electrum endpoint (/support/services): rebuild carries what
-//     the updater read and publishes it as indexer_url; a payload-declared URL
-//     is only the fallback, and a node that publishes none yields null so the
-//     card can show N/A.
+//     the updater read and publishes it as indexer_url, and nothing else can
+//     put a URL there. A node that publishes none yields null so the card can
+//     show N/A, which is why a declared URL is no longer a fallback: a healthy
+//     node exposing no indexer never acquires a detected value, so the declared
+//     one would have been published for good.
 {
-  const { rebuild, effectiveIndexer, declaredIndexer } = await import("./build-public.ts");
+  const { rebuild, effectiveIndexer } = await import("./build-public.ts");
   const id = "mainnet-selftest-node";
   const dojosPath = process.env.PUBLIC_DATA_DIR + "/dojos.json";
   const live = "tcp://" + "i".repeat(56) + ".onion:50001";
   const declared = "ssl://" + "d".repeat(56) + ".onion:50002";
 
-  ok(effectiveIndexer(live, declared) === live
-     && effectiveIndexer(null, declared) === declared
-     && effectiveIndexer(null, null) === null,
-     "effectiveIndexer: the probed endpoint wins, a declared one is the fallback, null means N/A");
+  ok(effectiveIndexer(live) === live && effectiveIndexer(null) === null
+     && effectiveIndexer(undefined) === null,
+     "effectiveIndexer: the probed endpoint or nothing");
 
-  ok(declaredIndexer({ indexer: { url: declared } }) === declared
-     && declaredIndexer({ services: [{ type: "indexer", url: declared }] }) === declared
-     && declaredIndexer({ services: [{ type: "explorer", url: "http://x.onion" }] }) === null
-     && declaredIndexer({ indexer: { url: "http://" + "d".repeat(56) + ".onion:50002" } }) === null,
-     "declaredIndexer reads both payload shapes and rejects a non-tcp/ssl URL");
+  // A payload carrying an indexer must not reach a card by any route. The
+  // fixture is built the way a Dojo export builds one, with both the flattened
+  // indexer and the modern services[] array, because the gate used to read
+  // either. `declared` exists in this test only to be refused.
+  const withIdx = { pairing: { ...payload.pairing }, explorer: payload.explorer,
+                    indexer: { type: "indexer", url: declared },
+                    services: [{ type: "indexer", url: declared }] };
+  const upd = await api("/api/dojo/pairing", "POST", { id, payload: withIdx, signed: signBlockFor(withIdx) });
+  const { store: idxStore } = await import("./store.ts");
+  const idxRec = await idxStore.getSubmission(id);
+  ok(upd.status === 200 && Object.keys(idxRec.payload).sort().join(",") === "explorer,pairing",
+     "an indexer block posted with a pairing update is discarded: the stored payload is what was signed");
+
+  await rebuild();
+  const idxNode = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id === id);
+  ok(idxNode.indexer_url === null && !("indexer" in idxNode.payload),
+     "and the card publishes N/A rather than the declared endpoint");
 
   const snap = JSON.parse(await fsp.readFile(dojosPath, "utf8"));
   snap.nodes.find((n) => n.id === id).detected_indexer = live;
@@ -923,7 +936,7 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
 
   const other = JSON.parse(await fsp.readFile(dojosPath, "utf8")).nodes.find((x) => x.id !== id);
   ok(!other || other.indexer_url === null || typeof other.indexer_url === "string",
-     "nodes without a probed or declared endpoint publish null (card shows N/A)");
+     "nodes without a probed endpoint publish null (card shows N/A)");
 }
 
 // 22) signature gate robustness, from real listings found by the store audit.

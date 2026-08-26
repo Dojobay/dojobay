@@ -28,7 +28,6 @@ export const rebuild = mod.rebuild;
 export const displayPaymentCode = mod.displayPaymentCode;
 export const effectiveVersion = mod.effectiveVersion;
 export const effectiveIndexer = mod.effectiveIndexer;
-export const declaredIndexer = mod.declaredIndexer;
 export const retireUnlisted = mod.retireUnlisted;
 
 // Run the rebuild when invoked directly (the .ts module's own check does not

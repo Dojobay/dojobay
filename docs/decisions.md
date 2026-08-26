@@ -6,6 +6,40 @@ number and a title. Comments in the code hold present-tense invariants only;
 anything in the past tense belongs here. `README.md` is for operators and
 `CONTRIBUTING.md` is for people changing the code, and neither takes postmortems.
 
+## 2026-08-26 · 106 · A card's Electrum endpoint is probed or absent
+
+`effectiveIndexer` returned `detected || declared`, so a URL an operator's Dojo
+export happened to carry was published when no probe had read one. The argument
+for removing it was that `payload` is published wholesale for visitors to pair
+with, and `canonicalPairing` covers `pairing` and `explorer` only, so a declared
+indexer rode inside an attested object unattested. The argument against was that
+new listings would show N/A until their first probe.
+
+Measurement settled it rather than reasoning. On the live instance, 15 records in
+the store and 14 published nodes, with zero carrying a declared indexer and zero
+cards on the fallback. Nothing was relying on it, so removing it changed no card.
+The fallback was also worse than "until the first probe" implied: `update.mjs`
+only overwrites `detected_indexer` when a probe actually reads a URL, and
+deliberately so, since a node down for one cycle should not flip its card to N/A.
+A node that is healthy and simply exposes no Electrum endpoint therefore never
+acquires a detected value, and its declared URL was published indefinitely,
+indistinguishable from a node awaiting its first probe. The comment claiming N/A
+meant "no exposed indexer" was unreachable for any listing that declared one.
+
+Removing it turned up the wider hole. The submission gate rebuilt `payload` as
+`{ pairing, explorer }` plus a validated indexer, but the pairing-update endpoint
+assigned `rec.payload = body.payload` wholesale, and `validatePayload` does not
+reject unknown keys. An operator updating their pairing details could therefore
+store arbitrary unsigned JSON inside the object the directory publishes as the
+signed artefact. Both paths now store exactly the two keys the signature covers,
+which is the invariant that was assumed all along and never enforced.
+
+Four places had to change for one behaviour: `effectiveIndexer`, the value
+`toPublicNode` seeds, the submission and pairing gates, and `indexerUrl` in
+`app.js`, which re-derived the endpoint from the payload client-side so a stale
+`dojos.json` kept working. Changing the server alone would have left the same
+URL on the same cards.
+
 ## 2026-08-25 · 103 · Where every published field comes from
 
 The directory's whole argument is that its claims are checkable, so each of the
@@ -33,20 +67,15 @@ site-controlled means this instance computed it.
 | `operator_domain` | operator-signed | and domain-proven: a TXT record naming the code, plus a signed statement naming the domain |
 | `operator_domain_proof` | operator-signed | the two halves published so a reader can check them without trusting the badge |
 | `block_height` | node-reported | from the probe |
-| `indexer_url` | mixed | `effectiveIndexer`: node-reported when probed, otherwise the declared URL, which is **not signed** |
+| `indexer_url` | node-reported | `effectiveIndexer`: the probed endpoint or null (see 106; a declared URL is no longer a fallback) |
 | `checked_at` | site-controlled | when this instance last probed |
-| `payload` | operator-signed | except `payload.indexer`, added at submission outside the signed material |
+| `payload` | operator-signed | exactly `pairing` and `explorer`, which is exactly what the signature covers (see 106) |
 | `signed` | operator-signed | the block itself |
 
-Two rows are weaker than the cards imply. `payload` is published wholesale
-because a visitor needs it byte for byte to pair, and the signature covers
-`pairing` and `explorer` only, so an `indexer` entry rides inside an otherwise
-attested object without being attested. `indexer_url` inherits that through the
-declared fallback, which is the only field on a card that can show an endpoint
-neither signed for nor probed. Dropping the fallback would need three changes,
-not one: `effectiveIndexer`, the initial value in `toPublicNode`, and
-`indexerUrl` in `app.js`, which re-derives the same URL from the payload
-client-side so that a stale `dojos.json` keeps working.
+Two rows were weaker than the cards implied when this was written, both fixed in
+106: `payload` could carry an unsigned `indexer` entry inside an otherwise
+attested object, and `indexer_url` inherited that through the declared fallback.
+The table above reflects the code after that change.
 
 The comment at `build-public.ts:83` gave "a Dojo older than v1.27.0" as the
 reason the declared fallback exists. The version gate refuses new listings below

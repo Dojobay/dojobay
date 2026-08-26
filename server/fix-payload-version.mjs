@@ -112,7 +112,9 @@ const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backup = `${FILE}.bak-${stamp}`;
 await copyFile(FILE, backup);
 for (const { rec, to } of planned) doc.submissions[rec.id].payload.pairing.version = to;
-const tmp = FILE + ".tmp";
+// A temporary name no other writer can take; see build-public.ts. One write per
+// run, so the pid alone distinguishes it.
+const tmp = `${FILE}.${process.pid}.tmp`;
 await writeFile(tmp, JSON.stringify(doc, null, 2) + "\n");
 await rename(tmp, FILE);
 

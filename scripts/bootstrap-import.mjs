@@ -37,10 +37,15 @@ async function torFetchJSON(onionHost, urlPath, cfg, timeoutMs = 30000) {
   return JSON.parse(res.body);
 }
 
+// A temporary name no other writer can take; see server/build-public.ts. The
+// counter matters as well as the pid: one import writes the seed, both history
+// files and the avatars in quick succession.
+let tmpSeq = 0;
 async function writeJSONAtomic(p, obj) {
   await mkdir(path.dirname(p), { recursive: true });
-  await writeFile(p + ".tmp", JSON.stringify(obj, null, 2) + "\n");
-  await rename(p + ".tmp", p);
+  const tmp = `${p}.${process.pid}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
+  await writeFile(tmp, JSON.stringify(obj, null, 2) + "\n");
+  await rename(tmp, p);
 }
 
 // fetchers are injectable for the self-test: fetchDoc(urlPath) -> object,

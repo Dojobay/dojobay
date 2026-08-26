@@ -1282,7 +1282,15 @@ await check("the probe defaults are gentle enough for a domestic line", async ()
 // with Persistent=true, and it collided with the installer's own first probe
 // cycle over data/dojos.json.tmp.
 await check("no two writers can take the same temporary file", async () => {
-  for (const f of ["./update.mjs", "../server/build-public.ts", "../server/store.ts"]) {
+  // Every file that renames a temporary over a real one, not just the three
+  // the updater collision was found in. The maintenance tools refuse to run
+  // while the service holds the store, which makes a collision need two tools
+  // at once rather than a tool and the backend; that is a narrower window, not
+  // a closed one, and the fix costs one interpolation.
+  for (const f of ["./update.mjs", "./bootstrap-import.mjs",
+                   "../server/build-public.ts", "../server/store.ts",
+                   "../server/apply-signed-payload.ts", "../server/fix-payload-version.mjs",
+                   "../server/remove-listing.ts"]) {
     const src = readFileSync(new URL(f, import.meta.url).pathname, "utf8");
     assert.ok(!/["'`]\s*\+\s*["']\.tmp["']|\+ "\.tmp"/.test(src),
       `${f} no longer builds a temporary name by appending .tmp to the target`);
@@ -1290,11 +1298,14 @@ await check("no two writers can take the same temporary file", async () => {
       `${f} includes the pid, so two processes cannot collide`);
   }
 
-  // and the names really are distinct within a process as well, since one run
-  // writes several files in quick succession
-  const upd = readFileSync(new URL("./update.mjs", import.meta.url).pathname, "utf8");
-  assert.ok(/tmpSeq = \(tmpSeq \+ 1\)/.test(upd),
-    "a counter as well as the pid, so successive writes in one process differ");
+  // and the names really are distinct within a process as well, wherever one
+  // run writes several files in quick succession
+  for (const f of ["./update.mjs", "./bootstrap-import.mjs",
+                   "../server/remove-listing.ts"]) {
+    const src = readFileSync(new URL(f, import.meta.url).pathname, "utf8");
+    assert.ok(/tmpSeq = \(tmpSeq \+ 1\)/.test(src),
+      `${f} uses a counter as well as the pid, so successive writes in one process differ`);
+  }
 });
 
 // The installer starts the timer AFTER its own first cycle. Enabling it with

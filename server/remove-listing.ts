@@ -60,9 +60,14 @@ if (APPLY && !FORCE) {
 const readJSON = async (p: string, fallback: any) => {
   try { return JSON.parse(await readFile(p, "utf8")); } catch { return fallback; }
 };
+// A temporary name no other writer can take; see build-public.ts. The counter
+// matters as well as the pid, because one run rewrites both the store and the
+// seed in quick succession.
+let tmpSeq = 0;
 const writeAtomic = async (p: string, doc: any) => {
-  await writeFile(p + ".tmp", JSON.stringify(doc, null, 2) + "\n");
-  await rename(p + ".tmp", p);
+  const tmp = `${p}.${process.pid}.${(tmpSeq = (tmpSeq + 1) % 1e6)}.tmp`;
+  await writeFile(tmp, JSON.stringify(doc, null, 2) + "\n");
+  await rename(tmp, p);
 };
 
 const store = await readJSON(STORE, { submissions: {} });

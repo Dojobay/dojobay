@@ -166,7 +166,10 @@ for (const p of planned) {
   rec.signed = p.signed;
   rec.updated_at = nowIso;
 }
-const tmp = FILE + ".tmp";
+// A temporary name no other writer can take; see build-public.ts. This tool
+// refuses to run while the service holds the store, so a collision needs two
+// maintenance tools at once, which is exactly the case nobody plans for.
+const tmp = `${FILE}.${process.pid}.tmp`;
 await writeFile(tmp, JSON.stringify(doc, null, 2) + "\n");
 await rename(tmp, FILE);
 

@@ -83,7 +83,7 @@ export function effectiveVersion(detected: string | null | undefined, pairing: s
 // A URL declared in a submitted payload is NOT a fallback and must not become
 // one: nothing signs it, and a node that is healthy but exposes no indexer
 // never acquires a detected value, so a declared URL would be published for
-// good. Decision 106 has the reasoning.
+// good. docs/decisions.md, entry 00d07ae, has the reasoning.
 //
 // Null means the card shows N/A, which is a real answer (no exposed indexer)
 // rather than an omission, and is now reachable for every node.

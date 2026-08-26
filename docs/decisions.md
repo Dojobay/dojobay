@@ -1,12 +1,15 @@
 # Decisions
 
 Why things are shaped as they are, what went wrong, and what was tried and
-rejected. Newest first, one entry per decision, headed with the date, the update
-number and a title. Comments in the code hold present-tense invariants only;
-anything in the past tense belongs here. `README.md` is for operators and
+rejected. Newest first, one entry per decision, headed with the date, the short
+hash of the commit it describes, and a title. That commit must already be on
+`main`: the signing rebase rewrites the hash of anything not yet pushed, so an
+entry naming a commit from its own push would name a hash that no longer exists.
+Comments in the code hold present-tense invariants only; anything in the past
+tense belongs here. `README.md` is for operators and
 `CONTRIBUTING.md` is for people changing the code, and neither takes postmortems.
 
-## 2026-08-26 · 106 · A card's Electrum endpoint is probed or absent
+## 2026-08-26 · 00d07ae · A card's Electrum endpoint is probed or absent
 
 `effectiveIndexer` returned `detected || declared`, so a URL an operator's Dojo
 export happened to carry was published when no probe had read one. The argument
@@ -38,9 +41,10 @@ Four places had to change for one behaviour: `effectiveIndexer`, the value
 `toPublicNode` seeds, the submission and pairing gates, and `indexerUrl` in
 `app.js`, which re-derived the endpoint from the payload client-side so a stale
 `dojos.json` kept working. Changing the server alone would have left the same
-URL on the same cards.
+URL on the same cards, which is why the client half landed separately in
+`43900bc`.
 
-## 2026-08-25 · 103 · Where every published field comes from
+## 2026-08-25 · a4bf4d1 · Where every published field comes from
 
 The directory's whole argument is that its claims are checkable, so each of the
 nineteen keys in `PUBLIC_NODE_KEYS` is one of four things, and a reader should be
@@ -67,13 +71,13 @@ site-controlled means this instance computed it.
 | `operator_domain` | operator-signed | and domain-proven: a TXT record naming the code, plus a signed statement naming the domain |
 | `operator_domain_proof` | operator-signed | the two halves published so a reader can check them without trusting the badge |
 | `block_height` | node-reported | from the probe |
-| `indexer_url` | node-reported | `effectiveIndexer`: the probed endpoint or null (see 106; a declared URL is no longer a fallback) |
+| `indexer_url` | node-reported | `effectiveIndexer`: the probed endpoint or null (see `00d07ae`; a declared URL is no longer a fallback) |
 | `checked_at` | site-controlled | when this instance last probed |
-| `payload` | operator-signed | exactly `pairing` and `explorer`, which is exactly what the signature covers (see 106) |
+| `payload` | operator-signed | exactly `pairing` and `explorer`, which is exactly what the signature covers (see `00d07ae`) |
 | `signed` | operator-signed | the block itself |
 
 Two rows were weaker than the cards implied when this was written, both fixed in
-106: `payload` could carry an unsigned `indexer` entry inside an otherwise
+`00d07ae`: `payload` could carry an unsigned `indexer` entry inside an otherwise
 attested object, and `indexer_url` inherited that through the declared fallback.
 The table above reflects the code after that change.
 
@@ -83,7 +87,7 @@ reason the declared fallback exists. The version gate refuses new listings below
 remains is the gap between approval and the first successful probe, and listings
 that predate the gate, which are not re-judged when their operator edits them.
 
-## 2026-08-25 · 102 · The gate compares payload structure, not canonical bytes
+## 2026-08-25 · b6c5d4d · The gate compares payload structure, not canonical bytes
 
 Consolidating the canonical pairing string into `crypto.ts` was justified by the
 belief that divergent copies would produce a signature accepted at submission and

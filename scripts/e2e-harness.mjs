@@ -43,9 +43,13 @@ const DOJOS = {
         verified_at: "2026-07-01T00:00:00Z" },
       payload: { pairing: { type: "dojo.api", version: "1.28.0", apikey: "fixturekey",
         url: "http://" + "a".repeat(56) + ".onion/v2" } } },
+    // The payload carries an indexer in both shapes, the way a pre-106
+    // dojos.json did, and there is no indexer_url. The card must ignore it.
     { id: "mainnet-freshnode", network: "mainnet", name: "freshnode", paynym: "+fresh",
       status: "active", block_height: 906000, checked_at: "2026-07-14 00:00",
-      payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "d".repeat(56) + ".onion/v2" } } },
+      payload: { pairing: { type: "dojo.api", version: "1.28.0", url: "http://" + "d".repeat(56) + ".onion/v2" },
+        indexer: { type: "indexer", url: "ssl://" + "d".repeat(56) + ".onion:50002" },
+        services: [{ type: "indexer", url: "ssl://" + "d".repeat(56) + ".onion:50002" }] } },
     { id: "mainnet-deadnode", network: "mainnet", name: "deadnode", paynym: "+dead",
       status: "inactive", block_height: null, checked_at: "2026-07-14 00:00",
       // has an apikey but no Electrum endpoint: the popup must skip that section
@@ -300,6 +304,14 @@ assert.strictEqual(elBtn.getAttribute("data-v"), "tcp://" + "i".repeat(56) + ".o
 elBtn.dispatchEvent(new window.Event("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 20));
 assert.strictEqual(window.__copied, "tcp://" + "i".repeat(56) + ".onion:50001", "clicking copy puts the TCP string on the clipboard");
+
+// A payload carrying an indexer is not a source for this row. Nothing publishes
+// one any more, but an older dojos.json can still be in a visitor's cache, and
+// an endpoint nobody probed must not be shown as though it had been.
+const declaredOnly = [...doc.querySelectorAll('.card[data-id="mainnet-freshnode"] .ep')].find((e) => /Electrum/.test(e.textContent));
+assert.ok(declaredOnly, "the node whose payload declares an indexer rendered a card");
+assert.strictEqual(declaredOnly.querySelector(".u").textContent.trim(), "N/A",
+  "an indexer declared in the payload is ignored: the row reads N/A");
 
 const kRow = [...doc.querySelectorAll('.card[data-id="mainnet-kilombino"] .ep')].find((e) => /Electrum/.test(e.textContent));
 assert.ok(kRow, "a node with no endpoint still shows an Electrum row");

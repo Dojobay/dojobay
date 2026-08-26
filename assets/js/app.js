@@ -170,17 +170,14 @@ async function loadJSON(url){
       + `<button class="copybtn" data-act="copyurl" data-v="${esc(u)}">copy</button></div>`;
   }
 
-  // Electrum/indexer endpoint for the card. build-public.mjs publishes
-  // indexer_url (what the updater read from the node's /support/services, else
-  // whatever the pairing payload declared); the payload shapes are still read
-  // as a fallback so a stale dojos.json keeps working.
+  // Electrum/indexer endpoint for the card: whatever build-public.mjs published
+  // as indexer_url, which is only ever what the updater read from the node's
+  // /support/services. The payload shapes are deliberately NOT read as a
+  // fallback: nothing signs them, so an endpoint nobody probed must never be
+  // rendered as though it had been, however old the file being read is.
   function indexerUrl(n){
     const ok = (u) => (typeof u === "string" && /^(tcp|ssl):\/\/[a-z2-7]{56}\.onion:\d{2,5}(\/.*)?$/i.test(u)) ? u : null;
-    if(ok(n.indexer_url)) return n.indexer_url;
-    const p = n.payload || {};
-    let c = p.indexer;
-    if((!c || !c.url) && Array.isArray(p.services)) c = p.services.find(s => s && s.type === "indexer");
-    return ok(c && c.url);
+    return ok(n.indexer_url);
   }
 
   // ---- 90-day daily history (lazily fetched once, cached) -------------------

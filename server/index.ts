@@ -697,22 +697,41 @@ route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
 // Can this process restart its own service?
 //
 // The last step of a self-update is `systemctl restart dojobay-server.service`,
-// run as the service account, and nothing in the installer grants that account
-// permission to do it. Without the privilege an update applies perfectly and
-// then stops on its final line: new code on disk, old process still serving it,
-// which looks exactly like an update that did nothing.
+// run as the service account. Without permission an update applies perfectly
+// and then stops on its final line: new code on disk, old process still serving
+// it, which looks exactly like an update that did nothing.
 //
 // Asked BEFORE the update rather than reported after, because a precondition
 // that is invisible until the moment it matters is the shape of failure this
 // project keeps producing: the timer that was enabled but not scheduled, the
-// chown that had already happened, the account that did not exist. --dry-run
-// asks systemd whether the transaction would be permitted and changes nothing.
-async function canRestartService(): Promise<boolean> {
+// chown that had already happened, the account that did not exist.
+//
+// Asked of polkit, because polkit is what decides. systemctl talks to systemd
+// over D-Bus and systemd asks polkit whether this account may manage that unit,
+// passing the unit and the verb as details, so pkcheck with the same action and
+// the same two details asks the identical question and changes nothing.
+// Interaction is deliberately not allowed: an unattended restart has nobody to
+// answer a prompt, so "would be permitted if a human authenticated" is a no.
+// pkcheck exits 0 authorised, 1 refused, 2 needing authentication, 3 dismissed.
+//
+// Three answers, not two. Where pkcheck is absent the honest report is that we
+// do not know: the previous version of this check ran `systemctl restart
+// --dry-run`, which returns before making any bus call and therefore returns
+// success whatever the account may do, so the panel promised a restart it had
+// never tested and its warning could not fire.
+type RestartPermission = "yes" | "no" | "unknown";
+async function canRestartService(): Promise<RestartPermission> {
   try {
-    await execFileP("systemctl", ["restart", "--dry-run", "dojobay-server.service"],
-      { timeout: 5000 });
-    return true;
-  } catch { return false; }
+    await execFileP("pkcheck", ["--action-id", "org.freedesktop.systemd1.manage-units",
+      "--process", String(process.pid),
+      "--details", "unit", "dojobay-server.service",
+      "--details", "verb", "restart"], { timeout: 5000 });
+    return "yes";
+  } catch (e: any) {
+    // ENOENT is pkcheck missing; 127 is a shell reporting the same thing.
+    if (e && (e.code === "ENOENT" || e.code === 127)) return "unknown";
+    return typeof e?.code === "number" ? "no" : "unknown";
+  }
 }
 
 route("GET", /^\/api\/admin\/updates$/, async (req, res) => {

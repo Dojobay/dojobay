@@ -1001,20 +1001,43 @@ console.log("  ok - footer source-download icon links the instance's own code zi
 // which looks exactly like an update that did nothing.
 {
   const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
-  const block = app.slice(app.indexOf("const cannotRestart ="), app.indexOf("const note ="));
-  assert.ok(/u\.canRestart === false/.test(block),
+  // From where the warning's own variables start, not from cannotRestart: the
+  // service-account name is computed one line above it and would otherwise fall
+  // outside the slice and read as missing.
+  const block = app.slice(app.indexOf("const svc = esc(u.serviceUser"), app.indexOf("const note ="));
+  assert.ok(/u\.canRestart === "no"/.test(block),
     "the panel warns only when the server has actually established it cannot restart");
-  assert.ok(/sudoers\.d\/dojobay-restart/.test(block), "and gives the command that grants it");
+  assert.ok(/u\.canRestart === "unknown"/.test(block),
+    "and says so separately when it could not find out, rather than promising a restart");
+  assert.ok(!/canRestart === false/.test(block),
+    "the boolean shape is gone: a check with three answers cannot be read as two");
+  assert.ok(/polkit-1\/rules\.d\/49-dojobay-restart\.rules/.test(block),
+    "and gives the command that grants it");
+  assert.ok(!/sudoers/.test(block),
+    "not a sudoers line: nothing calls sudo, so that granted a privilege on a path no code takes");
   assert.ok(/u\.serviceUser/.test(block),
     "naming the account this instance really runs as, since the two machines differ");
   assert.ok(/update by hand/.test(block), "with the alternative for anyone who would rather not");
 
   const idx = readFileSync(REPO + "/server/index.ts", "utf8");
-  assert.ok(/"restart", "--dry-run", "dojobay-server\.service"/.test(idx),
-    "the server asks systemd whether the restart would be permitted");
-  assert.ok(/--dry-run/.test(idx) && !/\["restart", "dojobay-server\.service"\]/.test(idx),
-    "and only ever as a dry run from the check: nothing here restarts anything");
-  console.log("  ok - the panel says the restart is impossible before you ask for one");
+  assert.ok(/"pkcheck"/.test(idx) && /org\.freedesktop\.systemd1\.manage-units/.test(idx),
+    "the server asks polkit, which is what actually decides");
+  assert.ok(/"--details", "unit", "dojobay-server\.service"/.test(idx)
+    && /"--details", "verb", "restart"/.test(idx),
+    "passing the same two details systemd passes, so it is the identical question");
+  assert.ok(!/--allow-user-interaction/.test(idx),
+    "non-interactive: an unattended restart has nobody to answer a prompt");
+  // The old check ran `systemctl restart --dry-run`, which returns before any
+  // bus call and so before any authorisation, making it a check that could
+  // never fail. Its absence is asserted, not just the new call's presence.
+  // Quoted, because that is how an argument reaches execFile. Matching the bare
+  // word would fire on the comment above the check that explains why the flag
+  // is not used, which is a test dictating what a comment may say.
+  assert.ok(!/"--dry-run"/.test(idx),
+    "and not systemctl --dry-run, which returns success without asking anyone");
+  assert.ok(!/\["restart", "dojobay-server\.service"\]/.test(idx),
+    "nothing in the check restarts anything");
+  console.log("  ok - the panel says the restart is impossible, or unknown, before you ask for one");
 }
 
 // The card title is text, never a link. An operator's one claim of identity on

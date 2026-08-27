@@ -1386,13 +1386,27 @@ async function loadJSON(url){
     // update applies and then stops on its last line, leaving new code on disk
     // and the old process serving it, which is indistinguishable from nothing
     // having happened.
-    const cannotRestart = u.canRestart === false
+    // Three answers, and "unknown" is not "yes". The remedy is a polkit rule
+    // because nothing calls sudo: apply-update.mjs runs systemctl directly, so
+    // a sudoers line, which this used to print, grants a privilege on a path no
+    // code takes.
+    const svc = esc(u.serviceUser || "<your service user>");
+    const cannotRestart = u.canRestart === "no"
       ? '<p class="upd-warn"><b>This instance cannot restart its own service.</b> '
         + 'An update will install the new code and then stop, leaving the old process running it. '
         + 'Grant the permission first, on the box:<br>'
-        + '<code class="mono">echo \'' + esc(u.serviceUser || "<your service user>") + ' ALL=(root) NOPASSWD: /usr/bin/systemctl restart dojobay-server.service\' '
-        + '| sudo tee /etc/sudoers.d/dojobay-restart &amp;&amp; sudo chmod 0440 /etc/sudoers.d/dojobay-restart</code>'
-        + '<br>Or update by hand, and restart the service yourself afterwards.</p>'
+        + '<code class="mono">sudo cp deploy/polkit-restart.rules.example '
+        + '/etc/polkit-1/rules.d/49-dojobay-restart.rules</code>'
+        + '<br>That file grants ' + svc + ' permission to restart this one service and nothing else. '
+        + 'Check the account named inside it matches ' + svc + '. '
+        + 'Or update by hand, and restart the service yourself afterwards.</p>'
+      : u.canRestart === "unknown"
+      ? '<p class="upd-warn"><b>Whether this instance can restart its own service is unknown.</b> '
+        + 'polkit decides that, and <code class="mono">pkcheck</code> is not installed here, so it '
+        + 'could not be asked. If the permission is missing, an update will install the new code and '
+        + 'then stop, leaving the old process running it. Either install polkit '
+        + '(<code class="mono">apt install polkitd</code>) and re-check, or update by hand and restart '
+        + 'the service yourself afterwards.</p>'
       : "";
     const note = '<p class="upd-exp-note">This fetches over Tor, verifies what it fetched, keeps a full copy '
       + 'of the current code under <code>data/backups/</code>, and restarts the service. If the restart does '

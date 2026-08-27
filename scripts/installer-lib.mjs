@@ -111,6 +111,53 @@ export function renderUpdateUnit(template, { webRoot, user = SERVICE_USER }) {
     .replace(/WorkingDirectory=.*/g, `WorkingDirectory=${webRoot}`)
     .replace(/ExecStart=.*/g, `ExecStart=/usr/bin/env node ${path.join(webRoot, "scripts", "update.mjs")}`);
 }
+// ---- reconciling what is installed against what ships -----------------------
+// Nothing under /etc is touched by a deploy or a self-update: the units, the
+// nginx site and the polkit rule are copied into place once and then drift. To
+// compare them the renderer has to be run again, which needs the values the
+// operator gave at install time, and those are not written down anywhere.
+//
+// They do not need to be. Every value a renderer substitutes is recoverable
+// from the file it produced: the account from User=, the web root from
+// WorkingDirectory= or ExecStart=, the onion and the admin code from their own
+// Environment= lines. Reading them back and rendering the current template with
+// them means an operator's own configuration is carried forward by construction
+// rather than presented as drift, and it works on a machine that predates the
+// installer and never recorded anything.
+//
+// The admin payment code passes through this function. It is published beside
+// every listing and is not a secret, but it is still an operator's identity, so
+// it is recovered and re-rendered, never logged and never written anywhere new.
+export function recoverUnitValues(installed) {
+  const first = (re) => { const m = installed.match(re); return m ? m[1].trim() : null; };
+  const user = first(/^User=(.*)$/m);
+  const wd = first(/^WorkingDirectory=(.*)$/m);
+  const exec = first(/^ExecStart=.*?node\s+(\S+)\s*$/m);
+  // The backend unit's WorkingDirectory is <webRoot>/server and the updater's is
+  // <webRoot> itself, so the ExecStart path is the reliable one: both name a
+  // file under the web root, at a known depth.
+  let webRoot = null;
+  if (exec && /\/server\/index\.mjs$/.test(exec)) webRoot = exec.replace(/\/server\/index\.mjs$/, "");
+  else if (exec && /\/scripts\/update\.mjs$/.test(exec)) webRoot = exec.replace(/\/scripts\/update\.mjs$/, "");
+  else if (wd) webRoot = wd.replace(/\/server$/, "");
+  return {
+    user: user || null,
+    webRoot: webRoot || null,
+    baseUrl: first(/^Environment=BASE_URL=(.*)$/m),
+    adminCode: first(/^Environment=ADMIN_PAYMENT_CODES=(.*)$/m),
+  };
+}
+
+// What the reconciler concluded about one file, with the reasoning kept out of
+// the caller. "absent" is not "differs": a file that was never installed is a
+// question about whether this machine wants it, and the polkit rule is
+// legitimately absent on any instance whose operator declined it.
+export function planSystemFile({ installed, shipped }) {
+  if (installed === null || installed === undefined) return { state: "absent", changed: false };
+  if (installed === shipped) return { state: "same", changed: false };
+  return { state: "differs", changed: true };
+}
+
 export function renderNginx(template, { webRoot }) {
   return template.replace(/root \/var\/www\/dojobay;/g, `root ${webRoot};`);
 }

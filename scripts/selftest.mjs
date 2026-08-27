@@ -1016,6 +1016,87 @@ await check("the restart rule grants exactly one verb on one unit to the service
     "read before the distribution's own 50-default.rules");
 });
 
+// Reconciling what is installed under /etc against what ships here.
+//
+// The operator's own settings are not drift, and the tool proves that by
+// recovering them from the installed file and rendering them back in. If that
+// stopped working, every reconcile on every machine would report the operator's
+// own onion, admin code and paths as changes to be overwritten, which is the
+// one outcome that would make this tool worse than not having it.
+await check("reconcile carries an operator's own settings forward rather than reporting them as drift", async () => {
+  const lib = await import("./installer-lib.mjs");
+  const { renderServerUnit, renderUpdateUnit, recoverUnitValues, planSystemFile } = lib;
+  const tpl = readFileSync(new URL("./dojobay-server.service", import.meta.url).pathname, "utf8");
+
+  // The live VPS's real shape: an account and a web root that are not the
+  // installer's defaults, which is the case the recovery exists for.
+  const v = { webRoot: "/var/www/dojobay", user: "deploy",
+    baseUrl: "http://" + "d".repeat(56) + ".onion", adminCode: "PM8" + "x".repeat(113) };
+  const installed = renderServerUnit(tpl, v);
+
+  const back = recoverUnitValues(installed);
+  assert.strictEqual(back.user, "deploy", "the account is read back from User=");
+  assert.strictEqual(back.webRoot, "/var/www/dojobay", "and the web root from ExecStart, not guessed");
+  assert.strictEqual(back.baseUrl, v.baseUrl, "the onion is read back exactly");
+  assert.strictEqual(back.adminCode, v.adminCode, "and so is the admin code");
+
+  // The round trip is the whole claim: render, recover, render again, identical.
+  assert.strictEqual(renderServerUnit(tpl, back), installed,
+    "rendering with the recovered values reproduces the installed file byte for byte");
+  assert.strictEqual(planSystemFile({ installed, shipped: renderServerUnit(tpl, back) }).state, "same",
+    "so an unmodified machine reconciles as matching, whatever it was configured with");
+
+  // A machine that predates the installer still has to be readable, since that
+  // is the one this was written for.
+  const updTpl = readFileSync(new URL("./dojobay-update.service", import.meta.url).pathname, "utf8");
+  assert.strictEqual(recoverUnitValues(renderUpdateUnit(updTpl, v)).webRoot, "/var/www/dojobay",
+    "the updater unit's web root comes back too, though its WorkingDirectory differs from the backend's");
+
+  // Absent is a third answer. The polkit rule is legitimately missing on any
+  // instance whose operator declined it, and reporting that as a difference
+  // would train people to apply without reading.
+  assert.strictEqual(planSystemFile({ installed: null, shipped: "x" }).state, "absent", "absent is not differs");
+  assert.strictEqual(planSystemFile({ installed: "a", shipped: "b" }).state, "differs", "and differs is differs");
+});
+
+// The reconciler's file list and the installer's writes are two statements of
+// the same thing, and the failure mode if they diverge is silent: a file the
+// installer puts under /etc that the reconciler does not know about drifts
+// forever without appearing in any report.
+await check("the reconciler knows every system file the installer writes", async () => {
+  const rec = readFileSync(new URL("./reconcile-system.mjs", import.meta.url).pathname, "utf8");
+  const inst = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  // Two exclusions, both deliberate. sites-enabled is a symlink to
+  // sites-available, so reconciling it would compare a file against itself.
+  // torrc is merged into rather than rendered: an operator's torrc carries
+  // hidden services that are none of this project's business, which is why the
+  // installer edits a marked block and the uninstaller removes only that block.
+  const NOT_OURS = /sites-enabled|\/etc\/tor\/torrc/;
+  const paths = [...inst.matchAll(/"(\/etc\/[^"]+)"/g)].map((m) => m[1])
+    .filter((p) => !NOT_OURS.test(p));
+  assert.ok(paths.length >= 4, `the installer writes several files under /etc (found ${paths.length})`);
+
+  // Compared exactly, against the paths the reconciler declares, not by
+  // searching its source for the string. A substring search passed when the
+  // nginx entry was renamed to /etc/nginx/sites-available/dojobay-renamed,
+  // because the old path is a prefix of the new one: the test agreed that a
+  // file was covered while the tool no longer touched it.
+  const covered = new Set([...rec.matchAll(/installed: "(\/etc\/[^"]+)"/g)].map((m) => m[1]));
+  for (const p of new Set(paths)) {
+    assert.ok(covered.has(p), `the reconciler covers ${p} (it declares: ${[...covered].join(", ")})`);
+  }
+  // POLKIT_RULE_PATH reaches the installer through the constant rather than as
+  // a literal, so it is checked by name instead.
+  assert.ok(/POLKIT_RULE_PATH/.test(rec) && /POLKIT_RULE_PATH/.test(inst),
+    "including the polkit rule, which both reach through the shared constant");
+
+  assert.ok(/const APPLY = argv\.includes\("--apply"\)/.test(rec), "it is a dry run unless asked otherwise");
+  assert.ok(rec.indexOf('execFileP("nginx", ["-t"])') < rec.indexOf('["reload", "nginx"]'),
+    "and nginx is validated before it is reloaded, never after");
+  assert.ok(/copyFile\(dest, `\$\{dest\}\.\$\{stamp\}\.bak`\)/.test(rec),
+    "the file it overwrites is kept, since the installed copy is the only record of the operator's configuration");
+});
+
 // An install used to finish and leave the operator looking at another
 // instance's numbers: the timer's first run is boot-relative, and nothing had
 // probed even once, so there were no block heights and no avatars because

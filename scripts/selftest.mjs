@@ -1093,8 +1093,56 @@ await check("the reconciler knows every system file the installer writes", async
   assert.ok(/const APPLY = argv\.includes\("--apply"\)/.test(rec), "it is a dry run unless asked otherwise");
   assert.ok(rec.indexOf('execFileP("nginx", ["-t"])') < rec.indexOf('["reload", "nginx"]'),
     "and nginx is validated before it is reloaded, never after");
-  assert.ok(/copyFile\(dest, `\$\{dest\}\.\$\{stamp\}\.bak`\)/.test(rec),
+  assert.ok(/copyFile\(dest, path\.join\(backupDir/.test(rec),
     "the file it overwrites is kept, since the installed copy is the only record of the operator's configuration");
+  // Kept out of the unit directory. systemd ignores a file without a unit
+  // suffix, so a .bak beside a unit is inert, but they accumulate a set per run
+  // in a directory an operator reads when something is already wrong.
+  assert.ok(/\/var\/backups\/dojobay\/system-/.test(rec) && !/\$\{dest\}\.\$\{stamp\}\.bak/.test(rec),
+    "and kept in /var/backups rather than beside the units");
+
+  // A timer whose file changed keeps the old schedule until it is restarted,
+  // and daemon-reload does not do that. Nothing about the machine looks wrong
+  // meanwhile: the timer is enabled, the file on disk is right, and the
+  // schedule being enforced is the previous one.
+  assert.ok(/\["restart", t\]/.test(rec) && /endsWith\("\.timer"\)/.test(rec),
+    "a rewritten timer is restarted rather than left for somebody to remember");
+  assert.ok(/NextElapseUSecRealtime/.test(rec),
+    "and its next elapse is read back, because a timer with none looks enabled and never fires");
+  assert.ok(!/restart it yourself when it suits you[\s\S]{0,80}dojobay-server\.service/.test(rec)
+    && /services\.join\(" "\)/.test(rec),
+    "units needing a restart are named individually, not assumed to be the backend alone");
+});
+
+// The confirmation prompt cannot be answered by something the operator did not
+// mean as an answer.
+//
+// Pasting a block of commands leaves the later lines queued on stdin, and a
+// prompt that reads a line takes the next one. On the live VPS that queued line
+// began with s and read as no; one beginning with y would have approved an
+// overwrite of the files under /etc. Draining once fixes nothing, which is the
+// point of this test: the first attempt did exactly that and a queued "yes"
+// still wrote, because the bytes were in the terminal buffer and had not
+// reached the process, so the read returned null.
+await check("a line queued before the prompt cannot approve an overwrite", async () => {
+  const rec = readFileSync(new URL("./reconcile-system.mjs", import.meta.url).pathname, "utf8");
+  const fn = rec.slice(rec.indexOf("async function confirm("), rec.indexOf("async function main("));
+
+  assert.ok(/setTimeout\(r, \d{3}\)/.test(fn),
+    "input is discarded for a settle window before the question is asked");
+  assert.ok(fn.indexOf("setTimeout") < fn.indexOf("createInterface"),
+    "and the window closes before readline is attached, not after");
+  assert.ok(!/while \(process\.stdin\.read\(\) !== null\)/.test(fn),
+    "not a single drain, which discards nothing because the bytes have not arrived yet");
+  assert.ok(/\[y\/N\]/.test(fn) && /\/\^y\(es\)\?\$\/i/.test(fn),
+    "and the default stays no, since the settle window is a margin rather than a guarantee");
+
+  // These are checks on the source, and they are weaker than the thing they
+  // stand for: they would all pass if the window were in place and the answer
+  // came from somewhere else. The behaviour was proven on a real pty during
+  // development, queuing a line reading "yes" before the prompt and a genuine
+  // "y" three seconds after it, and it is not in this suite because the suite
+  // cannot assume a terminal exists. If this ever needs re-proving, that is how.
 });
 
 // An install used to finish and leave the operator looking at another

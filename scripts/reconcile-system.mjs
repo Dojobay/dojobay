@@ -134,6 +134,30 @@ async function confirm(question) {
     console.log("  (not a terminal, and --yes was not given: nothing written)");
     return false;
   }
+  // Discard anything already queued on stdin before asking.
+  //
+  // An operator pasting a block of commands leaves the later lines buffered,
+  // and a plain read would take the next one as the answer. A queued line
+  // beginning with y would then approve an overwrite of the files under /etc
+  // that nobody meant as an answer. Observed on the live VPS, where the queued
+  // line happened to start with s and read as no.
+  //
+  // A settle window, not a single read. Draining once discards nothing,
+  // because the bytes are still in the terminal's buffer and have not reached
+  // this process yet: an early read returns null and the paste is then handed
+  // to readline as the answer. Verified on a pty, where a queued line reading
+  // "yes" approved an overwrite through a drain written that way.
+  //
+  // So: let stdin flow, throw away everything that arrives for a moment, and
+  // only then ask. Pasted lines are already queued and arrive in milliseconds;
+  // a person answering a question they have just read takes far longer. This
+  // is a large margin rather than a guarantee, which is why the window is
+  // generous and why the prompt still defaults to no.
+  process.stdin.resume();
+  const swallow = () => {};
+  process.stdin.on("data", swallow);
+  await new Promise((r) => setTimeout(r, 300));
+  process.stdin.off("data", swallow);
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await new Promise((r) => rl.question(`${question} [y/N] `, r));
   rl.close();
@@ -206,20 +230,31 @@ async function main() {
     process.exit(1);
   }
 
-  // Back the current file up beside itself before overwriting. The installed
-  // unit is the only copy of the operator's configuration on the machine, and
-  // this tool exists partly because that configuration was never recorded
-  // anywhere else.
+  // Back the current file up before overwriting. The installed unit is the only
+  // copy of the operator's configuration on the machine, and this tool exists
+  // partly because that configuration was never recorded anywhere else.
+  //
+  // Not beside the original. systemd ignores a file that does not end in a unit
+  // suffix, so a .bak in /etc/systemd/system is inert, but they accumulate one
+  // set per run in a directory an operator reads when something is wrong, and a
+  // directory full of near-identical units is a poor place to be reading under
+  // pressure. /var/backups is where a Debian or Ubuntu system already keeps
+  // this kind of thing.
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupDir = at(`/var/backups/dojobay/system-${stamp}`);
+  await mkdir(backupDir, { recursive: true });
   const kinds = new Set();
+  const units = new Set();
   for (const r of changed) {
     const dest = at(r.f.installed);
     await mkdir(path.dirname(dest), { recursive: true });
-    await copyFile(dest, `${dest}.${stamp}.bak`);
+    await copyFile(dest, path.join(backupDir, path.basename(dest)));
     await writeFile(dest, r.shipped);
     kinds.add(r.f.after);
-    console.log(`wrote ${r.f.installed}  (previous kept as ${path.basename(dest)}.${stamp}.bak)`);
+    if (/\.(service|timer)$/.test(r.f.installed)) units.add(path.basename(r.f.installed));
+    console.log(`wrote ${r.f.installed}`);
   }
+  console.log(`previous copies kept in ${backupDir}`);
 
   // With --root the files just written are not the ones the machine is running
   // from, so reloading the real systemd or nginx would act on state this run
@@ -236,11 +271,55 @@ async function main() {
     try {
       await execFileP("systemctl", ["daemon-reload"]);
       console.log("systemctl daemon-reload");
-      console.log("! the running service is still the old one: restart it yourself when it suits you");
-      console.log("  systemctl restart dojobay-server.service");
     } catch (e) {
       console.log("✗ systemctl daemon-reload failed: " + String(e.stderr || e.message).trim());
       console.log("  the unit files are written; systemd has not read them yet");
+    }
+
+    // A timer whose file changed keeps its old schedule until it is restarted,
+    // and daemon-reload does not do that. Nothing about the machine would look
+    // wrong: the timer is enabled, the unit on disk is correct, and the
+    // schedule being enforced is the previous one. So it is restarted here
+    // rather than added to a list of things for somebody to remember.
+    //
+    // The cost is one immediate run, because OnBootSec is in the past on a
+    // machine that has been up a while, so the timer fires as soon as it is
+    // restarted. That is a probe cycle happening a few minutes early, which is
+    // cheaper than a schedule that silently did not take.
+    const timers = [...units].filter((u) => u.endsWith(".timer"));
+    for (const t of timers) {
+      try {
+        await execFileP("systemctl", ["restart", t]);
+        console.log(`systemctl restart ${t}  (its schedule would otherwise still be the old one)`);
+        // And prove the schedule took. A timer with no next elapse is the
+        // failure this project has already paid for: it looks enabled and
+        // never fires again.
+        const { stdout } = await execFileP("systemctl", ["show", t, "-p", "NextElapseUSecRealtime",
+          "-p", "NextElapseUSecMonotonic", "--value"]);
+        const elapse = stdout.split("\n").map((l) => l.trim()).filter(Boolean)
+          .filter((v) => v && v !== "0" && v !== "n/a");
+        if (elapse.length) console.log(`  next elapse ${elapse[0]}`);
+        else {
+          console.log(`  ✗ ${t} has NO next elapse. It is loaded and will never fire.`);
+          console.log(`    systemctl list-timers ${t}   and check the schedule directives`);
+        }
+      } catch (e) {
+        console.log(`✗ could not restart ${t}: ` + String(e.stderr || e.message).trim());
+      }
+    }
+
+    // Everything else that changed and is still running the old file. Named
+    // individually, because "restart the service" was only ever right when the
+    // backend was the only unit this tool touched.
+    const services = [...units].filter((u) => u.endsWith(".service") && !u.includes("update"));
+    if (services.length) {
+      console.log(`! still running the old unit: ${services.join(", ")}`);
+      console.log(`  restart when it suits you:  systemctl restart ${services.join(" ")}`);
+    }
+    // The updater's own service unit needs no restart: it is oneshot and the
+    // timer starts a fresh one each cycle, which will pick up the new file.
+    if ([...units].some((u) => u === "dojobay-update.service")) {
+      console.log("  (dojobay-update.service is oneshot; its next run uses the new file)");
     }
   }
   if (kinds.has("nginx")) {

@@ -506,6 +506,32 @@ sudo -u deploy node remove-listing.ts mainnet-example testnet-example   # dry ru
 sudo -u deploy node remove-listing.ts --apply mainnet-example testnet-example
 ```
 
+**`reconcile-system.mjs`** compares the systemd units, the nginx site and the
+polkit rule installed under `/etc` against the copies shipped in this
+repository. Nothing there is touched by a deploy or a self-update: those files
+are written once, at install time, and then drift, so a change to a unit
+template reaches your checkout and stops. Run it from the repository root,
+not from `scripts/`.
+
+```
+sudo node scripts/reconcile-system.mjs            # dry run, the default
+sudo node scripts/reconcile-system.mjs --diff     # the full diff for each file
+sudo node scripts/reconcile-system.mjs --apply    # writes, after asking again
+```
+
+Your own settings are not reported as drift. It reads the account, web root,
+onion and admin code back out of the installed unit and renders the current
+template with them, so what you see is what this repository changed. Anything
+else you edited by hand shows as a difference, because it is one and only you
+can say whether it should survive: read the diff before applying. Applying keeps
+the previous copy beside it as a `.bak`, reloads systemd, and validates the
+nginx site with `nginx -t` before reloading nginx. It does not restart the
+backend; that stays yours to time.
+
+`/etc/tor/torrc` is deliberately outside its scope. The installer merges a
+marked block into your torrc rather than rendering it, because that file carries
+your other hidden services.
+
 **`check-resources.ts`**, read-only. Measures memory, disk and workload on this
 instance, and reports any sign that the machine is short of something. Use it to
 size a VPS from evidence rather than from a recommendation.

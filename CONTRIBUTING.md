@@ -68,6 +68,7 @@ scripts/
   selftest.mjs             # offline tests of the reachability logic
   pack-source.mjs          # packs the instance's own code into data/dojobay-src.zip
   serve.mjs                # zero-dependency dev server
+  reconcile-system.mjs     # /etc units, nginx site and polkit rule vs what ships here
   dojobay-server.service, dojobay-update.{service,timer}
 deploy/
   nginx-onion.conf.example # localhost bind, /api/ proxy, /server/ blocked

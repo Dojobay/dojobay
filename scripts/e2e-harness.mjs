@@ -24,6 +24,13 @@ try {
 }
 
 const REPO = process.env.REPO_DIR || process.cwd();
+
+// Every check announces itself through here, and the total at the end is that
+// count rather than a number written by hand. The literal had already fallen a
+// check behind the file, which is a small thing that quietly makes the suite
+// lie about its own size, and the size is the only summary anybody reads.
+let PASSED = 0;
+const ok = (line) => { PASSED++; console.log("  ok - " + line); };
 const appJs = readFileSync(REPO + "/assets/js/app.js", "utf8");
 
 const DOJOS = {
@@ -149,19 +156,19 @@ await new Promise((r) => setTimeout(r, 80));   // let the async boot + detectBac
 const doc = window.document;
 const titles = [...doc.querySelectorAll(".cname")].map((e) => e.textContent.trim());
 assert.ok(titles.includes("yellow") && !titles.some((t) => t.includes("·")), "card titled by name alone, got: " + JSON.stringify(titles));
-console.log("  ok - migrated card titled 'yellow' (name alone, no composite)");
+ok("migrated card titled 'yellow' (name alone, no composite)");
 assert.ok(titles.includes("Kilombino"), "seed card shows name alone");
-console.log("  ok - curated seed card titled 'Kilombino'");
+ok("curated seed card titled 'Kilombino'");
 
 const hash = () => [...doc.querySelectorAll("footer .ver a")].map((a) => a.textContent).join("");
 assert.strictEqual(hash(), "build abc1234", "build hash rendered on first paint");
-console.log("  ok - build hash rendered from VERSION state");
+ok("build hash rendered from VERSION state");
 
 // re-render via the network toggle, twice, and again via banner dismiss
 doc.querySelector('[data-net="testnet"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 doc.querySelector('[data-net="mainnet"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 assert.strictEqual(hash(), "build abc1234", "build hash survives re-renders");
-console.log("  ok - build hash survives re-renders (network toggle x2)");
+ok("build hash survives re-renders (network toggle x2)");
 
 // manage panel ordering with a shuffled /api/me
 doc.body.insertAdjacentHTML("beforeend",
@@ -171,11 +178,11 @@ doc.getElementById("mg").dispatchEvent(new window.Event("click", { bubbles: true
 await new Promise((r) => setTimeout(r, 40));
 const rows = [...doc.querySelectorAll("#ov-body .box b")].map((e) => e.textContent);
 assert.deepStrictEqual(rows, ["red", "yellow", "blue"], "manage rows ordered, got: " + JSON.stringify(rows));
-console.log("  ok - Manage rows ordered mainnet-then-testnet, then by name (red, yellow, blue)");
+ok("Manage rows ordered mainnet-then-testnet, then by name (red, yellow, blue)");
 
 // the form carries the required node-name field
 assert.ok(doc.getElementById("m-name"), "node name input present in the form");
-console.log("  ok - submission form has the node-name field");
+ok("submission form has the node-name field");
 
 
 // 90-day strip lives on the card, under the 24h strip, hydrated after render,
@@ -187,7 +194,7 @@ assert.ok(h90.querySelectorAll(".d90").length === 2, "hist90 hydrated with daily
 assert.ok(/100% · 2\/2 days/.test(h90.querySelector(".d90foot").textContent), "hist90 stat line, got: " + h90.querySelector(".d90foot").textContent);
 const deadFoot = doc.querySelector('.card[data-id="mainnet-deadnode"] .hist90 .d90foot');
 assert.ok(deadFoot && /0% · 0\/7 days/.test(deadFoot.textContent), "dead node reads 0% · 0/7 days, got: " + (deadFoot && deadFoot.textContent));
-console.log("  ok - 90-day strip on the card, hydrated, with pct \u00b7 up/total day stat");
+ok("90-day strip on the card, hydrated, with pct \u00b7 up/total day stat");
 
 // The strip and the footer sit in one widget and used to disagree in it: a day
 // at 60% was counted as up in the footer (threshold 50) while the square beside
@@ -217,7 +224,7 @@ console.log("  ok - 90-day strip on the card, hydrated, with pct \u00b7 up/total
   const dBars = [...doc.querySelectorAll('.card[data-id="mainnet-deadnode"] .hist90 .d90')];
   assert.ok(dBars.length === 7 && dBars.every((b) => b.classList.contains("down")),
     "a node at 0% is red across the strip");
-  console.log("  ok - strip and footer share one definition of a good day");
+  ok("strip and footer share one definition of a good day");
 }
 
 // hamburger: state-driven toggle
@@ -228,7 +235,7 @@ assert.ok(doc.querySelector("nav").classList.contains("open"), "menu opens");
 assert.strictEqual(hash(), "build abc1234", "build hash survives the menu re-render");
 doc.querySelector('nav [data-modal="about"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 assert.ok(!doc.querySelector("nav").classList.contains("open"), "menu closes when an item opens a modal");
-console.log("  ok - hamburger toggles the nav, closes on item click, hash survives");
+ok("hamburger toggles the nav, closes on item click, hash survives");
 
 // openManage refreshes the session and links an admin to the console
 const before = meCalls;
@@ -237,7 +244,7 @@ doc.getElementById("mg2").dispatchEvent(new window.Event("click", { bubbles: tru
 await new Promise((r) => setTimeout(r, 40));
 assert.ok(meCalls > before, "openManage re-reads /api/me (session shared with /admin)");
 assert.ok(/open the admin console/.test(doc.getElementById("ov-body").innerHTML), "admin sees a console link in Manage");
-console.log("  ok - Manage refreshes the shared session and cross-links the admin console");
+ok("Manage refreshes the shared session and cross-links the admin console");
 
 
 // card ordering: 7-day desc, 24h desc; null-history above long-dead
@@ -245,7 +252,7 @@ const order = [...doc.querySelectorAll(".card")].map((c) => c.getAttribute("data
 assert.deepStrictEqual(order,
   ["mainnet-91xtx93-yellow", "mainnet-kilombino", "mainnet-freshnode", "mainnet-deadnode"],
   "uptime ordering, got: " + JSON.stringify(order));
-console.log("  ok - cards ordered by 7d then 24h uptime; fresh above dead, both at the end");
+ok("cards ordered by 7d then 24h uptime; fresh above dead, both at the end");
 
 // payment code chip: truncated display, click copies the full code
 const chip = doc.querySelector('.card[data-id="mainnet-91xtx93-yellow"] .pcode');
@@ -256,7 +263,7 @@ assert.ok(chip.compareDocumentPosition(relEl) & 4, "chip sits above the reliabil
 chip.dispatchEvent(new window.Event("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 20));
 assert.ok(window.__copied && window.__copied.endsWith("XNMy8cD9") && window.__copied.length > 100, "click copies the full code");
-console.log("  ok - payment code chip: PM8TJfHa…XNMy8cD9 shown, full code copied on click");
+ok("payment code chip: PM8TJfHa…XNMy8cD9 shown, full code copied on click");
 
 // edit flow: one row at a time, save posts the fields. The Dojo version is NOT
 // part of the form: it is read live from the node's X-Dojo-Version header by
@@ -281,7 +288,7 @@ assert.ok(!("name_url" in window.__editPosts[0]),
   "nor a card link: the editor has no field for one and the gate would ignore it");
 assert.ok(!doc.querySelector("#ov-body .medit .e-url"), "and the editor offers no link input");
 assert.ok(!doc.querySelector("#ov-body .medit"), "editor closes after save");
-console.log("  ok - inline edit: single-open, versionless form, fields posted, editor closes on save");
+ok("inline edit: single-open, versionless form, fields posted, editor closes on save");
 
 
 // endpoints live on the card, below the meta block (Last checked)
@@ -341,7 +348,7 @@ for (const label of ["Explorer", "Electrum Server"]) {
 // the card exposes the payment code so the pairing avatar can be warmed on hover
 assert.ok(/^PM8TJ/.test(yCard.getAttribute("data-pc") || ""), "card carries its payment code for avatar prefetch");
 assert.ok(!/loading="lazy"/.test(doc.documentElement.innerHTML), "the QR avatar is not lazily loaded");
-console.log("  ok - Dojo API/Explorer/Electrum endpoints on the card; N/A rows uniformly greyed out");
+ok("Dojo API/Explorer/Electrum endpoints on the card; N/A rows uniformly greyed out");
 
 // verified operator domain: a badge on the operator's card, linking to the
 // domain, and absent (not a placeholder) for an operator without one
@@ -378,7 +385,7 @@ assert.strictEqual(pcodeEl.getAttribute("title"), PCODE_FULL + " — click to co
   "the chip's tooltip carries the whole code");
 assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] .vrow'),
   "a node with nothing to verify gets no verification row at all");
-console.log("  ok - verified domain badge on the card, absent when unverified");
+ok("verified domain badge on the card, absent when unverified");
 
 // "For the machines among us": the badge must be interrogable, not just a tick.
 {
@@ -399,7 +406,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   assert.ok(/control of a domain, not that the operator is trustworthy/i.test(body.replace(/\s+/g, " ")),
     "and says what the proof does not mean");
   doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
-  console.log("  ok - the domain badge publishes a checkable proof, not just a tick");
+  ok("the domain badge publishes a checkable proof, not just a tick");
 }
 
 // "Check it yourself": the Electrum endpoint and the version are the only things
@@ -440,7 +447,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
     assert.ok(/latest-block/.test(t), "the block-height check still applies");
     doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.Event("click", { bubbles: true }));
   }
-  console.log("  ok - a card shows how to ask the node directly for what we assert");
+  ok("a card shows how to ask the node directly for what we assert");
 }
 
 // "Rescan XPUB": commands only. The page must never offer somewhere to type an
@@ -469,7 +476,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
 
   assert.ok(!doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="rescan"]'),
     "a node with no API key offers no such action");
-  console.log("  ok - rescan instructions are commands only, with no field for an XPUB");
+  ok("rescan instructions are commands only, with no field for an XPUB");
 }
 
 // Staleness: if the updater timer dies, nginx keeps serving the last dojos.json
@@ -505,7 +512,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
   assert.ok(d.querySelectorAll(".card").length > 0, "cards are still listed, just not asserted up or down");
   assert.ok(!doc.querySelector(".stale-banner") && !doc.querySelector(".grid").classList.contains("stale"),
     "a freshly generated directory shows no banner and no greying");
-  console.log("  ok - stale data greys the badges and says so; fresh data does not");
+  ok("stale data greys the badges and says so; fresh data does not");
   staleDom.window.close();          // the app schedules a refresh timer; closing
                                     // the window clears it so the run can exit
 }
@@ -528,7 +535,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
     "the header is structurally at the top, not sticky over scrolling content");
   assert.ok(/overflow-y:auto/.test(body) && /min-height:0/.test(body),
     "only the modal body scrolls, and it can shrink inside the flex column");
-  console.log("  ok - dialog scrolls its body, so content never passes behind the header");
+  ok("dialog scrolls its body, so content never passes behind the header");
 
   // Every var(--x) must resolve to a declared property. An undeclared custom
   // property is silent: it takes the fallback, renders plausibly and errors
@@ -542,7 +549,7 @@ console.log("  ok - verified domain badge on the card, absent when unverified");
     .map((m) => m[1]).filter((n) => !declared.has(n)))];
   assert.deepEqual(undeclared, [],
     "every custom property referenced must be declared in :root, undeclared: " + JSON.stringify(undeclared));
-  console.log("  ok - no var() reference falls through to a fallback for want of a declaration");
+  ok("no var() reference falls through to a fallback for want of a declaration");
 }
 
 
@@ -556,7 +563,7 @@ assert.ok(av && /data\/avatars\/PM8TJfHa/.test(av.getAttribute("src")), "avatar 
 assert.ok(ovBody.querySelector('[data-act="copypairing"][data-id="mainnet-91xtx93-yellow"]'), "popup copy button carries the node id");
 doc.querySelector('.card[data-id="mainnet-kilombino"] [data-act="pair"]').dispatchEvent(new window.Event("click", { bubbles: true }));
 assert.ok(!ovBody.querySelector(".qr-avatar"), "no overlay without a payment code");
-console.log("  ok - pairing details in a Verify-style popup (EC-H QR, avatar, id-carrying copy)");
+ok("pairing details in a Verify-style popup (EC-H QR, avatar, id-carrying copy)");
 
 
 // footer: circular operator avatar beside Verify; Disclaimer gone from the nav
@@ -565,13 +572,13 @@ assert.ok(opAv && /data\/avatars\/PM8TJfHa/.test(opAv.getAttribute("src")), "ope
 const verifyBtn = doc.querySelector("footer .verify-link");
 assert.ok(opAv.compareDocumentPosition(verifyBtn) & 4, "avatar sits beside (before) the Verify button");
 assert.ok(!doc.querySelector('[data-modal="disclaimer"]'), "Disclaimer removed from the nav");
-console.log("  ok - footer operator avatar beside Verify; Disclaimer menu item gone");
+ok("footer operator avatar beside Verify; Disclaimer menu item gone");
 
 
 // footer: the instance serves its own source as a zip
 const srcLink = doc.querySelector('footer a[download="dojobay-src.zip"]');
 assert.ok(srcLink && srcLink.getAttribute("href") === "data/dojobay-src.zip", "source zip download link in the footer");
-console.log("  ok - footer source-download icon links the instance's own code zip");
+ok("footer source-download icon links the instance's own code zip");
 
 
 
@@ -601,7 +608,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
   assert.ok(doc.querySelectorAll(".card").length > 0, "and the deferred redraw lands once it is closed");
-  console.log("  ok - an open tab refetches, and never redraws under an open dialog");
+  ok("an open tab refetches, and never redraws under an open dialog");
 }
 
 // A directory with no listings. This needs its own JSDOM rather than a mutation
@@ -643,7 +650,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "a never-rebuilt instance says so, rather than implying nobody is listed: " + JSON.stringify(emptyBox.textContent.trim().slice(0, 80)));
   assert.ok(emptyBox.querySelector('[data-act="manage"]'),
     "and offers the route to listing a Dojo, which is the only useful action from here");
-  console.log("  ok - a fresh install shows 'not yet refreshed', not an empty grid");
+  ok("a fresh install shows 'not yet refreshed', not an empty grid");
 
   // The staleness banner must not also fire here. generated_at is null, so
   // freshness() reports unknown, and two competing explanations for the same
@@ -666,7 +673,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   assert.ok(/testnet/i.test(box2.textContent),
     "and points at the network that does have listings rather than leaving the reader stuck");
   oneSided.window.close();
-  console.log("  ok - an empty network points at the one that is not");
+  ok("an empty network points at the one that is not");
 }
 
 // The operator console's header on a narrow screen. The mobile rule pulled
@@ -693,7 +700,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "the operator console header opts out of the hamburger layout");
   assert.equal((app.match(/<header/g) || []).length, 2,
     "if a third header appears it needs a deliberate decision about which layout it takes");
-  console.log("  ok - the operator console header survives a narrow screen");
+  ok("the operator console header survives a narrow screen");
 }
 
 // The Auth47 challenge is copyable. A QR is useless when the wallet is on the
@@ -709,7 +716,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   // the handler it names must exist, or the button is decoration
   assert.ok(/if\(a==="copyurl"\)\{copy\(act\.getAttribute\("data-v"\)\)/.test(app),
     "and copyurl is a real document-level handler, which the admin page shares");
-  console.log("  ok - the Auth47 challenge can be copied, not just photographed");
+  ok("the Auth47 challenge can be copied, not just photographed");
 }
 
 // The Verify popup identifies the operator the same way every listing does.
@@ -750,7 +757,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
 
   doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
-  console.log("  ok - Verify shows who signed: avatar on the QR, PayNym linked to its directory");
+  ok("Verify shows who signed: avatar on the QR, PayNym linked to its directory");
 }
 
 // The markdown renderer, exercised as though its input were hostile. It is not
@@ -809,7 +816,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     assert.equal(links, raw, `every link in content/${f}.md still renders as one: ${links} of ${raw}`);
     assert.ok(!/<script/i.test(html), "and nothing in it produces a script tag");
   }
-  console.log("  ok - markdown escapes attributes and refuses schemes it should not follow");
+  ok("markdown escapes attributes and refuses schemes it should not follow");
 }
 
 // The challenge and its copy button stack, at every width. Laid out as a row
@@ -826,7 +833,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   const mobile = css.slice(css.indexOf("@media (max-width:560px)"));
   assert.ok(!/\.a47-uri\{[^}]*flex-direction:row/.test(mobile),
     "no width-specific rule turns it back into a row");
-  console.log("  ok - the Auth47 copy button sits below the challenge at every width");
+  ok("the Auth47 copy button sits below the challenge at every width");
 }
 
 // The update panel offers an action that would do nothing, or it does not.
@@ -851,7 +858,43 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   const rule = css.slice(css.indexOf(".upd-exp-note{"), css.indexOf("}", css.indexOf(".upd-exp-note{")));
   assert.ok(/width:100%/.test(rule) && !/max-width/.test(rule),
     "the experimental note is full width: " + rule);
-  console.log("  ok - the update panel does not offer an action that would do nothing");
+  ok("the update panel does not offer an action that would do nothing");
+}
+
+// Checking again, for an operator who pushed while already signed in.
+//
+// The answer is cached for six hours, which is right for an unattended check
+// over Tor. Signing in discards it, so the case left over is the one where the
+// operator never signed out: they push, look at the panel, and are told about
+// the state before their push with nothing to say how old that is.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const fn = app.slice(app.indexOf("const behindAny ="), app.indexOf("function updateProgress"));
+
+  assert.ok(/data-adm="update-recheck"/.test(fn), "the panel offers a check again control");
+  assert.ok(/ADMIN_UPDATES_LOADING \? ' disabled' : ''/.test(fn)
+    || /ADMIN_UPDATES_LOADING \? ' disabled'/.test(fn),
+    "which is disabled while a check is already in flight, since over Tor that is seconds not instant");
+
+  // Age is the half that makes the rest meaningful: "up to date" says the same
+  // thing six hours after it stopped being true.
+  assert.ok(/Checked ' \+ when/.test(fn), "and the panel says how old the answer is");
+  assert.ok(/refresh_wait_s/.test(fn),
+    "and passes on the wait when a forced check was answered from the cache instead");
+
+  // The end boundary is searched from the start of the block, not from the top
+  // of the file: the manage panel has its own if(act==="edit") several hundred
+  // lines earlier, and slicing to that produced an empty string that passed
+  // every negative assertion here.
+  const recheckAt = app.indexOf('if(act==="update-recheck")');
+  const handler = app.slice(recheckAt, app.indexOf('if(act==="edit")', recheckAt));
+  assert.ok(handler.length > 100, "the recheck handler was located");
+  assert.ok(/refresh=1/.test(handler), "the control asks the server to bypass its cache");
+  assert.ok(!/ADMIN_UPDATES\s*=\s*null/.test(handler),
+    "and leaves the current answer on screen while the new one is fetched, rather than blanking the panel");
+  assert.ok(/if\(ADMIN_UPDATES_LOADING\) return/.test(handler),
+    "a second click while one is in flight does nothing");
+  ok("an operator who pushed while signed in can force a fresh check");
 }
 
 // The banner has moved to the clearnet site, so it is not here twice.
@@ -861,7 +904,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   // and its removal has not left a stray blank or a broken block quote
   assert.ok(!/\n\n\n/.test(about), "with no doubled blank line where it stood");
   assert.ok(/^> \*\*Get listed\*\*$/m.test(about), "and Get listed still opens its own block quote");
-  console.log("  ok - the FreeSamourai banner is gone and About still reads cleanly");
+  ok("the FreeSamourai banner is gone and About still reads cleanly");
 }
 
 // Choosing the Tor port must change the commands AND what the copy buttons put
@@ -915,7 +958,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "and says what a wrong port looks like, since the error is precise and opaque");
   doc.querySelector('[data-act="closemodal"]').dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
-  console.log("  ok - the Tor port is chosen once and every command follows, clipboard included");
+  ok("the Tor port is chosen once and every command follows, clipboard included");
 }
 
 // The support banner is gone, and with it the only thing this site stored in
@@ -931,7 +974,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "and the site now keeps nothing in the browser at all, which for an onion site is worth holding to");
   assert.ok(!/^\s*\.banner\{/m.test(css), "and its styles");
   assert.ok(/\.stale-banner\{/.test(css), "while the staleness banner, a different thing, stays");
-  console.log("  ok - the support banner and the last of the browser storage are gone");
+  ok("the support banner and the last of the browser storage are gone");
 }
 
 // The controls row is space-between on a wide screen, which is right there and
@@ -955,7 +998,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   // lines would make it read as two buttons rather than one control
   assert.ok(!/\.seg\{[^}]*flex-wrap:wrap/.test(mobile + wide),
     "the network toggle itself never wraps");
-  console.log("  ok - the toggle and the freshness line centre on a narrow screen");
+  ok("the toggle and the freshness line centre on a narrow screen");
 }
 
 // One question about location, no separate code field, nothing enforced.
@@ -970,7 +1013,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "the one field left is optional and says what naming a country buys: " + form.slice(0, 90));
   // the card still renders a flag from the stored code, which the server infers
   assert.ok(/function flag\(cc\)/.test(app), "the card still draws a flag when there is a code");
-  console.log("  ok - one location field, no code to get wrong, flags where possible");
+  ok("one location field, no code to get wrong, flags where possible");
 }
 
 // An update whose restart failed leaves the new code on disk and the old
@@ -993,7 +1036,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   assert.ok(/String\(version\)\.slice\(0, 7\)/.test(au),
     "a self-update stamps a short commit, as the deploy does, so the footer reads the "
     + "same way however the code arrived");
-  console.log("  ok - an update that did not finish says so, and the build stamp matches the deploy");
+  ok("an update that did not finish says so, and the build stamp matches the deploy");
 }
 
 // The privilege the last step needs is checked before the click, not reported
@@ -1037,7 +1080,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
     "and not systemctl --dry-run, which returns success without asking anyone");
   assert.ok(!/\["restart", "dojobay-server\.service"\]/.test(idx),
     "nothing in the check restarts anything");
-  console.log("  ok - the panel says the restart is impossible, or unknown, before you ask for one");
+  ok("the panel says the restart is impossible, or unknown, before you ask for one");
 }
 
 // The card title is text, never a link. An operator's one claim of identity on
@@ -1059,7 +1102,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   assert.ok(/class="vdomain"/.test(app) && /data-act="domproof"/.test(app),
     "the verified domain link and its verify button are untouched: that is the claim "
     + "with a TXT record behind it, and the one a card should carry");
-  console.log("  ok - a card title is text, and the verified domain is the only claim on it");
+  ok("a card title is text, and the verified domain is the only claim on it");
 }
 
 // A cycle that reached nothing says so on the page, because the statuses shown
@@ -1080,7 +1123,7 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   // assertion meaningless when it was written that way.
   assert.ok(app.indexOf("DOJOS.probe_fault?") < app.indexOf('FRESH.stale?`<div class="stale-banner"'),
     "shown above the staleness banner: a fault now is more urgent than data ageing");
-  console.log("  ok - an instance that could reach nothing says so rather than blaming the nodes");
+  ok("an instance that could reach nothing says so rather than blaming the nodes");
 }
 
 // A 502 during the seconds a self-update restarts the service is expected, not
@@ -1108,10 +1151,10 @@ console.log("  ok - footer source-download icon links the instance's own code zi
   // and the message a moderator sees says what to do
   assert.ok(/backend is not answering/.test(app) && /it is restarting/.test(app),
     "a gateway failure is explained rather than shown as a status code");
-  console.log("  ok - a restart mid-update is waited out rather than reported as a number");
+  ok("a restart mid-update is waited out rather than reported as a number");
 }
 
-console.log("\nall 44 front-end checks passed");
+console.log(`\nall ${PASSED} front-end checks passed`);
 
 // The page schedules a periodic refresh, so its timers would otherwise hold the
 // event loop open and the run would never finish.

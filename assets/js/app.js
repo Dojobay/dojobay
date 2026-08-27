@@ -1368,7 +1368,31 @@ async function loadJSON(url){
         + ' title="' + (behindAny ? 'Fetch and apply the newer code from GitHub'
             : 'Already on the latest commit; nothing to fetch') + '">Update from GitHub</button>'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button>'
+      // The answer is cached for six hours, which is right for an unattended
+      // check over Tor and wrong for an operator who has just pushed while
+      // already signed in. Signing in discards the cache, so this is for the
+      // case that does not involve signing in again.
+      + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '')
+        + ' title="Ask GitHub again rather than answering from the cached check">'
+        + (ADMIN_UPDATES_LOADING ? 'Checking…' : 'Check again') + '</button>'
       + '</div>';
+    // How old the answer is, in the operator's terms rather than a timestamp
+    // they have to subtract from now. Shown always, because "up to date" means
+    // nothing without it: the panel would say the same thing six hours after
+    // the state stopped being true.
+    const age = (() => {
+      const t = Date.parse(u.checked_at || "");
+      if (!isFinite(t)) return "";
+      const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+      const when = mins < 1 ? "just now" : mins < 60 ? mins + " min ago"
+        : Math.round(mins / 60) + (Math.round(mins / 60) === 1 ? " hour ago" : " hours ago");
+      return '<p style="font-size:12px;color:var(--faint)">Checked ' + when
+        + (u.refresh_wait_s
+            ? '. GitHub was asked less than a minute ago, so this is the same answer; try again in '
+              + u.refresh_wait_s + 's.'
+            : '')
+        + '</p>';
+    })();
     // Marked experimental in the panel itself rather than only in the docs,
     // because the person about to click is not reading the docs. This stays
     // until a self-update has completed on real hardware; when it goes, the
@@ -1417,6 +1441,7 @@ async function loadJSON(url){
       + stale
       + cannotRestart
       + controls
+      + age
       + (behindAny ? '' : '<p class="upd-none">Up to date. There is nothing to fetch from GitHub.</p>')
       + note
       + '</div>';
@@ -1494,6 +1519,17 @@ async function loadJSON(url){
       return;
     }
     if(act==="update-dismiss"){ UPDATE_RUN=null; clearInterval(UPDATE_POLL); ADMIN_UPDATES=null; renderAdminPanel(); return; }
+    if(act==="update-recheck"){
+      // Keep the current answer on screen while the new one is fetched. Clearing
+      // it first would replace a panel that says something with one that says
+      // nothing, and over Tor that gap is seconds rather than instant.
+      if(ADMIN_UPDATES_LOADING) return;
+      ADMIN_UPDATES_LOADING = true; renderAdminPanel();
+      const r = await api.call("/admin/updates?refresh=1");
+      ADMIN_UPDATES = r.body || {available:false,error:"HTTP "+r.status};
+      ADMIN_UPDATES_LOADING = false; renderAdminPanel();
+      return;
+    }
     if(act==="edit"){ ADM_EDIT_ID=b.getAttribute("data-id"); renderAdminPanel(); return; }
     if(act==="editcancel"){ ADM_EDIT_ID=null; renderAdminPanel(); return; }
     if(act==="editsave"){

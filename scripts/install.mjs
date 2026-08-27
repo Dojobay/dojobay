@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import {
   isPaymentCode, isOnionHost, onionHostOf, isNodeName, parsePairing,
   operatorMessage, mergeTorrc, renderServerUnit, renderUpdateUnit, renderNginx, SERVICE_USER,
+  renderPolkitRule, POLKIT_RULE_PATH, SYSTEMD_MANAGE_UNITS,
   anchorSeed, operatorDoc, countryFor,
 } from "./installer-lib.mjs";
 import { chooseUI } from "./installer-ui.mjs";
@@ -50,7 +51,7 @@ function wrapForNote(text, width = 64) {
   return lines.join("\n");
 }
 
-const TOTAL = 8;
+const TOTAL = 9;
 
 async function main() {
   if (!process.stdin.isTTY) {
@@ -314,6 +315,7 @@ async function main() {
 
   // ---- 7. bootstrap import -----------------------------------------------------------
   let timerUnarmed = false;
+  let polkitUnverified = false;
   await ui.step(7, TOTAL, "Bootstrap from a trusted Dojo Bay (optional)");
   let bootstrap = null;
   if (await ui.confirm("Import nodes + history from an existing instance you trust?", false)) {
@@ -328,13 +330,63 @@ async function main() {
   }
 
   // ---- 8. review + apply ------------------------------------------------------------------
-  await ui.step(8, TOTAL, "Review");
+  // 8) Permission for self-update's last step.
+  //
+  // Asked rather than assumed, and asked here rather than granted quietly in
+  // the write phase, because granting an account the standing right to restart
+  // a service is a decision an operator should make with the rule in front of
+  // them. Declining is a supported answer: updating by hand still works, and
+  // the console tells them what is missing when they come to use the button.
+  //
+  // Nothing is written yet. The file goes down in the write phase with the
+  // other /etc files, so a declined "write configuration" leaves nothing behind.
+  await ui.step(8, TOTAL, "Self-update permission (optional)");
+  const polkitTplPath = path.join(ROOT, "deploy/polkit-restart.rules.example");
+  const polkitRule = renderPolkitRule(await readFile(polkitTplPath, "utf8"), { user: SERVICE_USER });
+  // polkit has to be installed AND running for a rule file to mean anything. A
+  // rule written into a directory nothing reads is the exact failure this
+  // project keeps producing: an operation that appears to succeed because the
+  // thing that would report it is not the thing anybody is looking at.
+  const polkitActive = await run("systemctl", ["is-active", "--quiet", "polkit.service"])
+    .then(() => true, () => false);
+  let wantPolkit = false;
+  if (!polkitActive) {
+    await ui.show("polkit is not running on this machine", [
+      "Self-update's last step restarts the service, and systemd asks polkit",
+      `whether ${SERVICE_USER} may do that. With no polkit there is nobody to ask,`,
+      "so an update would install the new code and leave the old process serving",
+      "it. Nothing is written here: install polkit (apt install polkitd) and",
+      `copy deploy/polkit-restart.rules.example to`,
+      `  ${POLKIT_RULE_PATH}`,
+      "or update by hand and restart the service yourself.",
+    ]);
+  } else {
+    await ui.show("Self-update ends by restarting the service", [
+      `Granting ${SERVICE_USER} permission to do that, and nothing else:`,
+      "",
+      ...polkitRule.split("\n").filter((l) => l && !l.startsWith("//")).map((l) => "  " + l),
+      "",
+      `This permits restart of dojobay-server.service by ${SERVICE_USER}, with no`,
+      "password. It does not permit stop, start, enable, mask, or any other unit,",
+      "and it does not weaken the distribution's own defaults.",
+      "",
+      "Decline and everything else still works: self-update will install code and",
+      "leave the old process running, which the admin console checks for and says",
+      `so before offering the button. You can add ${POLKIT_RULE_PATH} later.`,
+    ]);
+    wantPolkit = await ui.confirm(`Grant ${SERVICE_USER} permission to restart its own service?`, true);
+  }
+
+  await ui.step(9, TOTAL, "Review");
   await ui.show("About to write", [
     `onion       http://${onionHost}/`,
     `admin code  ${paymentCode.slice(0, 12)}…${paymentCode.slice(-6)}  ${paynym}`,
     `anchor      ${anchor.network}-${anchor.name}`,
     `web root    ${webRoot}`,
     `bootstrap   ${bootstrap ? bootstrap.onionHost : "none"}`,
+    `restart     ${wantPolkit ? `${SERVICE_USER} may restart its own service (polkit rule)`
+      : polkitActive ? "declined; self-update will need a manual restart"
+      : "no polkit on this machine; self-update will need a manual restart"}`,
   ]);
   if (!(await ui.confirm("Write configuration and start services?", true))) {
     await ui.fail("Nothing written.");
@@ -376,6 +428,36 @@ async function main() {
     await copyFile(path.join(webRoot, "scripts/dojobay-update.timer"), "/etc/systemd/system/dojobay-update.timer");
     await run("systemctl", ["daemon-reload"]);
     log("nginx site + systemd units installed");
+
+    // The polkit rule, if it was agreed to in step 8. 0644 because polkitd
+    // reads it as a distinct user; the directory is root-owned, which is what
+    // stops anyone else writing there.
+    if (wantPolkit) {
+      await mkdir(path.dirname(POLKIT_RULE_PATH), { recursive: true });
+      await writeFile(POLKIT_RULE_PATH, polkitRule);
+      await chmod(POLKIT_RULE_PATH, 0o644);
+      log(`restart permission written to ${POLKIT_RULE_PATH}`);
+      // And prove it took, the same way the ownership and timer checks do.
+      // polkitd reloads rules on its own, but a syntax error means the file is
+      // skipped and logged where nobody is looking, so ask polkit the question
+      // systemd will ask rather than assuming the answer. pkcheck exits 0 when
+      // authorised, 1 when refused and 2 when it would need a human, which for
+      // an unattended restart is also a refusal.
+      const probe = await run("sudo", ["-u", SERVICE_USER, "sh", "-c",
+        `pkcheck --action-id ${SYSTEMD_MANAGE_UNITS} --process $$ `
+        + `--details unit dojobay-server.service --details verb restart`])
+        .then(() => ({ ok: true, code: 0 }), (e) => ({ ok: false, code: e.code }));
+      if (probe.ok) {
+        log(`${SERVICE_USER} can restart dojobay-server.service; self-update can complete`);
+      } else if (probe.code === 127 || probe.code === "ENOENT") {
+        log("! rule written, but pkcheck is not installed, so it could not be verified here");
+      } else {
+        polkitUnverified = true;
+        log("✗ the rule was written but polkit still refuses the restart");
+        log(`  self-update would install code and leave the old process running. Check:`);
+        log(`  journalctl -u polkit --since '5 min ago'`);
+      }
+    }
 
     if (bootstrap) {
       log("verifying trusted instance and importing (over Tor)…");
@@ -502,6 +584,10 @@ async function main() {
   });
 
   await ui.finish([
+    ...(polkitUnverified
+      ? ["!! the restart permission was written but polkit still refuses it — self-update",
+         "   will install code and leave the old process running until that is fixed"]
+      : []),
     ...(timerUnarmed
       ? ["!! the update timer has no next run scheduled — see the note above, or this",
          "   instance will serve its list and never refresh it"]

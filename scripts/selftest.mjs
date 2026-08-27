@@ -973,6 +973,49 @@ await check("the units name an account the installer actually creates", async ()
     "and gives it the tree, since the backend writes the store and a self-update rewrites the code");
 });
 
+// The restart permission self-update needs, and the account it is granted to.
+//
+// Written as a polkit rule rather than a sudoers line because nothing calls
+// sudo: apply-update.mjs runs `systemctl restart` directly, which systemd
+// authorises through polkit. A sudoers rule would grant a privilege on a path
+// no code takes, which is what the admin console used to print.
+await check("the restart rule grants exactly one verb on one unit to the service account", async () => {
+  const lib = await import("./installer-lib.mjs");
+  const { SERVICE_USER, renderPolkitRule, POLKIT_RULE_PATH, SYSTEMD_MANAGE_UNITS } = lib;
+  const tpl = readFileSync(new URL("../deploy/polkit-restart.rules.example", import.meta.url).pathname, "utf8");
+
+  // Rendered with an account that is NOT the default, for the reason the unit
+  // test above gives: the template names the default, so asserting on it would
+  // pass with the substitution deleted.
+  const OTHER = "svcacct";
+  const rule = renderPolkitRule(tpl, { user: OTHER });
+  assert.ok(new RegExp(`subject\\.user == "${OTHER}"`).test(rule), "the rule names the account it was given");
+  assert.ok(!/subject\.user == "dojobay"/.test(rule), "and not the one its template was written for");
+  assert.ok(renderPolkitRule(tpl).includes(`subject.user == "${SERVICE_USER}"`),
+    "the default is the account the installer creates");
+
+  // Narrow on every axis. A rule that omitted the verb would grant stop and
+  // mask as well as restart, and one that omitted the unit would grant them on
+  // every service on the machine.
+  assert.ok(rule.includes(`action.id == "${SYSTEMD_MANAGE_UNITS}"`), "one action");
+  assert.ok(/action\.lookup\("unit"\) == "dojobay-server\.service"/.test(rule), "one unit");
+  assert.ok(/action\.lookup\("verb"\) == "restart"/.test(rule), "one verb");
+  assert.ok(!/polkit\.Result\.(NO|AUTH|NOT_AUTHORIZED)/.test(rule),
+    "and it only ever returns YES, so it cannot weaken the distribution default");
+
+  const src = readFileSync(new URL("./install.mjs", import.meta.url).pathname, "utf8");
+  assert.ok(/is-active", "--quiet", "polkit\.service"/.test(src),
+    "the installer checks polkit is running before offering to write a rule nothing would read");
+  assert.ok(/ui\.confirm\(`Grant \$\{SERVICE_USER\}/.test(src),
+    "it is a question, not a silent grant");
+  assert.ok(src.indexOf("POLKIT_RULE_PATH, polkitRule") > src.indexOf("Write configuration and start services?"),
+    "and nothing is written before the operator confirms the write phase");
+  assert.ok(/pkcheck --action-id \$\{SYSTEMD_MANAGE_UNITS\}/.test(src),
+    "the rule is verified by asking polkit the question systemd will ask");
+  assert.ok(POLKIT_RULE_PATH.startsWith("/etc/polkit-1/rules.d/49-"),
+    "read before the distribution's own 50-default.rules");
+});
+
 // An install used to finish and leave the operator looking at another
 // instance's numbers: the timer's first run is boot-relative, and nothing had
 // probed even once, so there were no block heights and no avatars because

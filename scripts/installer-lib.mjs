@@ -115,6 +115,23 @@ export function renderNginx(template, { webRoot }) {
   return template.replace(/root \/var\/www\/dojobay;/g, `root ${webRoot};`);
 }
 
+// The unit name is fixed and the account is not, so only the account is
+// substituted. Both are matched exactly rather than by pattern: a rule that
+// matched a prefix would grant more than it says, and the whole argument for
+// offering this at install time is that an operator can read what they are
+// agreeing to in four lines.
+export function renderPolkitRule(template, { user = SERVICE_USER, unit = "dojobay-server.service" } = {}) {
+  return template
+    .replace(/action\.lookup\("unit"\) == "[^"]*"/g, `action.lookup("unit") == "${unit}"`)
+    .replace(/subject\.user == "[^"]*"/g, `subject.user == "${user}"`);
+}
+
+// Where that rule goes, and the pkcheck question that asks polkit the same
+// thing systemd will ask. Exported so the installer and its tests agree on both
+// rather than each spelling them out.
+export const POLKIT_RULE_PATH = "/etc/polkit-1/rules.d/49-dojobay-restart.rules";
+export const SYSTEMD_MANAGE_UNITS = "org.freedesktop.systemd1.manage-units";
+
 // ---- seed / operator documents ----------------------------------------------
 // `signed` is not optional, and the parameter is deliberately not defaulted:
 // the rebuild withholds a seed node without a signed pairing block, exactly as

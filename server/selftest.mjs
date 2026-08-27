@@ -616,6 +616,38 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const admin = await api("/api/admin/updates");
   ok(anon.status === 401 && admin.status === 200 && admin.body.available === false && admin.body.error,
      "updates route: anonymous 401; unreachable GitHub reported in-band to the admin");
+
+  // The cache rule the "Check again" button depends on. Tested here rather
+  // than through the route, because the route only fills its cache on a
+  // successful check and GitHub is unreachable in this suite, so the cached
+  // path is never taken and the floor would never run. A rule that cannot be
+  // exercised is a rule nobody has checked.
+  const { updateCacheDecision } = await import("./updates.mjs");
+  const now = 1_000_000_000_000;
+  const hour = 3600 * 1000;
+
+  ok(updateCacheDecision({ cachedAt: null, now }).serveCached === false,
+     "no cached answer means the check goes out");
+  ok(updateCacheDecision({ cachedAt: now - 5 * hour, now }).serveCached === true,
+     "an ordinary request inside six hours is answered from the cache");
+  ok(updateCacheDecision({ cachedAt: now - 7 * hour, now }).serveCached === false,
+     "and outside six hours it is not");
+
+  // The button's whole purpose: an operator who pushed while already signed in
+  // gets a real check rather than an answer from before their push.
+  ok(updateCacheDecision({ cachedAt: now - 5 * hour, now, forced: true, forcedAt: 0 }).serveCached === false,
+     "a forced check bypasses a cache that is still fresh");
+  ok(updateCacheDecision({ cachedAt: now - 5 * hour, now, forced: true, forcedAt: now - 90 * 1000 }).serveCached === false,
+     "and again once the floor has passed");
+
+  // And the floor, which is what stops that button hammering GitHub through an
+  // exit node shared with every other Tor user. Refusing outright would tell
+  // the operator nothing, so the last known answer comes back with the wait.
+  const held = updateCacheDecision({ cachedAt: now - 5 * hour, now, forced: true, forcedAt: now - 20 * 1000 });
+  ok(held.serveCached === true && held.waitS === 40,
+     "inside the floor the cached answer comes back with the seconds remaining: " + held.waitS);
+  ok(updateCacheDecision({ cachedAt: now - 5 * hour, now, forced: false, forcedAt: now - 20 * 1000 }).waitS === 0,
+     "and an unforced request is never told to wait, since it asked for nothing");
 }
 
 // 18) operator binding + bootstrap import: the binding verifies a real
@@ -1577,8 +1609,16 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(idx.indexOf("let UPDATES_CACHE = null;") < idx.indexOf("UPDATES_CACHE = null;",
      idx.indexOf("let UPDATES_CACHE = null;") + 10),
      "and is declared above the code that clears it");
-  ok(/6 \* 3600 \* 1000/.test(idx),
-     "the unattended TTL is unchanged: six hours is right for a background check over Tor");
+  // The TTL itself lives in updateCacheDecision's default, with the floor, and
+  // its behaviour is asserted in section 17 rather than by matching a literal.
+  // What matters here is that the route does not carry a second copy: two
+  // definitions of a cache window disagree eventually, and the disagreement is
+  // invisible until somebody wonders why a check is older than it should be.
+  const upd = await fsp.readFile(new URL("./updates.mjs", import.meta.url), "utf8");
+  ok(/ttlMs = 6 \* 3600 \* 1000/.test(upd) && !/6 \* 3600 \* 1000/.test(idx),
+     "the unattended TTL is defined once, in updates.mjs: six hours is right for a background check over Tor");
+  ok(/updateCacheDecision\(/.test(idx),
+     "and the route asks for the decision rather than reimplementing the window");
 }
 
 // 34b) the flag on a card is inferred from the one free-text answer an operator

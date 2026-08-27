@@ -179,3 +179,31 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
     checked_at: new Date().toISOString(),
   };
 }
+
+/** Whether an update check may be answered from the cache, and what to tell the
+ *  operator if a forced check was refused.
+ *
+ *  Three rules, and the third is the only interesting one. An ordinary request
+ *  takes the cache while it is fresh, because six hours is right for an
+ *  unattended check over Tor where GitHub rate limits shared exit nodes. A
+ *  forced request goes out. A forced request inside the floor is answered from
+ *  the cache with the wait attached rather than refused, because the operator
+ *  asked what the state is and the honest answer is the last one known plus how
+ *  stale it is.
+ *
+ *  Pure, and separate from the route, so the floor can be tested without a
+ *  reachable GitHub: the route only fills its cache on success, so an
+ *  unreachable GitHub means the cached path is never taken and the floor never
+ *  runs. A rule that cannot be exercised is a rule nobody has checked.
+ */
+export function updateCacheDecision({ cachedAt = null, now = Date.now(), forced = false,
+  forcedAt = 0, ttlMs = 6 * 3600 * 1000, floorMs = 60 * 1000 } = {}) {
+  const fresh = cachedAt !== null && now - cachedAt < ttlMs;
+  if (!fresh) return { serveCached: false, waitS: 0 };
+  if (!forced) return { serveCached: true, waitS: 0 };
+  const since = now - forcedAt;
+  if (forcedAt && since < floorMs) {
+    return { serveCached: true, waitS: Math.ceil((floorMs - since) / 1000) };
+  }
+  return { serveCached: false, waitS: 0 };
+}

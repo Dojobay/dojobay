@@ -26,7 +26,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 import { probe, PROBE_CFG } from "./probe.mjs";
-import { checkUpdates } from "./updates.mjs";
+import { checkUpdates, updateCacheDecision } from "./updates.mjs";
 import { judgeVersion, MIN_DOJO_VERSION, pairingNetwork, countryFor } from "./dojo-version.ts";
 import {
   normaliseDomain, txtName, txtHost, txtValue, signingText, verifyClaim,
@@ -217,6 +217,12 @@ route("POST", /^\/api\/auth47\/challenge$/, async (req, res) => {
 // beside the route that fills it, because the login below clears it and a const
 // used before its declaration is a trap waiting for someone to reorder a file.
 let UPDATES_CACHE = null;
+// When a forced check last actually went out, and the shortest gap between two
+// of them. Declared beside the cache they qualify, and above their first use:
+// a const read by code that runs before its declaration has failed outright
+// here before.
+let FORCED_UPDATE_AT = 0;
+const FORCED_UPDATE_FLOOR = 60 * 1000;
 
 route("POST", /^\/api\/auth47\/callback$/, async (req, res) => {
   let proof;
@@ -738,10 +744,24 @@ route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   // Six hours is right for an unattended check over Tor, where GitHub rate
   // limits shared exit nodes. It is wrong for somebody who has just signed in
-  // to look, which is why the login discards it.
-  if (UPDATES_CACHE && Date.now() - UPDATES_CACHE.at < 6 * 3600 * 1000) {
-    return json(res, 200, UPDATES_CACHE.result);
+  // to look, which is why the login discards it, and wrong for somebody who has
+  // just pushed while already signed in, which is what ?refresh=1 is for.
+  //
+  // The floor is what stops that button being a way to hammer GitHub from an
+  // exit node shared with every other Tor user. A forced check inside the floor
+  // is answered from the cache with the wait attached, rather than refused:
+  // the operator asked what the state is, and the honest answer is the last one
+  // known plus how stale it is.
+  const forced = /[?&]refresh=1(&|$)/.test(req.url || "");
+  const decision = updateCacheDecision({
+    cachedAt: UPDATES_CACHE ? UPDATES_CACHE.at : null,
+    forced, forcedAt: FORCED_UPDATE_AT, floorMs: FORCED_UPDATE_FLOOR });
+  if (decision.serveCached) {
+    return json(res, 200, decision.waitS
+      ? { ...UPDATES_CACHE.result, refresh_wait_s: decision.waitS }
+      : UPDATES_CACHE.result);
   }
+  if (forced) FORCED_UPDATE_AT = Date.now();
   try {
     // The account this process runs as, so the panel can print a command that
     // works rather than a placeholder. The two machines differ: one built by the

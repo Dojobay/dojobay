@@ -71,6 +71,7 @@ scripts/
   dojobay-server.service, dojobay-update.{service,timer}
 deploy/
   nginx-onion.conf.example # localhost bind, /api/ proxy, /server/ blocked
+  polkit-restart.rules.example # lets the service account restart its own unit
 .github/workflows/deploy.yml, tests.yml
 ```
 

@@ -414,6 +414,24 @@ and go on running the old: the console checks for that before it offers the
 button, and says so. Deploying by push, or the manual upgrade above, remains
 the supported path.
 
+That permission is a polkit rule, not a sudoers line, because the updater runs
+`systemctl restart` directly and systemd asks polkit whether the account may.
+The installer offers to write it and shows you the rule first; if you declined,
+or you set the instance up by hand, copy it yourself and check the account named
+inside matches the one your service runs as:
+
+```
+sudo cp deploy/polkit-restart.rules.example \
+  /etc/polkit-1/rules.d/49-dojobay-restart.rules
+systemctl show dojobay-server.service -p User --value
+```
+
+It grants restart of that one unit to that one account, and nothing else: not
+stop, not start, not mask, and no other service. polkit has to be installed and
+running for a rule file to mean anything (`apt install polkitd`), and where it
+is absent the console reports the permission as unknown rather than promising a
+restart it has not been able to test.
+
 A peer update reuses the same trust gate as bootstrapping: you supply the
 peer's payment code, and nothing is applied unless that peer's operator
 signature verifies for the onion you named. Either way the archive contains

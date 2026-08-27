@@ -524,9 +524,15 @@ onion and admin code back out of the installed unit and renders the current
 template with them, so what you see is what this repository changed. Anything
 else you edited by hand shows as a difference, because it is one and only you
 can say whether it should survive: read the diff before applying. Applying keeps
-the previous copy beside it as a `.bak`, reloads systemd, and validates the
-nginx site with `nginx -t` before reloading nginx. It does not restart the
-backend; that stays yours to time.
+the previous copies under `/var/backups/dojobay/`, reloads systemd, restarts any
+timer whose file changed, since a timer keeps its old schedule until it is
+restarted and nothing about the machine would look wrong meanwhile, and
+validates the nginx site with `nginx -t` before reloading nginx. It names any
+service still running an old unit and leaves restarting those to you.
+
+Answer its prompt by hand rather than pasting it as part of a block of
+commands. It discards queued input before asking, but a confirmation that
+guards the files under `/etc` deserves a deliberate keystroke.
 
 `/etc/tor/torrc` is deliberately outside its scope. The installer merges a
 marked block into your torrc rather than rendering it, because that file carries

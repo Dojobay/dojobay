@@ -9,6 +9,50 @@ Comments in the code hold present-tense invariants only; anything in the past
 tense belongs here. `README.md` is for operators and
 `CONTRIBUTING.md` is for people changing the code, and neither takes postmortems.
 
+## 2026-08-27 · 9527e85 · Reconciling /etc needs no record of what was installed
+
+The plan for the reconciler assumed a manifest: the installer would record what
+it wrote, so the tool could tell a template change from an operator's edit and
+would not present an operator's own configuration as drift. That meant a new
+instance-owned state file, and nothing at all for the live VPS, which predates
+the installer and recorded nothing.
+
+It is unnecessary. Every value the renderers substitute is recoverable from the
+file they produced: the account from `User=`, the web root from `ExecStart=`,
+the onion and the admin code from their own `Environment=` lines. Reading them
+back and rendering the current template with them means an operator's settings
+are carried forward by construction, so the only differences reported are ones
+the repository introduced or the operator made by hand outside the rendered
+lines. The round trip is what the test asserts: render, recover, render again,
+byte for byte identical. A machine the installer has never touched is therefore
+reconcilable on first run, which the VPS proved on the day this shipped by
+finding its timer still set to `OnUnitActiveSec=10min`, the schedule that stops
+firing after a run of failures. That fix had been in the repository for weeks
+and had never reached `/etc`.
+
+`/etc/tor/torrc` stays outside the tool. It is merged into rather than rendered,
+because an operator's torrc carries their other hidden services, and rendering
+it from a template would take those with it.
+
+## 2026-08-27 · 9527e85 · A prompt can be answered by a line nobody typed
+
+The reconciler asks before overwriting anything under `/etc`. Pasting a block of
+commands leaves the later lines queued on the terminal, and a prompt that reads
+a line takes the next one: on the live VPS the queued line began with `s` and
+read as no, but one beginning with `y` would have approved the write. A
+confirmation that can be answered by something the operator did not mean as an
+answer is not a confirmation.
+
+The obvious fix does not work. Draining stdin once before prompting discards
+nothing, because the bytes are still in the terminal's buffer and have not
+reached the process: the read returns null and the paste is then handed to
+readline as the answer. That version was written, tested on a pty with a queued
+line reading `yes`, and wrote the files. What works is letting stdin flow and
+discarding everything that arrives for a settle window before asking, on the
+grounds that queued bytes arrive in milliseconds and a person reading a question
+takes far longer. That is a margin and not a guarantee, which is why the window
+is generous and the prompt still defaults to no.
+
 ## 2026-08-26 · 00d07ae · A card's Electrum endpoint is probed or absent
 
 `effectiveIndexer` returned `detected || declared`, so a URL an operator's Dojo

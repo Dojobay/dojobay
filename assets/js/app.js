@@ -1320,6 +1320,7 @@ async function loadJSON(url){
       '<button class="abtn" data-adm="logout" style="margin-left:8px">Sign out</button> '+
       '<span style="font-size:12px;color:var(--faint)">(the same Auth47 session as Manage my Dojo; signing out here signs you out there too)</span></p>'+
       updatesLine()+
+      importLine()+
       (ADMIN_NOTICE?'<p style="font-size:12.5px;color:var(--down);border:1px solid var(--down);border-radius:8px;padding:8px 12px">'+esc(ADMIN_NOTICE)+'</p>':"")+
       '<h3 style="margin:16px 0 8px">Pending review ('+pending.length+')</h3>'+
       (pending.length? pending.map(adminRow).join("") : '<p style="color:var(--faint)">Nothing awaiting review.</p>')+
@@ -1329,6 +1330,15 @@ async function loadJSON(url){
   }
   let ADMIN_NOTICE = null;
   let ADMIN_UPDATES = null, ADMIN_UPDATES_LOADING = false, ADMIN_LAST = null;
+  // The import job, polled the same way an update is. Declared here, above the
+  // functions that read it, because a const or let below its first reader has
+  // failed outright in this codebase before.
+  let IMPORT_RUN = null;   // {phase, log[], done, ok, error, apply, onion, result}
+  let IMPORT_POLL = null;
+  // The onion and code of the plan being looked at, so applying does not ask
+  // for them again. Held only here: the payment code is public, but which
+  // instance this operator is pairing with is not written anywhere.
+  let IMPORT_LAST = null;
   let UPDATE_RUN = null;   // {phase, log[], done, ok, error, needsRefresh}
   let UPDATE_POLL = null;
   const UPDATE_PHASES = ["starting","fetching","applying","restarting"];
@@ -1463,6 +1473,84 @@ async function loadJSON(url){
       + (j.error? '<button class="abtn" data-adm="update-dismiss">Dismiss</button>':'')
       + '</div>';
   }
+  // Importing listings from another Dojo Bay.
+  //
+  // Two steps, always. The premise of importing from another directory is that
+  // you do not trust it, so the operator sees the plan before anything is
+  // written: what would be imported, what this instance already lists under a
+  // different id, and what is refused and why. Apply only appears once a plan
+  // has come back, so the button that writes cannot be the first one clicked.
+  function importLine(){
+    const j = IMPORT_RUN;
+    if(!j){
+      return '<div style="margin:14px 0 4px">'
+        + '<button class="abtn" data-adm="import-plan">Import Dojos from another Dojo Bay\u2026</button>'
+        + '<p style="font-size:12px;color:var(--faint);margin:6px 0 0">'
+        + 'Fetches another instance\u2019s published list over Tor and shows what it would add. '
+        + 'Nothing is written until you say so, every listing\u2019s own signature is checked here, '
+        + 'and anything imported arrives in Pending review rather than on the site.</p></div>';
+    }
+    const res = j.result || null;
+    const rows = (res && res.plan) || [];
+    const counts = res
+      ? [res.planned + ' to import', res.merged + ' already listed here', res.refused + ' refused']
+      : [];
+    // The refused rows are the ones worth reading, so they are not collapsed
+    // away: a directory publishing listings this instance will not accept is
+    // something an operator should see rather than a number.
+    const table = rows.length
+      ? '<table class="imp"><thead><tr><th>Node</th><th>Network</th><th>Pairing</th><th></th></tr></thead><tbody>'
+        + rows.map(r => '<tr class="imp-' + esc(r.action) + '"><td>' + esc(r.name)
+            + (r.paynym ? ' <span style="color:var(--faint)">' + esc(r.paynym) + '</span>' : '')
+            + '</td><td>' + esc(r.network || "") + '</td><td><code style="font-size:11px">'
+            + esc(String(r.url || "").replace(/^https?:\/\//, "").slice(0, 22)) + '\u2026</code></td><td>'
+            + (r.action === "import" ? 'import'
+               : r.action === "merge" ? 'already listed as ' + esc(r.dupOf || "")
+               : 'refused: ' + esc(r.why || "")) + '</td></tr>').join("")
+        + '</tbody></table>'
+      : "";
+    const apply = (j.done && j.ok && !j.apply && res && res.planned > 0)
+      ? '<button class="abtn" data-adm="import-apply">Import ' + res.planned + ' listing'
+        + (res.planned === 1 ? '' : 's') + ' as pending</button> '
+      : "";
+    return '<div class="upd-run"><p><b>' + (j.apply ? 'Importing from ' : 'Planning an import from ')
+      + '</b><code style="font-size:11px">' + esc(j.onion || "") + '</code>'
+      + (j.done ? "" : ' \u2026') + '</p>'
+      + (j.error ? '<p class="upd-warn">' + esc(j.error) + '</p>' : "")
+      + (counts.length ? '<p style="font-size:12px;color:var(--muted)">' + counts.join(' \u00b7 ') + '</p>' : "")
+      + table
+      + (j.done && j.apply && j.ok
+          ? '<p style="font-size:12px;color:var(--up)">Imported. They are in Pending review below, '
+            + 'unpublished until you approve them.</p>' : "")
+      + '<p style="margin-top:8px">' + apply
+      + '<button class="abtn" data-adm="import-dismiss">' + (j.done ? 'Close' : 'Hide') + '</button></p></div>';
+  }
+
+  async function startImport(onion, code, apply){
+    IMPORT_RUN = { phase:"starting", log:[], done:false, ok:false, apply, onion, result:null,
+      error:null };
+    renderAdminPanel();
+    const r = await api.call("/admin/import","POST",{ onion, code, apply });
+    if(r.status===409){ IMPORT_RUN=null; ADMIN_NOTICE="An import is already in progress."; renderAdminPanel(); return; }
+    if(r.status!==202){ IMPORT_RUN.error=(r.body&&r.body.error)||("HTTP "+r.status); IMPORT_RUN.done=true; renderAdminPanel(); return; }
+    // The onion and code are kept only in this closure, for the apply step, so
+    // that applying does not ask for them a second time. They are not written
+    // anywhere: the payment code is public, but the pairing is between this
+    // operator and that instance and does not belong in storage.
+    IMPORT_LAST = { onion, code };
+    pollImport();
+  }
+  function pollImport(){
+    clearInterval(IMPORT_POLL);
+    IMPORT_POLL = setInterval(async ()=>{
+      let r; try{ r = await api.call("/admin/import/status"); } catch(e){ return; }
+      if(r.status!==200 || !r.body || !r.body.job) return;
+      IMPORT_RUN = r.body.job;
+      if(IMPORT_RUN.done){ clearInterval(IMPORT_POLL); IMPORT_POLL=null; }
+      renderAdminPanel();
+    }, 1200);
+  }
+
   async function startUpdate(source, extra){
     UPDATE_RUN = /** @type {{ phase: string, log: string[], done: boolean, source: any, error?: string }} */
       ({ phase:"starting", log:["requesting update…"], done:false, source });
@@ -1512,6 +1600,23 @@ async function loadJSON(url){
         alert("This instance is already on the latest commit. There is nothing to fetch."); return;
       }
       if(confirm("Update this instance from GitHub over Tor?\n\nSELF-UPDATE IS EXPERIMENTAL. The service will restart; if it does not come back you will need shell access to the box. A full copy of the current code is kept under data/backups/.")) startUpdate("github"); return; }
+    if(act==="import-plan"){
+      const onion=prompt("The .onion of the Dojo Bay to import from:"); if(!onion) return;
+      const code=prompt("That instance operator's BIP47 payment code (verifies whose list this is):")||"";
+      startImport(String(onion).replace(/^https?:\/\//,"").replace(/\/.*$/,""), code, false);
+      return;
+    }
+    if(act==="import-apply"){
+      // The plan on screen was produced from these details, so applying re-uses
+      // them rather than asking again: retyping an onion between seeing a plan
+      // and accepting it is a chance to accept a plan from somewhere else.
+      if(!IMPORT_LAST) return;
+      const n = (IMPORT_RUN && IMPORT_RUN.result && IMPORT_RUN.result.planned) || 0;
+      if(!confirm("Import "+n+" listing"+(n===1?"":"s")+" from "+IMPORT_LAST.onion+"?\n\nThey arrive as Pending review and are not published until you approve them. Their signatures have already been verified here.")) return;
+      startImport(IMPORT_LAST.onion, IMPORT_LAST.code, true);
+      return;
+    }
+    if(act==="import-dismiss"){ clearInterval(IMPORT_POLL); IMPORT_POLL=null; IMPORT_RUN=null; renderAdminPanel(); return; }
     if(act==="update-peer"){
       const onion=prompt("Trusted peer .onion to update from:"); if(!onion) return;
       const code=prompt("That operator's BIP47 payment code (verifies who you're trusting):")||"";

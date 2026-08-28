@@ -84,6 +84,15 @@
   .upd-bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden;margin:8px 0}
   .upd-bar-fill{height:100%;transition:width .4s ease;border-radius:6px}
   .upd-log{font-size:11px;color:var(--faint);background:var(--panel2);border-radius:8px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;line-height:1.5;max-height:120px;overflow:auto}
+  /* The import plan. Refused rows are coloured rather than hidden: a directory
+     publishing listings this instance will not accept is the most informative
+     thing on the table, and collapsing it to a count would bury it. */
+  table.imp{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+  table.imp th{text-align:left;font-weight:600;color:var(--faint);font-size:11px;
+    padding:4px 8px 4px 0;border-bottom:1px solid var(--line-soft)}
+  table.imp td{padding:5px 8px 5px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tr.imp-merge td{color:var(--muted)}
+  tr.imp-refuse td{color:var(--down)}
   .op-avatar{width:20px;height:20px;border-radius:50%;object-fit:cover;
              border:1px solid var(--line-soft);display:inline-block;vertical-align:middle}
   /* PayNym avatar centred on the pairing QR (QR is generated at EC level H,

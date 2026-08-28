@@ -897,6 +897,47 @@ ok("footer source-download icon links the instance's own code zip");
   ok("an operator who pushed while signed in can force a fresh check");
 }
 
+// Importing listings from another Dojo Bay, from the console.
+//
+// The premise is that the other directory is not trusted, so the interface has
+// to make the plan the thing an operator reads and the write the thing they
+// choose. A single button that fetched and imported would defeat every check
+// underneath it, since nobody refuses a plan they were never shown.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const fn = app.slice(app.indexOf("function importLine()"), app.indexOf("async function startImport"));
+
+  assert.ok(/data-adm="import-plan"/.test(fn), "the panel offers an import");
+  // Apply is conditional on a plan having come back with something in it, so
+  // the first click can never be the one that writes.
+  const applyLine = fn.slice(fn.indexOf("const apply ="), fn.indexOf("return '<div class=\"upd-run\"'"));
+  assert.ok(/j\.done && j\.ok && !j\.apply/.test(applyLine),
+    "and the apply control appears only after a plan has come back");
+  assert.ok(/res\.planned > 0/.test(applyLine),
+    "and only when there is something to import");
+  assert.ok(/imp-' \+ esc\(r\.action\)/.test(fn) && /refused: /.test(fn),
+    "refused rows are shown with their reason rather than reduced to a count");
+  assert.ok(/already listed as /.test(fn),
+    "and a node this instance already has is named as such, not offered again");
+  assert.ok(/Pending review/.test(fn),
+    "the panel says imports arrive pending rather than on the site");
+
+  const dispatch = app.slice(app.indexOf('if(act==="import-plan")'), app.indexOf('if(act==="update-peer")'));
+  // Matched on the argument, not the whole call: the onion is normalised with
+  // two regexes whose closing brackets defeat a naive [^)]* match.
+  assert.ok(/, code, false\);/.test(dispatch), "the first action plans rather than writes");
+  assert.ok(/IMPORT_LAST\.onion, IMPORT_LAST\.code, true/.test(dispatch),
+    "and applying re-uses the details the plan was made from, so the plan on screen is the plan accepted");
+  assert.ok(/confirm\(/.test(dispatch), "with a confirmation naming what is about to happen");
+
+  // Declared above its first reader. A let below the code that assigns it works
+  // only because the function runs after module evaluation, and that has failed
+  // outright in this codebase before.
+  assert.ok(app.indexOf("let IMPORT_LAST") < app.indexOf("IMPORT_LAST = { onion, code }"),
+    "IMPORT_LAST is declared above the code that sets it");
+  ok("an import is planned before it is applied, and refusals are shown");
+}
+
 // The banner has moved to the clearnet site, so it is not here twice.
 {
   const about = readFileSync(REPO + "/content/about.md", "utf8");

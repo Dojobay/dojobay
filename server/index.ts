@@ -690,6 +690,81 @@ route("POST", /^\/api\/admin\/update$/, async (req, res) => {
   json(res, 202, { started: true, id });
 });
 
+// 12b) admin: import listings from another Dojo Bay.
+//
+// The same operation the installer performs at setup, offered to a running
+// instance. It is a background job for the same reason the self-update is: the
+// three documents come from another onion over Tor, which is seconds at best,
+// and holding a request open for that is worse than polling.
+//
+// It runs IN this process rather than by spawning the script, because the
+// backend holds the store in memory as its single writer. A second process
+// writing store.json while this one has it loaded is the bug the maintenance
+// tools all refuse to risk.
+//
+// Two phases on purpose. The premise of importing from another directory is
+// that you do not trust it, so an operator sees the plan (what would be
+// imported, what is already listed here under another id, what is refused and
+// why) before anything is written. That is the same dry run the command line
+// defaults to.
+//
+// Imported records arrive PENDING. At install, approved is right, because
+// choosing to bootstrap is the decision to trust that list wholesale. In a
+// running instance with a moderation queue, a listing that appeared on the site
+// without passing through it would be the other directory publishing here.
+let IMPORT_JOB = null;   // { id, phase, log[], done, ok, error, apply, onion, result }
+route("POST", /^\/api\/admin\/import$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  if (IMPORT_JOB && !IMPORT_JOB.done) return json(res, 409, { error: "an import is already in progress" });
+  let body; try { body = JSON.parse(await readBody(req)); } catch { body = {}; }
+
+  const onionHost = String(body.onion || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (!/^[a-z2-7]{56}\.onion$/.test(onionHost)) {
+    return json(res, 400, { error: "a valid .onion address is required" });
+  }
+  // The peer's payment code is what the operator binding is checked against,
+  // and it is the operator's own statement of who they are choosing to trust.
+  // Without it there is nothing to compare the remote signature to, so the
+  // import would verify only that the remote signed something.
+  const trustedCode = String(body.code || "").trim();
+  if (!/^(PM8T|PM8[A-Za-z0-9])/.test(trustedCode) || trustedCode.length < 100) {
+    return json(res, 400, { error: "the payment code of the instance you are importing from is required" });
+  }
+
+  const id = Date.now().toString(36);
+  const job = IMPORT_JOB = { id, phase: "starting", log: [], done: false, ok: false, error: null,
+    apply: body.apply === true, onion: onionHost, result: null };
+  const log = (line: string) => { job.log.push(String(line)); if (job.log.length > 400) job.log.shift(); };
+
+  (async () => {
+    try {
+      job.phase = job.apply ? "importing" : "planning";
+      const { bootstrapImport } = await import("../scripts/bootstrap-import.mjs");
+      job.result = await bootstrapImport({
+        onionHost, trustedCode, dryRun: !job.apply, log,
+        dataDir: process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data"),
+        status: "pending",
+      });
+      // Rebuild after an apply. The new records are pending and publish
+      // nothing, but an import also carries history onto listings this instance
+      // already has and adds domain claims, and both of those do reach the
+      // published file. A planning run writes nothing and needs none.
+      if (job.apply) { job.phase = "rebuilding"; await tryRebuild(); }
+      job.ok = true; job.done = true; job.phase = "done";
+    } catch (e: any) {
+      job.error = e.message; job.ok = false; job.done = true; job.phase = "failed";
+      log("✗ " + e.message);
+    }
+  })();
+
+  json(res, 202, { started: true, id, apply: job.apply });
+});
+
+route("GET", /^\/api\/admin\/import\/status$/, async (req, res) => {
+  if (!(await adminFrom(req, res))) return;
+  json(res, 200, { job: IMPORT_JOB });
+});
+
 route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   // After a successful apply the service restarts; on the way back up the

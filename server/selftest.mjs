@@ -617,6 +617,47 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(anon.status === 401 && admin.status === 200 && admin.body.available === false && admin.body.error,
      "updates route: anonymous 401; unreachable GitHub reported in-band to the admin");
 
+  // The import routes. Their argument checking and their refusal to run two at
+  // once are testable here; the fetch itself needs another instance over Tor,
+  // which this suite has no way to provide, so what is asserted is everything
+  // that happens before the first byte leaves the machine.
+  const anonImport = await fetch(base + "/api/admin/import", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ onion: "x" }) });
+  ok(anonImport.status === 401, "import route refuses anyone who is not an admin");
+
+  const badOnion = await api("/api/admin/import", "POST", { onion: "not-an-onion", code: paymentCode });
+  ok(badOnion.status === 400 && /\.onion/.test(badOnion.body.error || ""),
+     "and refuses an address that is not a 56-character onion");
+
+  // Without the peer's payment code there is nothing for the operator binding
+  // to be checked against, so the import would establish only that the remote
+  // signed something, not that it is the instance the operator chose to trust.
+  const noCode = await api("/api/admin/import", "POST", { onion: "a".repeat(56) + ".onion" });
+  ok(noCode.status === 400 && /payment code/.test(noCode.body.error || ""),
+     "and refuses without the payment code of the instance being imported from");
+
+  // A real start, which will fail at the fetch because that onion does not
+  // exist. What matters is that it is a job rather than a held-open request,
+  // and that the failure is reported in-band rather than as a dead panel.
+  const started = await api("/api/admin/import", "POST",
+    { onion: "b".repeat(56) + ".onion", code: paymentCode });
+  ok(started.status === 202 && started.body.started === true && started.body.apply === false,
+     "an import starts as a background job, and defaults to planning rather than writing");
+
+  const busy = await api("/api/admin/import", "POST",
+    { onion: "c".repeat(56) + ".onion", code: paymentCode });
+  ok(busy.status === 409, "and a second import while one is running is refused rather than interleaved");
+
+  for (let i = 0; i < 60; i++) {
+    const st = await api("/api/admin/import/status");
+    if (st.body.job && st.body.job.done) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const fin = await api("/api/admin/import/status");
+  ok(fin.status === 200 && fin.body.job && fin.body.job.done === true && fin.body.job.ok === false
+     && typeof fin.body.job.error === "string",
+     "an unreachable peer ends the job with a reason rather than leaving it running");
+
   // The cache rule the "Check again" button depends on. Tested here rather
   // than through the route, because the route only fills its cache on a
   // successful check and GitHub is unreachable in this suite, so the cached
@@ -782,6 +823,41 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   // cleanly on the source instance's word alone.
   ok(!(await store.getSubmission("mainnet-forged")),
      "a well-formed block over somebody else's payload is refused: signatures are verified here, not taken on trust");
+
+  // An import into a RUNNING instance arrives pending, so it lands in the
+  // moderation queue the operator already uses. At install approved is right,
+  // because choosing to bootstrap is the decision to trust that list wholesale;
+  // in a running instance a listing that appeared on the site without passing
+  // the queue would be another directory publishing here.
+  {
+    const url = "http://" + "h".repeat(56) + ".onion/v2";
+    const one = { pairing: { type: "dojo.api", url, apikey: "k" } };
+    const docs = {
+      "/data/operator.json": opDoc,
+      "/data/dojos.json": { nodes: [{ id: "mainnet-queued", network: "mainnet", name: "queued",
+        paynym: "+imp", paymentCode: "PMimpDisplay", signed: signBlockFor(one), payload: one }] },
+    };
+    const r2 = await bootstrapImport({ onionHost, trustedCode: opCode, status: "pending",
+      fetchDoc: async (pth) => { if (!(pth in docs)) throw new Error("404 " + pth); return docs[pth]; },
+      fetchCodes, dataDir: process.env.PUBLIC_DATA_DIR, log: () => {} });
+    const queued = await store.getSubmission("mainnet-queued");
+    ok(r2.imported === 1 && queued && queued.status === "pending",
+       "an import can arrive pending, for a running instance with a moderation queue: " + (queued && queued.status));
+    ok(r2.plan && r2.plan.some((row) => row.id === "mainnet-queued" && row.action === "import" && row.url === url),
+       "and the plan comes back as data, so a console can render it rather than parse log lines");
+    await store.deleteSubmission("mainnet-queued");
+  }
+
+  // The route asks for that, rather than inheriting the installer's default.
+  {
+    const idx = await fsp.readFile(new URL("./index.ts", import.meta.url), "utf8");
+    const block = idx.slice(idx.indexOf('route("POST", /^\\/api\\/admin\\/import$/'),
+                            idx.indexOf('route("GET", /^\\/api\\/admin\\/import\\/status$/'));
+    ok(block.length > 200 && /status: "pending"/.test(block),
+       "the admin import route asks for pending records rather than taking the installer's default");
+    ok(/dryRun: !job\.apply/.test(block),
+       "and plans unless the operator explicitly asked to apply");
+  }
   ok(r.imported === 1 && imp && imp.status === "approved"
      && imp.paymentCodes.includes("PMimpSegwit") && imp.paymentCodes.includes("PMimpLegacy") && imp.paymentCodes.includes("PMimpDisplay")
      && imp.source === `bootstrap-import:${onionHost}`

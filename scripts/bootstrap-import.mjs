@@ -53,11 +53,12 @@ async function writeJSONAtomic(p, obj) {
 // fetchCodes(paynymOrCode) -> [{code, segwit}, ...]
 /**
  * @param {{ onionHost?: string, trustedCode?: string, dryRun?: boolean, dataDir?: string,
- *   log?: (...a: any[]) => void, fetchDoc?: any, fetchCodes?: any }} [opts]
+ *   log?: (...a: any[]) => void, fetchDoc?: any, fetchCodes?: any,
+ *   status?: "approved" | "pending" }} [opts]
  */
 export async function bootstrapImport({
   onionHost, trustedCode, dryRun = false, dataDir = DATA_DIR, log = console.error,
-  fetchDoc, fetchCodes,
+  fetchDoc, fetchCodes, status = "approved",
 } = {}) {
   const cfg = defaultCfg();
   fetchDoc = fetchDoc || ((p) => torFetchJSON(onionHost, p, cfg));
@@ -183,11 +184,20 @@ export async function bootstrapImport({
     log(`  merge  ${m.n.id.padEnd(28)} same Dojo as ${m.dupOf}: history only, no second listing`);
   }
   if (refused.length) log(`refused ${refused.length} node(s) that cannot be listed here: ${refused.map((p) => p.n.id).join(", ")}`);
+  // The plan as data, not as log lines. The command line reads the log; the
+  // admin console has to render this and let an operator decide, and parsing
+  // the log back out would be inventing a format nobody agreed on.
+  const rows = plan.map(({ action, n, codes, dupOf, why }) => ({
+    action, id: n.id, name: n.name || n.id, network: n.network || null,
+    paynym: n.paynym || null, url: n?.payload?.pairing?.url || null,
+    codes: (codes || []).length, dupOf: dupOf || null, why: why || null,
+  }));
   if (dryRun) {
     log(`dry run: ${imports.length} node(s) would be imported`
       + (merges.length ? `, ${merges.length} recognised as already listed here` : "")
       + ", nothing written.");
-    return { imported: 0, planned: imports.length, merged: merges.length };
+    return { imported: 0, planned: imports.length, merged: merges.length,
+      refused: refused.length, plan: rows, status };
   }
 
   for (const { n, codes } of imports) {
@@ -197,7 +207,11 @@ export async function bootstrapImport({
       jurisdiction: n.jurisdiction || null, country: n.country || null,
       hardware: n.hardware || null, payload: n.payload,
       signed: n.signed || null,
-      status: "approved", source: `bootstrap-import:${onionHost}`,
+      // approved at install, because choosing to bootstrap from a directory IS
+      // the decision to trust its list. An import into a running instance
+      // arrives pending instead, so it lands in the moderation queue the
+      // operator already uses and nothing is published until they say so.
+      status, source: `bootstrap-import:${onionHost}`,
       created_at: now, updated_at: now,
     });
   }
@@ -286,6 +300,7 @@ export async function bootstrapImport({
     + (merges.length ? `, and recognised ${merges.length} as node(s) this instance already lists` : "")
     + ". Now run: node server/build-public.mjs");
   return { imported: imports.length, planned: imports.length, merged: merges.length,
+    refused: refused.length, plan: rows, status,
     domains_imported: domainsImported, domains_refused: domainsRefused };
 }
 

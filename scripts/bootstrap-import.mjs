@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { httpOverTor } from "./update.mjs";
 import { store, hasSignedBlock } from "../server/store.ts";
+import { verifySignedPayload, canonicalPairing } from "../server/crypto.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data");
@@ -139,6 +140,28 @@ export async function bootstrapImport({
     // enter this store, and saying so in the plan is better than a throw from
     // putSubmission half way through the import.
     if (!hasSignedBlock(n)) { plan.push({ action: "refuse", n, why: "no signed pairing block" }); continue; }
+    // And the block must actually verify, here, against the payload it claims
+    // to cover.
+    //
+    // hasSignedBlock only looks for the two header lines, and putSubmission
+    // enforces nothing more, so until this check an imported listing's
+    // signature was taken on the source instance's word: a directory that was
+    // careless or compromised could publish a well-formed block that verifies
+    // against nothing, and every instance bootstrapping from it would list the
+    // node. This is the same standard the domain badges above are already held
+    // to, and for the same reason: one compromised directory must not be able
+    // to place listings across a federation.
+    //
+    // Offline and self-contained. canonicalPairing derives the message from the
+    // payload being imported, so a payload altered in transit no longer matches
+    // what was signed, and the addresses come from the payment code named
+    // inside the block itself rather than from anything the source asserts.
+    const sig = verifySignedPayload({
+      signedText: n.signed,
+      expectedMessage: canonicalPairing(n.payload),
+      network: n.network === "testnet" ? "testnet" : "bitcoin",
+    });
+    if (!sig.ok) { plan.push({ action: "refuse", n, why: `signature does not verify (${sig.error})` }); continue; }
     let codes = n.paymentCode ? [n.paymentCode] : [];
     if (n.paynym) {
       if (!codeCache.has(n.paynym)) codeCache.set(n.paynym, await fetchCodes(n.paynym).catch(() => []));

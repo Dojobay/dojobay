@@ -723,8 +723,13 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
         operator_domain: "example.org",
         operator_domain_proof: { domain: "example.org", paymentCode, txt_name: "_dojobay.example.org",
           txt_value: `dojobay-domain-v1 pm=${paymentCode}`, signed: signedUrlBlock, verified_at: "2026-07-01T00:00:00Z" } },
+      // Signed over ITS OWN payload. It used to carry the block covering a
+      // different node's pairing details and imported cleanly, because nothing
+      // verified the signature: the source instance's word was the only thing
+      // vouching for it.
       { id: "mainnet-imported", network: "mainnet", name: "imported", paynym: "+imp",
-        paymentCode: "PMimpDisplay", signed: signedBlock,
+        paymentCode: "PMimpDisplay",
+        signed: signBlockFor({ pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } }),
         payload: { pairing: { type: "dojo.api", url: "http://" + "e".repeat(56) + ".onion/v2", apikey: "k" } },
         // a forged proof: the signature does not check out against the code
         operator_domain: "evil.example",
@@ -736,6 +741,12 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
       { id: "mainnet-hearsay", network: "mainnet", name: "hearsay", paynym: "+imp",
         paymentCode: "PMimpDisplay",
         payload: { pairing: { type: "dojo.api", url: "http://" + "f".repeat(56) + ".onion/v2", apikey: "k" } } },
+      // A well-formed block that covers somebody else's payload. This is what a
+      // careless or compromised directory publishes, and what taking the
+      // source's word for a signature would let through.
+      { id: "mainnet-forged", network: "mainnet", name: "forged", paynym: "+imp",
+        paymentCode: "PMimpDisplay", signed: signedBlock,
+        payload: { pairing: { type: "dojo.api", url: "http://" + "g".repeat(56) + ".onion/v2", apikey: "k" } } },
     ],
   };
   const remoteDocs = {
@@ -763,6 +774,14 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   const imp = await store.getSubmission("mainnet-imported");
   const untouched = await store.getSubmission("mainnet-selftest-node");
   const histAfter = JSON.parse(await fsp.readFile(process.env.PUBLIC_DATA_DIR + "/history.json", "utf8")).nodes;
+  ok(!(await store.getSubmission("mainnet-hearsay")),
+     "an unsigned node published by the remote instance is refused rather than imported");
+  // The block is well-formed and genuinely signed; it just covers a different
+  // node's payload. hasSignedBlock cannot tell the difference and neither can
+  // putSubmission, so before the signature was verified here this imported
+  // cleanly on the source instance's word alone.
+  ok(!(await store.getSubmission("mainnet-forged")),
+     "a well-formed block over somebody else's payload is refused: signatures are verified here, not taken on trust");
   ok(r.imported === 1 && imp && imp.status === "approved"
      && imp.paymentCodes.includes("PMimpSegwit") && imp.paymentCodes.includes("PMimpLegacy") && imp.paymentCodes.includes("PMimpDisplay")
      && imp.source === `bootstrap-import:${onionHost}`
@@ -770,8 +789,6 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      && histAfter["mainnet-imported"] && histAfter["mainnet-imported"].checks.length === 1
      && histAfter["mainnet-selftest-node"].checks[0].t !== "2026-07-01 00:00",
      "bootstrap imports new nodes with all code variants and history; existing ids untouched");
-  ok(!(await store.getSubmission("mainnet-hearsay")),
-     "an unsigned node published by the remote instance is refused rather than imported");
 
   // The duplicate an operator actually hits. Bootstrapping a new instance from a
   // directory that already lists your own node used to create a second record

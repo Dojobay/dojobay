@@ -1,8 +1,9 @@
 # The Dojo Bay
 
 An onion-only directory of public Bitcoin **Dojo** nodes for
-[Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/) and
-[Ashigaru](https://ashigaru.rs/) wallets.
+[Samourai](https://web.archive.org/web/20240424023506/https://samouraiwallet.com/),
+[Ashigaru](https://ashigaru.rs/) and
+[Sentinel](https://github.com/wanderingking072/sentinel-android) wallets.
 The reference instance runs at:
 
 ```
@@ -439,6 +440,37 @@ code only, so your seed, operator binding, submission store and histories are
 never touched, and a backup under `data/backups/<timestamp>/` lets you roll
 back by hand if a build misbehaves. The manual `unzip` upgrade below remains
 available and does the same thing.
+
+### Importing listings from another Dojo Bay
+
+The same operation the installer offers at setup is available afterwards, from
+the admin console: **Import Dojos from another Dojo Bay**. Give it that
+instance's `.onion` and the payment code of its operator, and it fetches their
+published list over Tor.
+
+Nothing is trusted about the other directory beyond the fact that you named it.
+Its operator signature is verified against the payment code you supplied, so a
+list from an onion whose operator did not sign for it is refused. Then every
+listing in it is verified here, individually: its signed block must cover the
+pairing payload it arrived with, checked offline against the notification
+addresses of the payment code named inside the block. A well-formed signature
+over somebody else's payload does not import, and a directory that publishes
+one cannot place a listing here on its say-so.
+
+It works in two steps. The first produces a plan and writes nothing: what would
+be imported, what this instance already lists under a different id, and what is
+refused and why. A node you already have is recognised by its pairing URL and
+contributes only its reliability history, so bootstrapping from an instance that
+already lists your own Dojo does not create a second copy of it. Only then does
+an apply button appear.
+
+Imported listings arrive as **Pending review**, unpublished until you approve
+them, which is the difference from the installer's version: at setup, choosing
+to bootstrap is the decision to trust that list wholesale, whereas on a running
+directory anything appearing on the site without passing your moderation queue
+would be another operator publishing here. Verified domain badges are never
+imported as verified; the claim comes across and your own DNS sweep has to see
+the TXT record before a badge appears.
 
 ## Maintaining an instance
 

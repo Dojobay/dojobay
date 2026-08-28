@@ -1,7 +1,7 @@
 {
   "name": "The Dojo Bay",
   "short_name": "Dojo Bay",
-  "description": "A community directory of public Bitcoin Dojo nodes for Samourai and Ashigaru wallets. All nodes reachable over Tor.",
+  "description": "A community directory of public Bitcoin Dojo nodes for Samourai, Ashigaru and Sentinel wallets. All nodes reachable over Tor.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

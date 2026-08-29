@@ -617,6 +617,21 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(anon.status === 401 && admin.status === 200 && admin.body.available === false && admin.body.error,
      "updates route: anonymous 401; unreachable GitHub reported in-band to the admin");
 
+  // A rate-limited exit is the commonest way this check fails and the least
+  // like a fault: GitHub allows sixty unauthenticated requests an hour per IP,
+  // and a Tor exit is one address shared with everyone using it. An operator
+  // told "HTTP 403" goes looking for a broken instance.
+  const { githubRefusal } = await import("./updates.mjs");
+  for (const code of [403, 429]) {
+    const msg = githubRefusal("compare", code);
+    ok(/rate-limit/i.test(msg) && /exit/.test(msg) && msg.includes(String(code)),
+       `HTTP ${code} is explained as a rate-limited exit, with the status still in it`);
+  }
+  ok(/peer/i.test(githubRefusal("compare", 403)),
+     "and points at the route that does not touch GitHub");
+  ok(githubRefusal("compare", 500) === "compare: HTTP 500",
+     "while anything else is reported as what it was, with no story attached");
+
   // The import routes. Their argument checking and their refusal to run two at
   // once are testable here; the fetch itself needs another instance over Tor,
   // which this suite has no way to provide, so what is asserted is everything

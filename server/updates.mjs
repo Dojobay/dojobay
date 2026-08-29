@@ -94,17 +94,42 @@ export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 300
   return { status: res.status, body: res.bodyBuf.toString("utf8"), bodyBuf: res.bodyBuf };
 }
 
+/** What to tell an operator when GitHub refuses a request.
+ *
+ *  A bare "HTTP 403" reads as something broken here, and it is not: GitHub
+ *  allows sixty unauthenticated requests an hour PER IP ADDRESS, and a Tor exit
+ *  is one address shared with everyone else using it, so an instance can arrive
+ *  at an exit whose hour was already spent by strangers. Observed on a live
+ *  instance: limit 60, remaining 0, used 60, for an exit nobody here had made a
+ *  single request through.
+ *
+ *  It clears by itself when the window rolls over, and often sooner on a new
+ *  circuit, since the limit follows the exit rather than the client. Saying so
+ *  is the difference between an operator waiting and an operator going looking
+ *  for a fault that does not exist. 429 is included because GitHub uses it for
+ *  secondary limits and means the same thing to a reader.
+ */
+export function githubRefusal(what, status) {
+  if (status === 403 || status === 429) {
+    return `${what}: GitHub is rate-limiting this Tor exit (HTTP ${status}). `
+      + "The limit is per exit address and shared with every other user of it, so it clears on its "
+      + "own within the hour, usually sooner on a new circuit. Updating from a peer .onion does not "
+      + "touch GitHub and works meanwhile.";
+  }
+  return `${what}: HTTP ${status}`;
+}
+
 export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, cfg = {} } = {}) {
   const verPath = path.join(process.env.PUBLIC_DATA_DIR || path.join(ROOT, "data"), "version.json");
   const version = JSON.parse(await readFile(verPath, "utf8"));
   if (!version.commit || version.commit === "dev") throw new Error("local version.json has no deployed commit");
 
   const cmp = await transport(`/repos/${repo}/compare/${encodeURIComponent(version.commit)}...main`, cfg);
-  if (cmp.status !== 200) throw new Error(`compare: HTTP ${cmp.status}`);
+  if (cmp.status !== 200) throw new Error(githubRefusal("compare", cmp.status));
   const compare = JSON.parse(cmp.body);
 
   const rel = await transport(`/repos/${repo}/releases?per_page=30`, cfg);
-  if (rel.status !== 200) throw new Error(`releases: HTTP ${rel.status}`);
+  if (rel.status !== 200) throw new Error(githubRefusal("releases", rel.status));
   const releases = JSON.parse(rel.body);
 
   // Which release are we actually running?
@@ -127,8 +152,7 @@ export async function checkUpdates({ repo = GITHUB_REPO, transport = githubGet, 
         if (t?.name && t?.commit?.sha) tagSha.set(t.name, String(t.commit.sha));
       }
     } else {
-      tagsError = `tag lookup: HTTP ${tg.status}` +
-        (tg.status === 403 || tg.status === 429 ? " (GitHub rate limit; Tor exits are shared and hit it often)" : "");
+      tagsError = githubRefusal("tag lookup", tg.status);
     }
   } catch (e) {
     tagsError = "tag lookup: " + (e?.message || "failed");

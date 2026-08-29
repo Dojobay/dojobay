@@ -897,6 +897,38 @@ ok("footer source-download icon links the instance's own code zip");
   ok("an operator who pushed while signed in can force a fresh check");
 }
 
+// A failed update check must not take the peer route with it.
+//
+// GitHub allows sixty unauthenticated requests an hour per IP, a Tor exit is
+// one address shared with everyone using it, and an instance can land on an
+// exit whose hour was already spent. That is a routine condition, not a fault,
+// and it used to leave the panel with a status code and no controls at all,
+// including the one route that never touches GitHub.
+{
+  const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
+  const unavailable = app.slice(app.indexOf("if(!u.available) return"),
+                                app.indexOf("const behind = u.commits_behind>0"));
+  // Proves the slice found the branch without also standing in for the checks
+  // below: a length threshold would fail first, and report a missing slice when
+  // what actually went was the peer button.
+  assert.ok(/Update check unavailable/.test(unavailable), "the unavailable branch was located");
+  assert.ok(/data-adm="update-peer"/.test(unavailable),
+    "a peer update is still offered when GitHub cannot be reached");
+  assert.ok(/data-adm="update-recheck"/.test(unavailable),
+    "and so is checking again, since a rate limit follows the exit and a new circuit may clear it");
+  assert.ok(!/data-adm="update-github"/.test(unavailable),
+    "but not the GitHub update, which has nothing to fetch");
+
+  const upd = readFileSync(REPO + "/server/updates.mjs", "utf8");
+  assert.ok(/export function githubRefusal/.test(upd),
+    "and the server explains a refusal rather than reporting a status code");
+  assert.ok(/status === 403 \|\| status === 429/.test(upd),
+    "recognising both the limit and the secondary limit");
+  assert.ok(!/`compare: HTTP \$\{cmp\.status\}`/.test(upd) && !/`releases: HTTP \$\{rel\.status\}`/.test(upd),
+    "at every call site, not only the one where it was first noticed");
+  ok("a rate-limited exit is explained, and leaves the peer route open");
+}
+
 // Importing listings from another Dojo Bay, from the console.
 //
 // The premise is that the other directory is not trusted, so the interface has

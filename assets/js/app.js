@@ -1346,7 +1346,19 @@ async function loadJSON(url){
     if(UPDATE_RUN) return updateProgress();
     if(!ADMIN_UPDATES) return ADMIN_UPDATES_LOADING ? '<p style="font-size:12px;color:var(--faint)">Checking for updates…</p>' : "";
     const u = ADMIN_UPDATES;
-    if(!u.available) return '<p style="font-size:12px;color:var(--faint)">Update check unavailable: '+esc(u.error||"unknown")+'</p>';
+    // A failed check hides what GitHub would have told us. It must not hide the
+    // peer update, which never touches GitHub and is the one route still open
+    // when GitHub is the thing that is unavailable. This used to return here,
+    // so an operator whose exit had been rate-limited was left with no controls
+    // at all and no way to update from another instance.
+    if(!u.available) return '<p style="font-size:12px;color:var(--faint)">Update check unavailable: '
+      + esc(u.error||"unknown") + '</p>'
+      + '<div style="margin:10px 0 4px">'
+      + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button> '
+      + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '') + '>'
+      + (ADMIN_UPDATES_LOADING ? 'Checking…' : 'Check again') + '</button></div>'
+      + '<p style="font-size:12px;color:var(--faint)">A peer update fetches from another Dojo Bay over Tor '
+      + 'and verifies that instance\u2019s operator signature, so it works whatever GitHub is doing.</p>';
     const behind = u.commits_behind>0
       ? '<b style="color:var(--warn,#e0a020)">'+u.commits_behind+' commit'+(u.commits_behind===1?"":"s")+' behind main</b>'
       : 'up to date with main';

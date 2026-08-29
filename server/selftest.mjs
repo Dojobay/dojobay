@@ -644,9 +644,28 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
   ok(started.status === 202 && started.body.started === true && started.body.apply === false,
      "an import starts as a background job, and defaults to planning rather than writing");
 
-  const busy = await api("/api/admin/import", "POST",
-    { onion: "c".repeat(56) + ".onion", code: paymentCode });
-  ok(busy.status === 409, "and a second import while one is running is refused rather than interleaved");
+  // Two imports must not run at once, and a second request is refused while the
+  // first is unfinished. That is deliberately NOT asserted by firing a second
+  // request and expecting 409: whether the first is still running by then
+  // depends on how quickly the fetch fails, which is a property of the machine
+  // rather than of this code. On a box with Tor it hangs for seconds; in CI
+  // there is no Tor at all, the connection is refused on the next turn of the
+  // loop, and a second import is then correctly ACCEPTED because nothing is
+  // running. The first version of this test asserted 409 unconditionally and
+  // failed in CI for exactly that reason.
+  //
+  // What is asserted instead is the rule itself, which is monotonic and does
+  // not depend on timing: the guard is on the job being unfinished, and the
+  // job is created before the work starts so there is no window in which two
+  // could begin. Weaker than a behavioural test, and said so here rather than
+  // dressed up as one.
+  const idx = await fsp.readFile(new URL("./index.ts", import.meta.url), "utf8");
+  const importRoute = idx.slice(idx.indexOf('route("POST", /^\\/api\\/admin\\/import$/'),
+                                idx.indexOf('route("GET", /^\\/api\\/admin\\/import\\/status$/'));
+  ok(/IMPORT_JOB && !IMPORT_JOB\.done\) return json\(res, 409/.test(importRoute),
+     "a second import while one is running is refused rather than interleaved");
+  ok(importRoute.indexOf("IMPORT_JOB = {") < importRoute.indexOf("bootstrapImport({"),
+     "and the job exists before the work starts, so there is no window in which two could begin");
 
   for (let i = 0; i < 60; i++) {
     const st = await api("/api/admin/import/status");

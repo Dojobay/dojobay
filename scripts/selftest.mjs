@@ -1010,17 +1010,25 @@ await check("the restart rule grants exactly one verb on one unit to the service
     "it is a question, not a silent grant");
   assert.ok(src.indexOf("POLKIT_RULE_PATH, polkitRule") > src.indexOf("Write configuration and start services?"),
     "and nothing is written before the operator confirms the write phase");
-  assert.ok(/pkcheck --action-id \$\{SYSTEMD_MANAGE_UNITS\}/.test(src),
+  assert.ok(/"pkcheck", \["--action-id", SYSTEMD_MANAGE_UNITS/.test(src),
     "the rule is verified by asking polkit the question systemd will ask");
   // SINGULAR. pkcheck's own --help prints --details and its parser accepts only
-  // --detail or -d, so the plural spelling exits 126 and was read as a refusal:
-  // an install with a working rule reported that polkit had refused it.
-  assert.ok(/--detail unit/.test(src) && !/--details unit/.test(src),
+  // --detail or -d, so the plural spelling exits 126 and was read as a refusal.
+  assert.ok(/"--detail", "unit"/.test(src) && !/"--details", "unit"/.test(src),
     "with --detail, which is the spelling pkcheck's parser accepts rather than the one its help prints");
-  // 1, 2 and 3 are answers about authorisation; 126 and 127 are pkcheck failing
-  // to ask, and say nothing about the rule.
-  assert.ok(/\[1, 2, 3\]\.includes\(probe\.code\)/.test(src),
+  // 1, 2 and 3 are answers about authorisation; anything else is pkcheck unable
+  // to ask, and says nothing about the rule.
+  assert.ok(/\[1, 2, 3\]\.includes\(e\.code\)/.test(src),
     "and only an authorisation answer is reported as a refusal");
+  // Asked as root, about a process belonging to the service account. polkit
+  // refuses a details-bearing query from any caller that is not uid 0, which is
+  // why the backend cannot make this check and the installer can: it runs under
+  // sudo. Asking as the service account returns NotAuthorized regardless of
+  // whether the rule is present, which is what the console used to report.
+  assert.ok(/echo \$\$; exec sleep/.test(src),
+    "holding a process open as the service account, since the query needs a subject that belongs to it");
+  assert.ok(!/sudo", \["-u", SERVICE_USER, "sh", "-c",\s*`pkcheck/.test(src),
+    "and not by running pkcheck as that account, which polkit refuses whatever the rule says");
   assert.ok(POLKIT_RULE_PATH.startsWith("/etc/polkit-1/rules.d/49-"),
     "read before the distribution's own 50-default.rules");
 });

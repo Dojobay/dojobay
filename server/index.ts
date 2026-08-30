@@ -808,55 +808,21 @@ route("GET", /^\/api\/admin\/update\/status$/, async (req, res) => {
   json(res, 200, { job: UPDATE_JOB, lastResult });
 });
 
-// Can this process restart its own service?
+// The restart permission self-update needs cannot be checked from here.
 //
-// The last step of a self-update is `systemctl restart dojobay-server.service`,
-// run as the service account. Without permission an update applies perfectly
-// and then stops on its final line: new code on disk, old process still serving
-// it, which looks exactly like an update that did nothing.
+// Two attempts, both wrong, and the second wrong in a way that took a live
+// instance to find. systemctl restart --dry-run returns before any bus call, so
+// it reported success whatever the account could do. pkcheck asks polkit the
+// right question, but polkit refuses CheckAuthorization() WITH DETAILS from any
+// caller that is not uid 0 or the action's owner, and the rule keys on the unit
+// and the verb, so without details it cannot match and the answer would be a
+// false no. The rules directory is 750 root:polkitd, so reading the file is
+// closed off too.
 //
-// Asked BEFORE the update rather than reported after, because a precondition
-// that is invisible until the moment it matters is the shape of failure this
-// project keeps producing: the timer that was enabled but not scheduled, the
-// chown that had already happened, the account that did not exist.
-//
-// Asked of polkit, because polkit is what decides. systemctl talks to systemd
-// over D-Bus and systemd asks polkit whether this account may manage that unit,
-// passing the unit and the verb as details, so pkcheck with the same action and
-// the same two details asks the identical question and changes nothing.
-// Interaction is deliberately not allowed: an unattended restart has nobody to
-// answer a prompt, so "would be permitted if a human authenticated" is a no.
-// pkcheck exits 0 authorised, 1 refused, 2 needing authentication, 3 dismissed.
-//
-// Three answers, not two. Where pkcheck is absent the honest report is that we
-// do not know: the previous version of this check ran `systemctl restart
-// --dry-run`, which returns before making any bus call and therefore returns
-// success whatever the account may do, so the panel promised a restart it had
-// never tested and its warning could not fire.
-type RestartPermission = "yes" | "no" | "unknown";
-async function canRestartService(): Promise<RestartPermission> {
-  try {
-    await execFileP("pkcheck", ["--action-id", "org.freedesktop.systemd1.manage-units",
-      "--process", String(process.pid),
-      // SINGULAR. pkcheck's own --help prints "--details=KEY VALUE" and its
-      // parser accepts only "--detail" or "-d"; the usage string is wrong. The
-      // plural spelling is rejected as an unexpected argument and exits 126,
-      // which this function then read as a refusal, so an instance whose rule
-      // was installed and working was told its permission was missing.
-      "--detail", "unit", "dojobay-server.service",
-      "--detail", "verb", "restart"], { timeout: 5000 });
-    return "yes";
-  } catch (e: any) {
-    // Only 1, 2 and 3 are answers about authorisation: refused, would need a
-    // human, dismissed. 126 is a usage or internal failure and 127 is the
-    // authority call failing, and neither says anything about what this account
-    // may do, so they are unknown rather than no. Reading every non-zero code
-    // as a refusal is what turned an argument bug into a false alarm.
-    if (e && e.code === "ENOENT") return "unknown";
-    return [1, 2, 3].includes(e?.code) ? "no" : "unknown";
-  }
-}
-
+// So this instance says nothing about whether the permission is present. What
+// it can do is report the one thing it has evidence for: an update that
+// installed and did not restart, which lastResult already records, and which is
+// exactly the symptom a missing permission produces.
 route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
   if (!(await adminFrom(req, res))) return;
   // Six hours is right for an unattended check over Tor, where GitHub rate
@@ -883,7 +849,7 @@ route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
     // The account this process runs as, so the panel can print a command that
     // works rather than a placeholder. The two machines differ: one built by the
     // installer runs as dojobay, one set up by hand may not.
-    const result = { available: true, canRestart: await canRestartService(),
+    const result = { available: true,
       serviceUser: (() => { try { return osMod.userInfo().username; } catch { return null; } })(),
       // Absolute, because the remedy the panel prints used to be a relative
       // path with nowhere stated to run it. An operator reading "cp

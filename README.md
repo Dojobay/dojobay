@@ -417,9 +417,14 @@ the supported path.
 
 That permission is a polkit rule, not a sudoers line, because the updater runs
 `systemctl restart` directly and systemd asks polkit whether the account may.
-The installer offers to write it and shows you the rule first; if you declined,
-or you set the instance up by hand, copy it yourself and check the account named
-inside matches the one your service runs as:
+The installer offers to write it, shows you the rule first, and verifies it
+afterwards. A running instance cannot verify it: polkit refuses an
+authorisation query carrying details from any caller that is not root, and the
+rule matches on the unit and the verb, so the console makes no claim either way
+and instead reports an update that installed without restarting, which is what a
+missing permission looks like. If you declined at install, or set the instance up
+by hand, copy the rule yourself and check the account named inside matches the
+one your service runs as:
 
 ```
 sudo cp /var/www/dojobay/deploy/polkit-restart.rules.example \

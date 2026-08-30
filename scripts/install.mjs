@@ -21,7 +21,7 @@
 // bootstrap import from a trusted instance (signature-gated) -> review ->
 // apply. Re-runnable; instance data is never touched by a re-run.
 import { readFile, writeFile, mkdir, stat, copyFile, chmod } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -438,37 +438,53 @@ async function main() {
       await chmod(POLKIT_RULE_PATH, 0o644);
       log(`restart permission written to ${POLKIT_RULE_PATH}`);
       // And prove it took, the same way the ownership and timer checks do.
-      // polkitd reloads rules on its own, but a syntax error means the file is
-      // skipped and logged where nobody is looking, so ask polkit the question
-      // systemd will ask rather than assuming the answer. pkcheck exits 0 when
-      // authorised, 1 when refused and 2 when it would need a human, which for
-      // an unattended restart is also a refusal.
-      // --detail is SINGULAR. pkcheck's --help says --details and its parser
-      // accepts only --detail or -d; the usage string is wrong. The plural
-      // spelling exits 126, which this step read as a refusal and reported as a
-      // broken rule on an install where the rule was in fact working.
-      const probe = await run("sudo", ["-u", SERVICE_USER, "sh", "-c",
-        `pkcheck --action-id ${SYSTEMD_MANAGE_UNITS} --process $$ `
-        + `--detail unit dojobay-server.service --detail verb restart`])
-        .then(() => ({ ok: true, code: 0 }), (e) => ({ ok: false, code: e.code }));
-      if (probe.ok) {
+      //
+      // This has to be asked from ROOT, which the installer is and the backend
+      // is not. polkit refuses a details-bearing CheckAuthorization() from any
+      // caller that is not uid 0 or the action's owner, and the rule keys on
+      // the unit and the verb, so a query without details cannot match. That is
+      // why the console no longer makes this claim at all and why the installer
+      // still can.
+      //
+      // The subject has to be a process belonging to the service account, so
+      // one is started for a few seconds and asked about: `sh -c` prints its own
+      // pid and then becomes the sleep, so the pid stays valid for the query.
+      let holder = null;
+      try {
+        holder = spawn("sudo", ["-u", SERVICE_USER, "sh", "-c", "echo $$; exec sleep 10"],
+          { stdio: ["ignore", "pipe", "ignore"] });
+        const pid = await new Promise((resolve, reject) => {
+          let buf = "";
+          const t = setTimeout(() => reject(new Error("no pid from the holder process")), 5000);
+          holder.stdout.on("data", (d) => {
+            buf += d.toString();
+            if (buf.includes("\n")) { clearTimeout(t); resolve(buf.trim().split("\n")[0]); }
+          });
+          holder.on("error", (e) => { clearTimeout(t); reject(e); });
+        });
+        await run("pkcheck", ["--action-id", SYSTEMD_MANAGE_UNITS, "--process", pid,
+          "--detail", "unit", "dojobay-server.service", "--detail", "verb", "restart"]);
         log(`${SERVICE_USER} can restart dojobay-server.service; self-update can complete`);
-      } else if ([1, 2, 3].includes(probe.code)) {
-        // Only these three are answers about authorisation. Anything else is
-        // pkcheck failing to ask, which says nothing about the rule.
-        polkitUnverified = true;
-        log("✗ the rule was written but polkit refuses the restart");
-        log(`  the rule is at ${POLKIT_RULE_PATH}; check the account inside it reads ${SERVICE_USER}:`);
-        log(`  sudo grep subject.user ${POLKIT_RULE_PATH}`);
-        log(`  and whether polkitd rejected the file when it reloaded:`);
-        log(`  sudo journalctl -u polkit --since '5 min ago'`);
-        log(`  self-update will install code and leave the old process running until this is fixed.`);
-        log(`  Updating by hand still works; restart the service yourself afterwards.`);
-      } else {
-        log(`! rule written, but it could not be verified here (pkcheck exit ${probe.code}).`);
-        log(`  That is pkcheck failing to ask rather than an answer about the rule.`);
-        log(`  Test it directly when convenient, which restarts the service:`);
-        log(`  sudo -u ${SERVICE_USER} systemctl restart dojobay-server.service`);
+      } catch (e) {
+        // Exit 1, 2 and 3 are answers about authorisation; anything else is
+        // pkcheck unable to ask, which says nothing about the rule.
+        if ([1, 2, 3].includes(e.code)) {
+          polkitUnverified = true;
+          log("✗ the rule was written but polkit refuses the restart");
+          log(`  the rule is at ${POLKIT_RULE_PATH}; check the account inside it reads ${SERVICE_USER}:`);
+          log(`  sudo grep subject.user ${POLKIT_RULE_PATH}`);
+          log(`  and whether polkitd rejected the file when it reloaded:`);
+          log(`  sudo journalctl -u polkit --since '5 min ago'`);
+          log(`  self-update will install code and leave the old process running until this is fixed.`);
+          log(`  Updating by hand still works; restart the service yourself afterwards.`);
+        } else {
+          log(`! rule written, but it could not be verified here (${e.message}).`);
+          log(`  That is pkcheck being unable to ask rather than an answer about the rule.`);
+          log(`  Test it directly when convenient, which restarts the service:`);
+          log(`  sudo -u ${SERVICE_USER} systemctl restart dojobay-server.service`);
+        }
+      } finally {
+        try { holder?.kill(); } catch { /* already gone */ }
       }
     }
 

@@ -631,6 +631,11 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
      "and points at the route that does not touch GitHub");
   ok(githubRefusal("compare", 500) === "compare: HTTP 500",
      "while anything else is reported as what it was, with no story attached");
+  // No call-site prefix on the rate-limit message. Which of the three requests
+  // hit the limit tells an operator nothing, and "compare: GitHub is
+  // rate-limiting..." reads as though compare were the thing that failed.
+  ok(!/^compare:/.test(githubRefusal("compare", 403)),
+     "and the rate-limit message does not open with the name of the call that hit it");
 
   // The import routes. Their argument checking and their refusal to run two at
   // once are testable here; the fetch itself needs another instance over Tor,

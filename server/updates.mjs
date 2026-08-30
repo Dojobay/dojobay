@@ -111,7 +111,10 @@ export async function githubGet(apiPath, { proxyHost, proxyPort, timeoutMs = 300
  */
 export function githubRefusal(what, status) {
   if (status === 403 || status === 429) {
-    return `${what}: GitHub is rate-limiting this Tor exit (HTTP ${status}). `
+    // No call-site prefix. Which of the three requests hit the limit is of no
+    // use to an operator, and "compare: GitHub is rate-limiting..." reads as
+    // though "compare" were a thing that had gone wrong.
+    return `GitHub is rate-limiting this Tor exit (HTTP ${status}). `
       + "The limit is per exit address and shared with every other user of it, so it clears on its "
       + "own within the hour, usually sooner on a new circuit. Updating from a peer .onion does not "
       + "touch GitHub and works meanwhile.";

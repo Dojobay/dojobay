@@ -1289,7 +1289,15 @@ async function loadJSON(url){
     }
     if(!ADMIN_UPDATES && !ADMIN_UPDATES_LOADING){
       ADMIN_UPDATES_LOADING = true;
-      api.call("/admin/updates").then(r=>{ ADMIN_UPDATES = r.body || {available:false,error:"HTTP "+r.status}; renderAdminPanel(); }).catch(()=>{ ADMIN_UPDATES={available:false,error:"request failed"}; renderAdminPanel(); });
+      // Both paths must clear the flag. Neither did, so it stayed true from the
+      // first render onward: the re-check control was permanently disabled and
+      // permanently described a check that had long finished. It went unnoticed
+      // while the two labels were "Checking…" and "Check again", which are
+      // similar enough to read as a button either way.
+      api.call("/admin/updates")
+        .then(r=>{ ADMIN_UPDATES = r.body || {available:false,error:"HTTP "+r.status}; })
+        .catch(()=>{ ADMIN_UPDATES={available:false,error:"request failed"}; })
+        .finally(()=>{ ADMIN_UPDATES_LOADING = false; renderAdminPanel(); });
       // The outcome of the LAST update, which until now was written to disk and
       // read by nobody: the panel only polled this endpoint while an update was
       // running, so a reload discarded it. An update whose restart failed leaves
@@ -1356,7 +1364,7 @@ async function loadJSON(url){
       + '<div style="margin:10px 0 4px">'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button> '
       + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '') + '>'
-      + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check again') + '</button></div>'
+      + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check GitHub') + '</button></div>'
       + '<p style="font-size:12px;color:var(--faint)">A peer update fetches from another Dojo Bay over Tor '
       + 'and verifies that instance\u2019s operator signature, so it works whatever GitHub is doing.</p>';
     const behind = u.commits_behind>0
@@ -1396,7 +1404,7 @@ async function loadJSON(url){
       // case that does not involve signing in again.
       + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '')
         + ' title="Ask GitHub again rather than answering from the cached check">'
-        + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check again') + '</button>'
+        + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check GitHub') + '</button>'
       + '</div>';
     // How old the answer is, in the operator's terms rather than a timestamp
     // they have to subtract from now. Shown always, because "up to date" means
@@ -1437,27 +1445,17 @@ async function loadJSON(url){
     // a sudoers line, which this used to print, grants a privilege on a path no
     // code takes.
     const svc = esc(u.serviceUser || "<your service user>");
-    const cannotRestart = u.canRestart === "no"
-      ? '<p class="upd-warn"><b>This instance cannot restart its own service.</b> '
-        + 'An update will install the new code and then stop, leaving the old process running it. '
-        + 'Grant the permission first, on the box:<br>'
-        + '<code class="mono">sudo cp ' + esc(u.ruleSource || "deploy/polkit-restart.rules.example")
-        + ' \\<br>&nbsp;&nbsp;' + esc(u.rulePath || "/etc/polkit-1/rules.d/49-dojobay-restart.rules") + '</code>'
-        + '<br>Run that on the machine, from anywhere: both paths are absolute. '
-        + 'The <code class="mono">.example</code> ending is part of the filename it ships under, not a '
-        + 'placeholder, and the destination name is what polkit reads. '
-        + 'It grants ' + svc + ' permission to restart this one service and nothing else. '
-        + 'Check the account inside it matches ' + svc
-        + ': <code class="mono">sudo grep subject.user ' + esc(u.rulePath || "") + '</code>. '
-        + 'Or update by hand, and restart the service yourself afterwards.</p>'
-      : u.canRestart === "unknown"
-      ? '<p class="upd-warn"><b>Whether this instance can restart its own service is unknown.</b> '
-        + 'polkit decides that, and <code class="mono">pkcheck</code> is not installed here, so it '
-        + 'could not be asked. If the permission is missing, an update will install the new code and '
-        + 'then stop, leaving the old process running it. Either install polkit '
-        + '(<code class="mono">apt install polkitd</code>) and re-check, or update by hand and restart '
-        + 'the service yourself afterwards.</p>'
-      : "";
+    // Nothing is claimed about the restart permission. The instance cannot
+    // find out: polkit refuses a details-bearing authorisation query from any
+    // caller that is not uid 0, and the rules directory is not readable by the
+    // service account. Two versions of this warning have now been wrong, one
+    // saying yes when it had asked nobody and one saying unknown on a machine
+    // where the rule was installed and working, and a warning that is wrong in
+    // both directions is worse than no warning.
+    //
+    // The evidence-based version of this already exists a few lines up: an
+    // update that installed and did not restart is recorded in lastResult and
+    // reported, and that is precisely what a missing permission looks like.
     const note = '<p class="upd-exp-note">This fetches over Tor, verifies what it fetched, keeps a full copy '
       + 'of the current code under <code>data/backups/</code>, and restarts the service. If the restart does '
       + 'not come back you will need shell access to the box to recover, so do not run it where you cannot '
@@ -1465,7 +1463,6 @@ async function loadJSON(url){
     return '<div class="upd-line"><p style="font-size:12px;color:var(--muted)">Codebase <code>'+esc(u.commit)+'</code> — '+behind+rel
       + '<span class="upd-exp" title="Replaces running code in place: recoverable, but only from a terminal">experimental</span></p>'
       + stale
-      + cannotRestart
       + controls
       + age
       + (behindAny ? '' : '<p class="upd-none">Up to date. There is nothing to fetch from GitHub.</p>')

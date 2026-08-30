@@ -920,6 +920,20 @@ ok("footer source-download icon links the instance's own code zip");
   // "Checking…" there was read as the peer update being in progress.
   assert.ok(!/'Checking…'/.test(app) && /Checking GitHub…/.test(unavailable),
     "and the in-flight label names what it is checking, since it sits beside the peer button");
+  // The idle label is an imperative. A participle reads as something already
+  // under way, which is exactly what an operator reported seeing on a button
+  // that was in fact idle and stuck.
+  assert.ok(/'Check GitHub'/.test(unavailable) && !/'Check again'/.test(app),
+    "and the idle label names the action rather than describing one in progress");
+
+  // Every path out of the initial load must clear the loading flag. Neither did,
+  // so it stayed true from the first render: the control was permanently
+  // disabled and permanently described a check that had finished long before.
+  const boot = app.slice(app.indexOf('if(!ADMIN_UPDATES && !ADMIN_UPDATES_LOADING)'),
+                         app.indexOf('api.call("/admin/update/status")'));
+  assert.ok(/ADMIN_UPDATES_LOADING = true/.test(boot), "the initial check sets the loading flag");
+  assert.ok(/\.finally\(\(\)=>\{ ADMIN_UPDATES_LOADING = false/.test(boot),
+    "and clears it on every path out, not only the successful one");
   assert.ok(!/data-adm="update-github"/.test(unavailable),
     "but not the GitHub update, which has nothing to fetch");
 
@@ -1121,61 +1135,40 @@ ok("footer source-download icon links the instance's own code zip");
   ok("an update that did not finish says so, and the build stamp matches the deploy");
 }
 
-// The privilege the last step needs is checked before the click, not reported
-// after the failure. Without it an update applies and stops on its final line,
-// which looks exactly like an update that did nothing.
+// The restart permission is NOT claimed either way, because this instance
+// cannot find out.
+//
+// Two versions of that claim have now been wrong on a live machine. systemctl
+// restart --dry-run returns before any bus call, so it reported success without
+// asking anyone. pkcheck asks the right question, but polkit refuses a
+// details-bearing CheckAuthorization() from any caller that is not uid 0, and
+// the rule keys on the unit and the verb, so without details it cannot match
+// and the answer is a false no. The rules directory is 750 root:polkitd, so
+// reading the file is closed off too.
+//
+// What remains is the evidence: an update that installed and did not restart,
+// which lastResult records and the panel already reports. A warning that has
+// been wrong in both directions is worse than no warning.
 {
   const app = readFileSync(REPO + "/assets/js/app.js", "utf8");
-  // From where the warning's own variables start, not from cannotRestart: the
-  // service-account name is computed one line above it and would otherwise fall
-  // outside the slice and read as missing.
-  const block = app.slice(app.indexOf("const svc = esc(u.serviceUser"), app.indexOf("const note ="));
-  assert.ok(/u\.canRestart === "no"/.test(block),
-    "the panel warns only when the server has actually established it cannot restart");
-  assert.ok(/u\.canRestart === "unknown"/.test(block),
-    "and says so separately when it could not find out, rather than promising a restart");
-  assert.ok(!/canRestart === false/.test(block),
-    "the boolean shape is gone: a check with three answers cannot be read as two");
-  assert.ok(/polkit-1\/rules\.d\/49-dojobay-restart\.rules/.test(block),
-    "and gives the command that grants it");
-  // Absolute, and served by the server which knows its own web root. The
-  // relative "cp deploy/..." it used to print told an operator neither where to
-  // run it nor that .example was the real filename.
-  assert.ok(/u\.ruleSource/.test(block) && /u\.rulePath/.test(block),
-    "with absolute paths from the instance rather than a fragment to work out");
-  assert.ok(/not a[\s\S]{0,20}placeholder/.test(block),
-    "saying that the .example ending is part of the filename");
-  assert.ok(!/sudoers/.test(block),
-    "not a sudoers line: nothing calls sudo, so that granted a privilege on a path no code takes");
-  assert.ok(/u\.serviceUser/.test(block),
-    "naming the account this instance really runs as, since the two machines differ");
-  assert.ok(/update by hand/.test(block), "with the alternative for anyone who would rather not");
-
   const idx = readFileSync(REPO + "/server/index.ts", "utf8");
-  assert.ok(/"pkcheck"/.test(idx) && /org\.freedesktop\.systemd1\.manage-units/.test(idx),
-    "the server asks polkit, which is what actually decides");
-  assert.ok(/"--detail", "unit", "dojobay-server\.service"/.test(idx)
-    && /"--detail", "verb", "restart"/.test(idx),
-    "passing the same two details systemd passes, so it is the identical question");
-  // The plural spelling is what pkcheck's --help prints and what its parser
-  // rejects. It exited 126 and was reported to operators as a missing
-  // permission on machines where the rule was installed and working.
-  assert.ok(!/"--details"/.test(idx), "using the spelling pkcheck accepts, not the one it documents");
-  assert.ok(/\[1, 2, 3\]\.includes\(e\?\.code\)/.test(idx),
-    "and only an authorisation answer counts as no; a pkcheck that could not ask is unknown");
-  assert.ok(!/--allow-user-interaction/.test(idx),
-    "non-interactive: an unattended restart has nobody to answer a prompt");
-  // The old check ran `systemctl restart --dry-run`, which returns before any
-  // bus call and so before any authorisation, making it a check that could
-  // never fail. Its absence is asserted, not just the new call's presence.
-  // Quoted, because that is how an argument reaches execFile. Matching the bare
-  // word would fire on the comment above the check that explains why the flag
-  // is not used, which is a test dictating what a comment may say.
+
+  assert.ok(!/canRestart/.test(app), "the panel makes no claim about the restart permission");
+  // Matched as they would appear in code, not as bare words: the comment above
+  // the removal names both tools while explaining why neither is used, and a
+  // test that forbade the words would forbid the explanation.
+  assert.ok(!/canRestart/.test(idx) && !/"pkcheck"/.test(idx),
+    "and the server does not ask a question polkit will not answer from an unprivileged caller");
   assert.ok(!/"--dry-run"/.test(idx),
-    "and not systemctl --dry-run, which returns success without asking anyone");
-  assert.ok(!/\["restart", "dojobay-server\.service"\]/.test(idx),
-    "nothing in the check restarts anything");
-  ok("the panel says the restart is impossible, or unknown, before you ask for one");
+    "nor the systemctl dry run, which returns before any authorisation happens");
+
+  // The reporting that IS evidence-based stays: an update whose restart did not
+  // happen is exactly the symptom a missing permission produces.
+  assert.ok(/The last update did not finish/.test(app),
+    "an update that installed and did not restart is still reported");
+  assert.ok(/restarting === false/.test(app),
+    "on the evidence recorded by the update itself");
+  ok("the panel reports the restart that did not happen, rather than guessing at permission");
 }
 
 // The card title is text, never a link. An operator's one claim of identity on

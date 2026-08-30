@@ -1529,9 +1529,16 @@ async function loadJSON(url){
       ? '<button class="abtn" data-adm="import-apply">Import ' + res.planned + ' listing'
         + (res.planned === 1 ? '' : 's') + ' as pending</button> '
       : "";
+    // The phase, while it is running. Importing is quick and the probe cycle
+    // afterwards takes about a minute, so a panel that said only "Importing…"
+    // for that minute would look stuck at the point it is doing the slowest
+    // and least obvious part of the work.
+    const phase = j.done ? "" : ({ planning: "reading their list",
+      importing: "importing", rebuilding: "rebuilding the public list",
+      probing: "probing the imported nodes over Tor, about a minute" }[j.phase] || j.phase || "");
     return '<div class="upd-run"><p><b>' + (j.apply ? 'Importing from ' : 'Planning an import from ')
       + '</b><code style="font-size:11px">' + esc(j.onion || "") + '</code>'
-      + (j.done ? "" : ' \u2026') + '</p>'
+      + (j.done ? "" : ' \u2026 ' + esc(phase)) + '</p>'
       + (j.error ? '<p class="upd-warn">' + esc(j.error) + '</p>' : "")
       + (counts.length ? '<p style="font-size:12px;color:var(--muted)">' + counts.join(' \u00b7 ') + '</p>' : "")
       + table

@@ -471,6 +471,12 @@ contributes only its reliability history, so bootstrapping from an instance that
 already lists your own Dojo does not create a second copy of it. Only then does
 an apply button appear.
 
+Applying then runs one probe cycle before it reports done, which takes about a
+minute, so the imported nodes show their own status rather than reading inactive
+until the ten-minute timer comes round. A moderator deciding whether to approve
+them is exactly the person who needs that answer. It is skipped if a cycle is
+already running.
+
 Imported listings arrive as **Pending review**, unpublished until you approve
 them, which is the difference from the installer's version: at setup, choosing
 to bootstrap is the decision to trust that list wholesale, whereas on a running

@@ -953,6 +953,11 @@ ok("footer source-download icon links the instance's own code zip");
     "and a node this instance already has is named as such, not offered again");
   assert.ok(/Pending review/.test(fn),
     "the panel says imports arrive pending rather than on the site");
+  // The probe cycle after an import takes about a minute, which is most of the
+  // wall-clock time and the least obvious part of it. A panel that said only
+  // "Importing…" throughout would look stuck at the point it is working.
+  assert.ok(/probing: "probing the imported nodes over Tor/.test(fn),
+    "and names the phase, so the slow probe step does not read as a hang");
 
   const dispatch = app.slice(app.indexOf('if(act==="import-plan")'), app.indexOf('if(act==="update-peer")'));
   // Matched on the argument, not the whole call: the onion is normalised with

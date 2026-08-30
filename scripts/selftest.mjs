@@ -1012,6 +1012,15 @@ await check("the restart rule grants exactly one verb on one unit to the service
     "and nothing is written before the operator confirms the write phase");
   assert.ok(/pkcheck --action-id \$\{SYSTEMD_MANAGE_UNITS\}/.test(src),
     "the rule is verified by asking polkit the question systemd will ask");
+  // SINGULAR. pkcheck's own --help prints --details and its parser accepts only
+  // --detail or -d, so the plural spelling exits 126 and was read as a refusal:
+  // an install with a working rule reported that polkit had refused it.
+  assert.ok(/--detail unit/.test(src) && !/--details unit/.test(src),
+    "with --detail, which is the spelling pkcheck's parser accepts rather than the one its help prints");
+  // 1, 2 and 3 are answers about authorisation; 126 and 127 are pkcheck failing
+  // to ask, and say nothing about the rule.
+  assert.ok(/\[1, 2, 3\]\.includes\(probe\.code\)/.test(src),
+    "and only an authorisation answer is reported as a refusal");
   assert.ok(POLKIT_RULE_PATH.startsWith("/etc/polkit-1/rules.d/49-"),
     "read before the distribution's own 50-default.rules");
 });

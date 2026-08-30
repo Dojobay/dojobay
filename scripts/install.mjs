@@ -443,19 +443,32 @@ async function main() {
       // systemd will ask rather than assuming the answer. pkcheck exits 0 when
       // authorised, 1 when refused and 2 when it would need a human, which for
       // an unattended restart is also a refusal.
+      // --detail is SINGULAR. pkcheck's --help says --details and its parser
+      // accepts only --detail or -d; the usage string is wrong. The plural
+      // spelling exits 126, which this step read as a refusal and reported as a
+      // broken rule on an install where the rule was in fact working.
       const probe = await run("sudo", ["-u", SERVICE_USER, "sh", "-c",
         `pkcheck --action-id ${SYSTEMD_MANAGE_UNITS} --process $$ `
-        + `--details unit dojobay-server.service --details verb restart`])
+        + `--detail unit dojobay-server.service --detail verb restart`])
         .then(() => ({ ok: true, code: 0 }), (e) => ({ ok: false, code: e.code }));
       if (probe.ok) {
         log(`${SERVICE_USER} can restart dojobay-server.service; self-update can complete`);
-      } else if (probe.code === 127 || probe.code === "ENOENT") {
-        log("! rule written, but pkcheck is not installed, so it could not be verified here");
-      } else {
+      } else if ([1, 2, 3].includes(probe.code)) {
+        // Only these three are answers about authorisation. Anything else is
+        // pkcheck failing to ask, which says nothing about the rule.
         polkitUnverified = true;
-        log("✗ the rule was written but polkit still refuses the restart");
-        log(`  self-update would install code and leave the old process running. Check:`);
-        log(`  journalctl -u polkit --since '5 min ago'`);
+        log("✗ the rule was written but polkit refuses the restart");
+        log(`  the rule is at ${POLKIT_RULE_PATH}; check the account inside it reads ${SERVICE_USER}:`);
+        log(`  sudo grep subject.user ${POLKIT_RULE_PATH}`);
+        log(`  and whether polkitd rejected the file when it reloaded:`);
+        log(`  sudo journalctl -u polkit --since '5 min ago'`);
+        log(`  self-update will install code and leave the old process running until this is fixed.`);
+        log(`  Updating by hand still works; restart the service yourself afterwards.`);
+      } else {
+        log(`! rule written, but it could not be verified here (pkcheck exit ${probe.code}).`);
+        log(`  That is pkcheck failing to ask rather than an answer about the rule.`);
+        log(`  Test it directly when convenient, which restarts the service:`);
+        log(`  sudo -u ${SERVICE_USER} systemctl restart dojobay-server.service`);
       }
     }
 

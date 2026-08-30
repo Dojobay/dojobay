@@ -805,13 +805,22 @@ async function canRestartService(): Promise<RestartPermission> {
   try {
     await execFileP("pkcheck", ["--action-id", "org.freedesktop.systemd1.manage-units",
       "--process", String(process.pid),
-      "--details", "unit", "dojobay-server.service",
-      "--details", "verb", "restart"], { timeout: 5000 });
+      // SINGULAR. pkcheck's own --help prints "--details=KEY VALUE" and its
+      // parser accepts only "--detail" or "-d"; the usage string is wrong. The
+      // plural spelling is rejected as an unexpected argument and exits 126,
+      // which this function then read as a refusal, so an instance whose rule
+      // was installed and working was told its permission was missing.
+      "--detail", "unit", "dojobay-server.service",
+      "--detail", "verb", "restart"], { timeout: 5000 });
     return "yes";
   } catch (e: any) {
-    // ENOENT is pkcheck missing; 127 is a shell reporting the same thing.
-    if (e && (e.code === "ENOENT" || e.code === 127)) return "unknown";
-    return typeof e?.code === "number" ? "no" : "unknown";
+    // Only 1, 2 and 3 are answers about authorisation: refused, would need a
+    // human, dismissed. 126 is a usage or internal failure and 127 is the
+    // authority call failing, and neither says anything about what this account
+    // may do, so they are unknown rather than no. Reading every non-zero code
+    // as a refusal is what turned an argument bug into a false alarm.
+    if (e && e.code === "ENOENT") return "unknown";
+    return [1, 2, 3].includes(e?.code) ? "no" : "unknown";
   }
 }
 
@@ -843,6 +852,12 @@ route("GET", /^\/api\/admin\/updates$/, async (req, res) => {
     // installer runs as dojobay, one set up by hand may not.
     const result = { available: true, canRestart: await canRestartService(),
       serviceUser: (() => { try { return osMod.userInfo().username; } catch { return null; } })(),
+      // Absolute, because the remedy the panel prints used to be a relative
+      // path with nowhere stated to run it. An operator reading "cp
+      // deploy/polkit-restart.rules.example" has to work out both the directory
+      // and that .example is the literal filename rather than a placeholder.
+      ruleSource: path.join(ROOT, "deploy/polkit-restart.rules.example"),
+      rulePath: "/etc/polkit-1/rules.d/49-dojobay-restart.rules",
       ...(await checkUpdates({ cfg: { proxyHost: PROBE_CFG.proxyHost, proxyPort: PROBE_CFG.proxyPort } })) };
     UPDATES_CACHE = { at: Date.now(), result };
     json(res, 200, result);

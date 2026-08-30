@@ -1441,10 +1441,14 @@ async function loadJSON(url){
       ? '<p class="upd-warn"><b>This instance cannot restart its own service.</b> '
         + 'An update will install the new code and then stop, leaving the old process running it. '
         + 'Grant the permission first, on the box:<br>'
-        + '<code class="mono">sudo cp deploy/polkit-restart.rules.example '
-        + '/etc/polkit-1/rules.d/49-dojobay-restart.rules</code>'
-        + '<br>That file grants ' + svc + ' permission to restart this one service and nothing else. '
-        + 'Check the account named inside it matches ' + svc + '. '
+        + '<code class="mono">sudo cp ' + esc(u.ruleSource || "deploy/polkit-restart.rules.example")
+        + ' \\<br>&nbsp;&nbsp;' + esc(u.rulePath || "/etc/polkit-1/rules.d/49-dojobay-restart.rules") + '</code>'
+        + '<br>Run that on the machine, from anywhere: both paths are absolute. '
+        + 'The <code class="mono">.example</code> ending is part of the filename it ships under, not a '
+        + 'placeholder, and the destination name is what polkit reads. '
+        + 'It grants ' + svc + ' permission to restart this one service and nothing else. '
+        + 'Check the account inside it matches ' + svc
+        + ': <code class="mono">sudo grep subject.user ' + esc(u.rulePath || "") + '</code>. '
         + 'Or update by hand, and restart the service yourself afterwards.</p>'
       : u.canRestart === "unknown"
       ? '<p class="upd-warn"><b>Whether this instance can restart its own service is unknown.</b> '

@@ -422,10 +422,17 @@ or you set the instance up by hand, copy it yourself and check the account named
 inside matches the one your service runs as:
 
 ```
-sudo cp deploy/polkit-restart.rules.example \
+sudo cp /var/www/dojobay/deploy/polkit-restart.rules.example \
   /etc/polkit-1/rules.d/49-dojobay-restart.rules
 systemctl show dojobay-server.service -p User --value
+sudo grep subject.user /etc/polkit-1/rules.d/49-dojobay-restart.rules
 ```
+
+Substitute your web root in the first path if it is not `/var/www/dojobay`. The
+`.example` ending is part of the filename the template ships under, not a
+placeholder; the destination name is what polkit reads. The last two commands
+must agree: the account systemd runs the service as, and the account named
+inside the rule.
 
 It grants restart of that one unit to that one account, and nothing else: not
 stop, not start, not mask, and no other service. polkit has to be installed and

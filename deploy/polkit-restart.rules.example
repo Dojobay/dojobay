@@ -7,9 +7,11 @@
 // final line: new code on disk, old process still serving it, which looks
 // exactly like an update that did nothing.
 //
-// Install (the installer offers to do this for you):
-//   sudo cp deploy/polkit-restart.rules.example \
+// Install (the installer offers to do this for you), substituting your web root:
+//   sudo cp /var/www/dojobay/deploy/polkit-restart.rules.example \
 //     /etc/polkit-1/rules.d/49-dojobay-restart.rules
+// The .example ending is part of this file's name, not a placeholder. The
+// destination name is what polkit reads.
 //
 // 49- so it is read before the distribution's own 50-default.rules. Nothing
 // here weakens that default: a rule that returns no result falls through to it.

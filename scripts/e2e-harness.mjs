@@ -1129,6 +1129,13 @@ ok("footer source-download icon links the instance's own code zip");
     "the boolean shape is gone: a check with three answers cannot be read as two");
   assert.ok(/polkit-1\/rules\.d\/49-dojobay-restart\.rules/.test(block),
     "and gives the command that grants it");
+  // Absolute, and served by the server which knows its own web root. The
+  // relative "cp deploy/..." it used to print told an operator neither where to
+  // run it nor that .example was the real filename.
+  assert.ok(/u\.ruleSource/.test(block) && /u\.rulePath/.test(block),
+    "with absolute paths from the instance rather than a fragment to work out");
+  assert.ok(/not a[\s\S]{0,20}placeholder/.test(block),
+    "saying that the .example ending is part of the filename");
   assert.ok(!/sudoers/.test(block),
     "not a sudoers line: nothing calls sudo, so that granted a privilege on a path no code takes");
   assert.ok(/u\.serviceUser/.test(block),
@@ -1138,9 +1145,15 @@ ok("footer source-download icon links the instance's own code zip");
   const idx = readFileSync(REPO + "/server/index.ts", "utf8");
   assert.ok(/"pkcheck"/.test(idx) && /org\.freedesktop\.systemd1\.manage-units/.test(idx),
     "the server asks polkit, which is what actually decides");
-  assert.ok(/"--details", "unit", "dojobay-server\.service"/.test(idx)
-    && /"--details", "verb", "restart"/.test(idx),
+  assert.ok(/"--detail", "unit", "dojobay-server\.service"/.test(idx)
+    && /"--detail", "verb", "restart"/.test(idx),
     "passing the same two details systemd passes, so it is the identical question");
+  // The plural spelling is what pkcheck's --help prints and what its parser
+  // rejects. It exited 126 and was reported to operators as a missing
+  // permission on machines where the rule was installed and working.
+  assert.ok(!/"--details"/.test(idx), "using the spelling pkcheck accepts, not the one it documents");
+  assert.ok(/\[1, 2, 3\]\.includes\(e\?\.code\)/.test(idx),
+    "and only an authorisation answer counts as no; a pkcheck that could not ask is unknown");
   assert.ok(!/--allow-user-interaction/.test(idx),
     "non-interactive: an unattended restart has nobody to answer a prompt");
   // The old check ran `systemctl restart --dry-run`, which returns before any

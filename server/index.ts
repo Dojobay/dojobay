@@ -750,6 +750,39 @@ route("POST", /^\/api\/admin\/import$/, async (req, res) => {
       // already has and adds domain claims, and both of those do reach the
       // published file. A planning run writes nothing and needs none.
       if (job.apply) { job.phase = "rebuilding"; await tryRebuild(); }
+
+      // Then probe, for the same reason the installer runs a cycle before it
+      // declares success. A pending record's live status comes from
+      // pending-probe.json, which only the update cycle writes, so until one
+      // runs an imported listing has no status at all and the moderation queue
+      // shows a wall of nodes reading inactive. They are not inactive; nothing
+      // has asked them yet, and a moderator deciding whether to approve is
+      // exactly the person who needs the answer.
+      //
+      // Skipped when a cycle is already running, since there is no lock and two
+      // at once would race to write the same files. systemd knows, and reading
+      // that needs no privilege.
+      if (job.apply && (job.result?.imported ?? 0) > 0) {
+        job.phase = "probing";
+        const running = await execFileP("systemctl", ["is-active", "--quiet", "dojobay-update.service"])
+          .then(() => true, () => false);
+        if (running) {
+          log("a probe cycle is already running; the imported nodes will get their status from it");
+        } else {
+          log("probing the imported nodes over Tor (this takes a minute)");
+          try {
+            await execFileP(process.execPath, [path.join(ROOT, "scripts", "update.mjs")],
+              { cwd: ROOT, timeout: 5 * 60 * 1000 });
+            log("probe cycle complete: the imported nodes show their own status");
+          } catch (e: any) {
+            // Non-fatal. The records are imported and the timer comes round
+            // within ten minutes; what is lost is the status being right
+            // immediately, not the import.
+            log("! probe cycle failed: " + (e.message || String(e)));
+            log("  the import is complete; the update timer will fill in statuses within ten minutes");
+          }
+        }
+      }
       job.ok = true; job.done = true; job.phase = "done";
     } catch (e: any) {
       job.error = e.message; job.ok = false; job.done = true; job.phase = "failed";

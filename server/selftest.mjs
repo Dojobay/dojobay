@@ -889,6 +889,22 @@ ok(pub.nodes.some((n) => n.paynym === "+testoperator"), "approved submission app
                             idx.indexOf('route("GET", /^\\/api\\/admin\\/import\\/status$/'));
     ok(block.length > 200 && /status: "pending"/.test(block),
        "the admin import route asks for pending records rather than taking the installer's default");
+
+    // A pending record's live status comes from pending-probe.json, which only
+    // the update cycle writes. Until one runs, an imported listing has no
+    // status and the moderation queue shows it as inactive, which is not what
+    // it is: nothing has asked it yet, and the moderator deciding whether to
+    // approve is the person who needs the answer.
+    const job = idx.slice(idx.indexOf('route("POST", /^\\/api\\/admin\\/import$/'),
+                          idx.indexOf('route("GET", /^\\/api\\/admin\\/import\\/status$/'));
+    ok(/"scripts", "update.mjs"/.test(job) && /job\.phase = "probing"/.test(job),
+       "an applied import runs a probe cycle, as the installer does before declaring success");
+    ok(job.indexOf("tryRebuild()") < job.indexOf('job.phase = "probing"'),
+       "after the rebuild, so the cycle sees the records it is about to probe");
+    ok(/is-active", "--quiet", "dojobay-update\.service"/.test(job),
+       "and skips it when a cycle is already running, since there is no lock and two would race");
+    ok(/\(job\.result\?\.imported \?\? 0\) > 0/.test(job),
+       "nothing is probed when nothing was imported");
     ok(/dryRun: !job\.apply/.test(block),
        "and plans unless the operator explicitly asked to apply");
   }

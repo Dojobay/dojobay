@@ -916,6 +916,10 @@ ok("footer source-download icon links the instance's own code zip");
     "a peer update is still offered when GitHub cannot be reached");
   assert.ok(/data-adm="update-recheck"/.test(unavailable),
     "and so is checking again, since a rate limit follows the exit and a new circuit may clear it");
+  // The in-flight label sits immediately after the peer button, and a bare
+  // "Checking…" there was read as the peer update being in progress.
+  assert.ok(!/'Checking…'/.test(app) && /Checking GitHub…/.test(unavailable),
+    "and the in-flight label names what it is checking, since it sits beside the peer button");
   assert.ok(!/data-adm="update-github"/.test(unavailable),
     "but not the GitHub update, which has nothing to fetch");
 

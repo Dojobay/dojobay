@@ -1356,7 +1356,7 @@ async function loadJSON(url){
       + '<div style="margin:10px 0 4px">'
       + '<button class="abtn" data-adm="update-peer">Update from a peer .onion…</button> '
       + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '') + '>'
-      + (ADMIN_UPDATES_LOADING ? 'Checking…' : 'Check again') + '</button></div>'
+      + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check again') + '</button></div>'
       + '<p style="font-size:12px;color:var(--faint)">A peer update fetches from another Dojo Bay over Tor '
       + 'and verifies that instance\u2019s operator signature, so it works whatever GitHub is doing.</p>';
     const behind = u.commits_behind>0
@@ -1396,7 +1396,7 @@ async function loadJSON(url){
       // case that does not involve signing in again.
       + '<button class="abtn" data-adm="update-recheck"' + (ADMIN_UPDATES_LOADING ? ' disabled' : '')
         + ' title="Ask GitHub again rather than answering from the cached check">'
-        + (ADMIN_UPDATES_LOADING ? 'Checking…' : 'Check again') + '</button>'
+        + (ADMIN_UPDATES_LOADING ? 'Checking GitHub…' : 'Check again') + '</button>'
       + '</div>';
     // How old the answer is, in the operator's terms rather than a timestamp
     // they have to subtract from now. Shown always, because "up to date" means
